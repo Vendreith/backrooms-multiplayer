@@ -284,6 +284,454 @@ const levelDiscoveredSet = new Set();
 const levelsClearedSet = new Set();
 let noclipDropLockUntil = 0;
 
+// ---------- Teleport Control Panel & No-Clip Mode State ----------
+let noclipMode = false;
+let noclipSpeed = 18;
+let noclipVelX = 0;
+let noclipVelY = 0;
+let noclipVelZ = 0;
+let tpOpen = false;
+let tpActiveTab = 'all';
+let tpSearchQuery = '';
+
+const ZONE_LABELS = {
+  manila: 'PHÒNG MANILA', arches: 'KHU VÒM NƯỚC', pitfalls: 'HỐ SÂU PITFALLS', huge_pitfall: 'VỰC THẲM PITFALLS',
+  poolrooms: 'HỒ BƠI NGẦM', wet_concrete: 'BÊ TÔNG ẨM', blackout: 'VÙNG TẮT ĐIỆN',
+  redrooms: 'PHÒNG ĐỎ DỊ THƯỜNG', colonnade: 'ĐẠI SẢNH CỘT', office: 'MÊ CUNG VĂN PHÒNG',
+  crawl_bay: 'KHE HẦM THẤP', mold_utility: 'KHU KỸ THUẬT MỐC', monolith_maze: 'MÊ CUNG KHỐI VÀNG',
+  async_threshold: 'NGƯỠNG CỬA A-SYNC', suburb_pitfalls: 'KHU PHỐ NGÕ CỤT', red_city: 'THÀNH PHỐ ĐỎ & ỐNG RỈ',
+  null_kx_glitch: 'VÙNG LỖI NULL_KX', async_archive: 'KHO HỒ SƠ KV-31', flooded_sump: 'TRẠM BƠM NƯỚC ĐỌNG',
+  breaker_vault: 'TRẠM BIẾN ÁP XANH', gravity_error: 'PHÒNG LỖI TRỌNG LỰC', ceiling_plenum: 'TRẦN SỤP & GIẾNG THANG',
+  still_life_relay: 'TRẠM SÓNG STILL-LIFE', fluorescent_greenhouse: 'HÀNH LANG ĐÈN LỤC', stairwell_loop: 'CẦU THANG VÔ TẬN',
+  ff1_ladder_hatch: 'HỐC THANG SẮT (FF#1)', ff1_dont_move: 'TƯỜNG DON\'T MOVE (FF#1)',
+  ff1_white_gallery: 'SẢNH TRẮNG & CỬA SỔ (FF#1)', ff1_filing_corridor: 'DÃY TỦ HỒ SƠ & KEEP CLEAR (FF#1)',
+  ff2_tape_kitchen: 'Ô BĂNG XANH & BẾP (FF#2)', ff2_crashed_car: 'XE HƠI ĐÂM TƯỜNG (FF#2)',
+  ff2_hardwood_home: 'NHÀ SÀN GỖ & LAN CAN (FF#2)', ff2_vine_plasma: 'TỔ RỄ ĐEN & VẾT NỨT LỤC (FF#2)',
+  flooded_yellow_hall: 'ĐẠI SẢNH VÀNG NGẬP NƯỚC', mb_courtyard: 'SÂN CHUNG CƯ 3 TẦNG NGẦM',
+  mb_mall_atrium: 'TRUNG TÂM THƯƠNG MẠI 1990S', mb_red_skybridge: 'CẦU KÍNH ĐỎ & THÀNH PHỐ ĐÊM',
+  mb_brick_alcove_hall: 'HÀNH LANG GẠCH NÂU & CỬA SỔ', mb_bicycle_tripod: 'GÓC XE ĐẠP & GIÁ BA CHÂN LỤC',
+  mb_library_fan_hall: 'PHÒNG QUẠT TRẦN & GIÁ SÁCH', mb_unrealized_mural: 'BỨC TRANH TƯỜNG UNREALIZED',
+  mb_diner_fridge: 'PHÒNG ĂN NEON OPEN & TỦ LẠNH', mb_van_tunnel: 'HẦM XE TẢI TRẮNG & DOLLAR GENER',
+  mb_grey_basement: 'TẦNG HẦM XÁM & CỬA BĂNG XANH', mb_cctv_cove: 'HỐC CAMERA CCTV & CỬA CHUI',
+  mb_dining_blue_drapes: 'PHÒNG ĂN RÈM XANH HOÀNG GIA', mb_gold_tile_blood: 'TƯỜNG GẠCH VÀNG & VẾT MÁU KÉO',
+  mb_floating_wall_glitch: 'TƯỜNG TREO LƠ LỬNG & GIƯỜNG CŨI'
+};
+
+function syncNoclipUI() {
+  const badge = $('noclipBadge');
+  if (badge) badge.classList.toggle('hidden', !noclipMode);
+  const bTxt = $('noclipBadgeText');
+  if (bTxt) {
+    bTxt.textContent = isMobileUiActive()
+      ? `NOCLIP BẬT • ${Math.round(noclipSpeed)} m/s`
+      : `NOCLIP BẬT [N] • ${Math.round(noclipSpeed)} m/s • Space: Bay lên • C/Ctrl: Xuống`;
+  }
+  const tpBtn = $('tpHudBtn');
+  if (tpBtn) tpBtn.classList.toggle('noclip-on', noclipMode);
+  const tpNc = $('tpHudNcBtn');
+  if (tpNc) tpNc.textContent = noclipMode ? 'NC BẬT [N]' : 'NOCLIP [N]';
+  const mobTp = $('mobTpBtn');
+  if (mobTp) mobTp.classList.toggle('noclip-on', noclipMode);
+  const pNcBtn = $('tpNoclipBtn');
+  if (pNcBtn) {
+    pNcBtn.classList.toggle('on', noclipMode);
+    pNcBtn.textContent = noclipMode ? 'CHẾ ĐỘ NO-CLIP [N]: ĐANG BẬT' : 'CHẾ ĐỘ NO-CLIP [N]: TẮT';
+  }
+  const spdInput = $('tpNoclipSpeed');
+  if (spdInput && Number(spdInput.value) !== Math.round(noclipSpeed)) {
+    spdInput.value = String(Math.round(noclipSpeed));
+  }
+  const spdVal = $('tpNoclipSpeedVal');
+  if (spdVal) spdVal.textContent = `${Math.round(noclipSpeed)} m/s`;
+  const mJump = $('mobJumpBtn');
+  if (mJump) mJump.innerHTML = noclipMode ? 'BAY LÊN<small>↑ Y+</small>' : 'NHẢY<small>Bhop</small>';
+  const mCrouch = $('mobCrouchBtn');
+  if (mCrouch) mCrouch.innerHTML = noclipMode ? 'HẠ XUỐNG<small>↓ Y-</small>' : 'NGỒI<small>Ctrl</small>';
+}
+
+function setNoclipMode(nextOn, silent = false) {
+  const on = !!nextOn;
+  noclipMode = on;
+  noclipVelX = 0;
+  noclipVelY = 0;
+  noclipVelZ = 0;
+  hVelX = 0;
+  hVelZ = 0;
+  const me = players[myId];
+  if (me) {
+    me.vy = 0;
+    if (!on) {
+      const tr = getTerrainAt(me.x, me.z, map, me.y);
+      if (me.y < tr.floorY) me.y = tr.floorY;
+    }
+  }
+  syncNoclipUI();
+  if (!silent && inMatch) {
+    pushFeed(
+      on
+        ? `NO-CLIP: BẬT (${Math.round(noclipSpeed)} m/s) — Bay xuyên tường bằng WASD + Space / C!`
+        : 'NO-CLIP: ĐÃ TẮT — Khôi phục vật lý va chạm & trọng lực.',
+      on ? '#56e892' : '#ffe066'
+    );
+  }
+  return noclipMode;
+}
+
+function setNoclipSpeed(val) {
+  noclipSpeed = THREE.MathUtils.clamp(Number(val) || 18, 6, 60);
+  syncNoclipUI();
+}
+
+function resolveWalkablePoint(m, x, z, y = 0, preserveY = false) {
+  const span = m.worldSpan ?? (N * C);
+  const offsets = [[0, 0], [2.4, 0], [-2.4, 0], [0, 2.4], [0, -2.4], [3.6, 0], [-3.6, 0], [0, 3.6], [0, -3.6]];
+  for (const [ox, oz] of offsets) {
+    const tx = THREE.MathUtils.clamp(x + ox, 2.0, span - 2.0);
+    const tz = THREE.MathUtils.clamp(z + oz, 2.0, span - 2.0);
+    const [cx, cz] = collide(tx, tz, 0.40, m, false, y);
+    if (Math.hypot(cx - tx, cz - tz) < 0.08) {
+      const tr = getTerrainAt(cx, cz, m, y);
+      return { x: cx, y: preserveY ? y : Math.max(y, tr.floorY), z: cz };
+    }
+  }
+  const [fx, fz] = collide(THREE.MathUtils.clamp(x, 2.0, span - 2.0), THREE.MathUtils.clamp(z, 2.0, span - 2.0), 0.40, m, false, y);
+  const tr = getTerrainAt(fx, fz, m, y);
+  return { x: fx, y: preserveY ? y : Math.max(y, tr.floorY), z: fz };
+}
+
+function collectLevelLandmarks(levelId) {
+  const m = getOrCreateLevelMap(levelId);
+  if (!m) return [];
+  const list = [];
+  const meta = getLevelMeta(levelId);
+
+  if (m.SPAWN) {
+    list.push({
+      id: `${levelId}_spawn`, cat: 'here', badge: 'XUẤT PHÁT', badgeClass: '',
+      title: `Điểm Xuất Phát (${meta.code})`,
+      subtitle: `${meta.vnName} • (${Math.round(m.SPAWN.x)}, ${Math.round(m.SPAWN.y || 0)}, ${Math.round(m.SPAWN.z)})`,
+      levelId, x: m.SPAWN.x, y: m.SPAWN.y || 0, z: m.SPAWN.z, yaw: m.SPAWN.yaw || 0
+    });
+  }
+
+  if (levelId === 'level0' && m.ELEVATOR) {
+    list.push({
+      id: 'level0_elev', cat: 'here', badge: 'THANG MÁY', badgeClass: 'done',
+      title: 'Thang Máy A-Sync (Phòng Chờ Mở Đầu)',
+      subtitle: `Trước thang máy khởi đầu • (${Math.round(m.ELEVATOR.x)}, ${Math.round(m.ELEVATOR.z)})`,
+      levelId: 'level0', x: m.ELEVATOR.x, y: 0, z: m.ELEVATOR.z - 5.2, yaw: 0
+    });
+  }
+
+  if (levelId === 'level0' && m.EXITS?.length) {
+    m.EXITS.forEach((ex, i) => {
+      const safeZ = ex.dirZ < 0 ? 3.5 : (m.worldSpan ?? (N * C)) - 3.5;
+      const pt = resolveWalkablePoint(m, ex.x, safeZ, 0);
+      list.push({
+        id: `level0_exit_${i}`, cat: 'here', badge: m.exitsOpen ? 'ĐÃ MỞ' : 'CỔNG THOÁT',
+        badgeClass: m.exitsOpen ? 'done' : 'warn',
+        title: `Cổng Thoát Hiểm ${ex.dirZ < 0 ? 'Bắc (North)' : 'Nam (South)'}`,
+        subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        levelId: 'level0', ...pt, yaw: ex.dirZ < 0 ? 0 : Math.PI
+      });
+    });
+  }
+
+  if (m.TASKS?.length) {
+    m.TASKS.forEach((t, idx) => {
+      const pt = resolveWalkablePoint(m, t.x + 2.2, t.z, t.y || 0);
+      const tTitle = levelId === 'level0'
+        ? `Tủ Điện #${idx + 1} (${t.code || ''} ${t.symbol || ''})`.trim()
+        : `Máy Thoát Tầng (${meta.code})`;
+      list.push({
+        id: `${levelId}_task_${idx}`, cat: 'here',
+        badge: t.done ? 'ĐÃ SỬA' : 'MÁY', badgeClass: t.done ? 'done' : '',
+        title: tTitle,
+        subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.y)}, ${Math.round(pt.z)})`,
+        levelId, ...pt, yaw: Math.PI * 0.5
+      });
+    });
+  }
+
+  if (m.PORTALS?.length) {
+    m.PORTALS.forEach((po, idx) => {
+      const pt = resolveWalkablePoint(m, po.x, po.z - 3.0, po.y || 0);
+      list.push({
+        id: `${levelId}_portal_${idx}`, cat: 'here',
+        badge: 'CỔNG VỀ', badgeClass: m.exitsOpen ? 'done' : 'warn',
+        title: `Cổng Trở Về Level 0 #${idx + 1}`,
+        subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.y)}, ${Math.round(pt.z)})`,
+        levelId, ...pt, yaw: 0
+      });
+    });
+  }
+
+  if (levelId === 'level0' && m.ENTRANCES?.length) {
+    const typeName = { noclip_floor: 'Sàn Noclip Ẩn', pickup: 'Vật Phẩm Dị Thường', crawl_hatch: 'Hầm Chui', portal: 'Cánh Cổng' };
+    m.ENTRANCES.forEach((ent) => {
+      const subMeta = getLevelMeta(ent.levelId);
+      const pt = resolveWalkablePoint(m, ent.x + 2.8, ent.z, 0);
+      list.push({
+        id: `lvl0_ent_${ent.levelId}`, cat: 'entrances',
+        badge: subMeta.code, badgeClass: levelsClearedSet.has(ent.levelId) ? 'done' : '',
+        title: `Lối vào ${subMeta.code}: ${subMeta.vnName}`,
+        subtitle: `${typeName[ent.entryType] || 'Cổng'} tại (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        levelId: 'level0', ...pt, yaw: Math.PI * 0.5, safeDropGuard: true
+      });
+    });
+  }
+
+  if (m.SLIDES?.length) {
+    m.SLIDES.forEach((sl, idx) => {
+      if (idx > 7) return;
+      list.push({
+        id: `${levelId}_slide_${idx}`, cat: 'here', badge: 'CẦU TRƯỢT', badgeClass: '',
+        title: `Tháp Cầu Trượt Nước #${idx + 1}`,
+        subtitle: `Đỉnh trượt Y=${Math.round(sl.y0 || 4)}m • (${Math.round(sl.x0)}, ${Math.round(sl.z0)})`,
+        levelId, x: sl.x0, y: (sl.y0 || 3) + 0.35, z: sl.z0, yaw: 0, preserveY: true
+      });
+    });
+  }
+
+  if (m.WATER_RECTS?.length) {
+    const pools = m.WATER_RECTS.slice(0, 6);
+    pools.forEach((w, idx) => {
+      const wx = (w.x0 + w.x1) * 0.5;
+      const wz = (w.z0 + w.z1) * 0.5;
+      list.push({
+        id: `${levelId}_water_${idx}`, cat: 'here', badge: 'HỒ NƯỚC', badgeClass: '',
+        title: idx === 0 ? 'Vùng Nước Chính' : `Hồ Bơi / Sông #${idx + 1}`,
+        subtitle: `Mặt nước Y=${(w.waterY || 0).toFixed(1)}m • (${Math.round(wx)}, ${Math.round(wz)})`,
+        levelId, x: wx, y: (w.waterY || 0) + 0.15, z: wz, yaw: 0, preserveY: true
+      });
+    });
+  }
+
+  if (m.HOUSES?.length) {
+    const step = Math.max(1, Math.floor(m.HOUSES.length / 6));
+    for (let i = 0, cnt = 0; i < m.HOUSES.length && cnt < 6; i += step, cnt++) {
+      const h = m.HOUSES[i];
+      const dz = h.doorSide === 'north' ? -(h.d * 0.5 + 3.5) : (h.d * 0.5 + 3.5);
+      const pt = resolveWalkablePoint(m, h.cx, h.cz + dz, h.baseY || 0);
+      list.push({
+        id: `${levelId}_house_${i}`, cat: 'here', badge: 'NGÔI NHÀ', badgeClass: '',
+        title: `Ngôi Nhà / Kiến Trúc #${i + 1}`,
+        subtitle: `Trước cửa (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        levelId, ...pt, yaw: 0
+      });
+    }
+  }
+
+  if (m.TOWERS?.length) {
+    const step = Math.max(1, Math.floor(m.TOWERS.length / 5));
+    for (let i = 0, cnt = 0; i < m.TOWERS.length && cnt < 5; i += step, cnt++) {
+      const tw = m.TOWERS[i];
+      const off = Math.max(tw.w || 6, tw.d || 6) * 0.5 + 4.5;
+      const pt = resolveWalkablePoint(m, tw.x + off, tw.z, tw.baseY || 0);
+      list.push({
+        id: `${levelId}_tower_${i}`, cat: 'here', badge: 'CÔNG TRÌNH', badgeClass: '',
+        title: `Tòa Tháp / Khối Kiến Trúc #${i + 1}`,
+        subtitle: `Cao ${Math.round(tw.h || 20)}m • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        levelId, ...pt, yaw: Math.PI * 0.5
+      });
+    }
+  }
+
+  if (levelId === 'level0' && m.ZONES?.length) {
+    const seen = new Set();
+    const gC = m.cellSize ?? C;
+    for (const z of m.ZONES) {
+      if (seen.has(z.type)) continue;
+      seen.add(z.type);
+      const zx = ((z.c0 + z.c1 + 1) * 0.5) * gC;
+      const zz = ((z.r0 + z.r1 + 1) * 0.5) * gC;
+      const pt = resolveWalkablePoint(m, zx, zz, 0);
+      list.push({
+        id: `lvl0_zone_${z.type}`, cat: 'here', badge: 'KHU VỰC', badgeClass: '',
+        title: ZONE_LABELS[z.type] || z.type.toUpperCase(),
+        subtitle: `Khu Level 0 • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        levelId: 'level0', ...pt, yaw: 0
+      });
+    }
+  }
+
+  for (const p of Object.values(players)) {
+    if (!p || p.id === myId || p.state === 'dead' || p.state === 'escaped') continue;
+    const pLvl = p.levelId || 'level0';
+    if (pLvl !== levelId) continue;
+    const targetM = getOrCreateLevelMap(pLvl);
+    const pt = p.role === 'k'
+      ? resolveWalkablePoint(targetM, p.x + 4.5, p.z, p.y || 0)
+      : resolveWalkablePoint(targetM, p.x + 1.8, p.z, p.y || 0);
+    list.push({
+      id: `player_${p.id}`, cat: 'here',
+      badge: p.role === 'k' ? 'THỰC THỂ' : 'ĐỒNG ĐỘI',
+      badgeClass: p.role === 'k' ? 'warn' : 'done',
+      title: p.role === 'k' ? `Thực Thể: ${p.name}` : `Đồng đội: ${p.name}`,
+      subtitle: `Đang ở (${Math.round(p.x)}, ${Math.round(p.y || 0)}, ${Math.round(p.z)})`,
+      levelId: pLvl, ...pt, yaw: Math.PI * 0.5
+    });
+  }
+
+  return list;
+}
+
+function teleportToTarget(target, keepOpen = false) {
+  const me = players[myId];
+  if (!me || !inMatch || matchEnded) return false;
+  const dstLvl = target?.levelId || activeLocalLevelId || 'level0';
+  const dstMap = getOrCreateLevelMap(dstLvl);
+  if (!dstMap) return false;
+
+  const span = dstMap.worldSpan ?? (N * C);
+  let tx = Number.isFinite(target?.x) ? target.x : (dstMap.SPAWN?.x ?? span * 0.5);
+  let tz = Number.isFinite(target?.z) ? target.z : (dstMap.SPAWN?.z ?? span * 0.5);
+  let ty = Number.isFinite(target?.y) ? target.y : (dstMap.SPAWN?.y ?? 0);
+  const tyaw = Number.isFinite(target?.yaw) ? target.yaw : (dstMap.SPAWN?.yaw ?? me.yaw ?? 0);
+
+  if (!noclipMode && !target?.preserveY && target?.rawCoords !== true) {
+    const safePt = resolveWalkablePoint(dstMap, tx, tz, ty, false);
+    tx = safePt.x;
+    ty = safePt.y;
+    tz = safePt.z;
+  } else {
+    tx = THREE.MathUtils.clamp(tx, -25, span + 25);
+    tz = THREE.MathUtils.clamp(tz, -25, span + 25);
+    ty = THREE.MathUtils.clamp(ty, -12, 180);
+  }
+
+  noclipDropLockUntil = performance.now() + 2600;
+  hVelX = 0; hVelZ = 0;
+  noclipVelX = 0; noclipVelY = 0; noclipVelZ = 0;
+  me.vy = 0;
+
+  if (dstLvl !== activeLocalLevelId) {
+    sendAction({ act: 'enterLevel', levelId: dstLvl, via: 'tp_panel', tx, ty, tz, tyaw });
+  } else {
+    sendAction({ act: 'teleportPos', levelId: dstLvl, x: tx, y: ty, z: tz, yaw: tyaw });
+  }
+
+  const label = target?.title || `${getLevelMeta(dstLvl).code} (${Math.round(tx)}, ${Math.round(ty)}, ${Math.round(tz)})`;
+  pushFeed(`DỊCH CHUYỂN: ${label}`, '#48d0f5');
+  if (!keepOpen && tpOpen) closeTpPanel(true);
+  else if (tpOpen) renderTpPanel();
+  return true;
+}
+
+function renderTpPanel() {
+  const listEl = $('tpList');
+  if (!listEl) return;
+  const me = players[myId];
+  const curMeta = getLevelMeta(activeLocalLevelId);
+  if ($('tpCurrentPos') && me) {
+    $('tpCurrentPos').textContent = `Tầng: ${curMeta.code} (${curMeta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
+  }
+
+  const q = (tpSearchQuery || '').trim().toLowerCase();
+  const matchesQ = (txt) => !q || txt.toLowerCase().includes(q);
+  const itemsById = new Map();
+  const sections = [];
+
+  if (tpActiveTab === 'all' || tpActiveTab === 'here') {
+    const hereSpots = collectLevelLandmarks(activeLocalLevelId).filter(
+      it => it.cat !== 'entrances' && matchesQ(`${it.title} ${it.subtitle} ${it.badge}`)
+    );
+    if (hereSpots.length) {
+      sections.push({ heading: `ĐỊA ĐIỂM TRONG ${curMeta.code} (${hereSpots.length})`, items: hereSpots });
+    }
+  }
+
+  if (tpActiveTab === 'entrances' || (tpActiveTab === 'all' && activeLocalLevelId === 'level0')) {
+    const entSpots = collectLevelLandmarks('level0').filter(
+      it => it.cat === 'entrances' && matchesQ(`${it.title} ${it.subtitle} ${it.badge}`)
+    );
+    if (entSpots.length) {
+      sections.push({ heading: `LỐI VÀO 20 SUB-LEVELS TẠI LEVEL 0 (${entSpots.length})`, items: entSpots });
+    }
+  }
+
+  if (tpActiveTab === 'all' || tpActiveTab === 'levels') {
+    const allLvls = [
+      { id: 'level0', code: 'LEVEL 0', vnName: 'Mê Cung Đèn Huỳnh Quang & Thang Máy', tagline: '300m • Mê cung khởi điểm, 6 Tủ Điện & 20 Lối Vào' },
+      ...LEVEL_LIST.map(l => ({ id: l.id, code: l.code, vnName: l.vnName, tagline: `${l.span}m • ${l.entity?.name || ''}` }))
+    ];
+    const lvlItems = allLvls.filter(l => matchesQ(`${l.code} ${l.vnName} ${l.tagline}`)).map(l => {
+      const m = levelMaps.get(l.id);
+      const isHere = l.id === activeLocalLevelId;
+      const isClr = levelsClearedSet.has(l.id);
+      return {
+        id: `dim_${l.id}`,
+        levelId: l.id,
+        title: `${l.code} — ${l.vnName}`,
+        subtitle: l.tagline,
+        badge: isHere ? 'ĐANG Ở ĐÂY' : isClr ? '✓ ĐÃ SỬA' : 'ĐẾN TẦNG',
+        badgeClass: isHere || isClr ? 'done' : '',
+        hereClass: isHere,
+        x: m?.SPAWN?.x, y: m?.SPAWN?.y ?? 0, z: m?.SPAWN?.z, yaw: m?.SPAWN?.yaw ?? 0
+      };
+    });
+    if (lvlItems.length) {
+      sections.push({ heading: `21 TẦNG BACKROOMS (DỊCH CHUYỂN TRỰC TIẾP) (${lvlItems.length})`, items: lvlItems });
+    }
+  }
+
+  if (!sections.length) {
+    listEl.innerHTML = `<div style="grid-column:1/-1;padding:18px;text-align:center;color:#9eb8c2;">Không tìm thấy địa điểm phù hợp với "${esc(q)}".</div>`;
+    return;
+  }
+
+  listEl.innerHTML = sections.map(sec => {
+    const rows = sec.items.map(it => {
+      itemsById.set(it.id, it);
+      return `<button type="button" class="tp-item${it.hereClass ? ' here' : ''}" data-tp-id="${esc(it.id)}">
+        <div class="tp-item-info">
+          <div class="tp-item-title">${esc(it.title)}</div>
+          <div class="tp-item-sub">${esc(it.subtitle)}</div>
+        </div>
+        <span class="tp-tag ${it.badgeClass || ''}">${esc(it.badge)}</span>
+      </button>`;
+    }).join('');
+    return `<div class="tp-sec-title">${esc(sec.heading)}</div>${rows}`;
+  }).join('');
+
+  listEl._itemsMap = itemsById;
+  syncNoclipUI();
+}
+
+function openTpPanel() {
+  if (!inMatch || matchEnded) return;
+  if (paused) closePauseMenu(false);
+  tpOpen = true;
+  for (const k in keys) keys[k] = false;
+  resetMobileInputs();
+  const me = players[myId];
+  if (me) {
+    if ($('tpX')) $('tpX').value = me.x.toFixed(1);
+    if ($('tpY')) $('tpY').value = (me.y || 0).toFixed(1);
+    if ($('tpZ')) $('tpZ').value = me.z.toFixed(1);
+  }
+  renderTpPanel();
+  $('tpPanel')?.classList.remove('hidden');
+  document.body.style.cursor = '';
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock?.(); } catch {}
+  }
+}
+
+function closeTpPanel(lock = true) {
+  tpOpen = false;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  $('tpPanel')?.classList.add('hidden');
+  if (inMatch && !matchEnded && !paused) {
+    if (isMobileUiActive()) {
+      document.body.style.cursor = '';
+    } else {
+      document.body.style.cursor = 'none';
+      if (lock && !location.hash.includes('test')) requestLock();
+    }
+  }
+}
+
 function getOrCreateLevelMap(levelId) {
   const id = levelId || 'level0';
   if (levelMaps.has(id)) return levelMaps.get(id);
@@ -293,6 +741,7 @@ function getOrCreateLevelMap(levelId) {
 }
 
 function showNoclipOverlay(levelId, via) {
+  if (via === 'tp_panel') return;
   const ov = $('noclipOverlay');
   if (!ov) return;
   const meta = getLevelMeta(levelId);
@@ -632,6 +1081,9 @@ const net = new NetworkManager({
 // ---------- Match Setup & Teardown ----------
 function clearMatchObjects() {
   resetMobileInputs();
+  setNoclipMode(false, true);
+  tpOpen = false;
+  $('tpPanel')?.classList.add('hidden');
   $('joinLevelBar')?.classList.add('hidden');
   $('noclipOverlay')?.classList.add('hidden');
   for (const id of Object.keys(avatars)) {
@@ -1007,6 +1459,7 @@ function requestLock() {
 
 function openPauseMenu() {
   if (!inMatch || matchEnded) return;
+  if (tpOpen) closeTpPanel(false);
   paused = true;
   lastPauseToggleAt = performance.now();
   for (const k in keys) keys[k] = false;
@@ -1055,22 +1508,29 @@ function processPlayerActionHost(actorId, msg) {
   }
 
   if (msg.act === 'enterLevel') {
-    if (p.role !== 's' || p.state !== 'ok') return;
+    const viaTp = msg.via === 'tp_panel';
+    if (!viaTp && (p.role !== 's' || p.state !== 'ok')) return;
     const targetLevel = msg.levelId || 'level0';
-    if (targetLevel === pCurLevel) return;
+    if (targetLevel === pCurLevel && !viaTp) return;
     const dstMap = getOrCreateLevelMap(targetLevel);
     if (!dstMap) return;
 
-    if (pCurLevel === 'level0' && targetLevel !== 'level0') {
+    if (pCurLevel === 'level0' && targetLevel !== 'level0' && !viaTp) {
       p.lastLevel0Pos = { x: p.x, z: p.z, yaw: p.yaw };
     }
-    if (targetLevel === 'level0') {
-      if (!pMap.TASKS?.every(t => t.done)) return;
+    const hasCoords = Number.isFinite(msg.tx) && Number.isFinite(msg.tz);
+    if (hasCoords) {
+      p.x = msg.tx;
+      p.y = Number.isFinite(msg.ty) ? msg.ty : (dstMap.SPAWN?.y || 0);
+      p.z = msg.tz;
+      p.yaw = Number.isFinite(msg.tyaw) ? msg.tyaw : (dstMap.SPAWN?.yaw || 0);
+    } else if (targetLevel === 'level0') {
+      if (!viaTp && !pMap.TASKS?.every(t => t.done)) return;
       const lvl0 = getOrCreateLevelMap('level0');
       const safeX = lvl0.ELEVATOR ? lvl0.ELEVATOR.x : lvl0.SPAWN.x;
       const safeZ = lvl0.ELEVATOR ? lvl0.ELEVATOR.z - 8.5 : lvl0.SPAWN.z;
-      p.x = p.lastLevel0Pos?.x ?? safeX;
-      p.z = p.lastLevel0Pos?.z ?? safeZ;
+      p.x = (!viaTp && p.lastLevel0Pos?.x) ? p.lastLevel0Pos.x : safeX;
+      p.z = (!viaTp && p.lastLevel0Pos?.z) ? p.lastLevel0Pos.z : safeZ;
       p.y = 0;
       p.yaw = 0;
     } else {
@@ -1080,7 +1540,7 @@ function processPlayerActionHost(actorId, msg) {
       p.yaw = dstMap.SPAWN.yaw || 0;
     }
     p.levelId = targetLevel;
-    p.warpGuardUntil = performance.now() + 550;
+    p.warpGuardUntil = performance.now() + 650;
 
     let subEntInfo = null;
     if (targetLevel !== 'level0') {
@@ -1131,6 +1591,25 @@ function processPlayerActionHost(actorId, msg) {
       via: msg.via || 'portal',
       x: p.x, y: p.y, z: p.z, yaw: p.yaw,
       subEnt: subEntInfo
+    });
+    return;
+  }
+
+  if (msg.act === 'teleportPos') {
+    const targetLevel = msg.levelId || pCurLevel || 'level0';
+    if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) return;
+    p.levelId = targetLevel;
+    p.x = msg.x;
+    p.y = Number.isFinite(msg.y) ? msg.y : 0;
+    p.z = msg.z;
+    if (Number.isFinite(msg.yaw)) p.yaw = msg.yaw;
+    p.vy = 0;
+    p.warpGuardUntil = performance.now() + 650;
+    broadcastEvent({
+      ev: 'tpPos',
+      playerId: p.id,
+      levelId: targetLevel,
+      x: p.x, y: p.y, z: p.z, yaw: p.yaw
     });
     return;
   }
@@ -1462,7 +1941,29 @@ function handleNetEvent(ev) {
       }
     }
     if (ev.playerId === myId) {
-      switchLocalWorld(ev.levelId, ev.via);
+      if (activeLocalLevelId !== ev.levelId) {
+        switchLocalWorld(ev.levelId, ev.via);
+      } else if (ev.via === 'tp_panel') {
+        noclipDropLockUntil = performance.now() + 2600;
+        hVelX = 0; hVelZ = 0;
+        if (p) { p.vy = 0; camYaw = p.yaw || 0; }
+      }
+    }
+  } else if (ev.ev === 'tpPos') {
+    const p = players[ev.playerId];
+    if (p) {
+      p.levelId = ev.levelId;
+      p.x = ev.x; p.y = ev.y || 0; p.z = ev.z;
+      if (Number.isFinite(ev.yaw)) p.yaw = ev.yaw;
+      p.vy = 0;
+    }
+    if (ev.playerId === myId) {
+      noclipDropLockUntil = performance.now() + 2600;
+      hVelX = 0; hVelZ = 0;
+      if (p) camYaw = p.yaw || 0;
+      if (ev.levelId !== activeLocalLevelId) {
+        switchLocalWorld(ev.levelId, 'tp_panel');
+      }
     }
   } else if (ev.ev === 'subTaskDone') {
     const sMap = getOrCreateLevelMap(ev.levelId);
@@ -1890,7 +2391,7 @@ function updateLocalPlayer(dt, elapsed) {
   // Movement Input Vector (Keyboard + Mobile Virtual Analog Joystick)
   let inF = 0, inR = 0;
   let kbdMove = false;
-  if (!busyAct) {
+  if (!busyAct && !tpOpen) {
     if (keys[DEF_KB.fwd]) { inF += 1; kbdMove = true; }
     if (keys[DEF_KB.back]) { inF -= 1; kbdMove = true; }
     if (keys[DEF_KB.right]) { inR += 1; kbdMove = true; }
@@ -1907,6 +2408,57 @@ function updateLocalPlayer(dt, elapsed) {
   const wishX = wishRaw > 0 ? (fwX * inF + rtX * inR) / wishRaw : 0;
   const wishZ = wishRaw > 0 ? (fwZ * inF + rtZ * inR) / wishRaw : 0;
 
+  let eyeH = isK ? 1.82 : me.state === 'down' ? 0.45 : me.crouch ? 0.92 : 1.62;
+  let wantSprint = false;
+  let grounded = true;
+
+  if (noclipMode) {
+    // 3D Camera-Gaze Free-Flight No-Clip Physics (wall, floor, gravity & auto-drop bypass)
+    me.crouch = false;
+    eyeH = isK ? 1.82 : 1.62;
+    const sprintBoost = !tpOpen && (keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint) ? 1.65 : 1.0;
+    const flyUp = !tpOpen && (keys[DEF_KB.jump] || mobJumpHeld) ? 1 : 0;
+    const flyDown = !tpOpen && (keys[DEF_KB.crouch] || mobCrouchToggle || keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC']) ? 1 : 0;
+
+    const cp = Math.cos(me.pitch);
+    const sp = Math.sin(me.pitch);
+    const f3X = -Math.sin(me.yaw) * cp;
+    const f3Y = sp;
+    const f3Z = -Math.cos(me.yaw) * cp;
+
+    let gx = f3X * inF + rtX * inR;
+    let gy = f3Y * inF + (flyUp - flyDown);
+    let gz = f3Z * inF + rtZ * inR;
+    const gLen = Math.hypot(gx, gy, gz);
+    const flyMag = Math.min(1, gLen);
+    if (gLen > 1e-4) {
+      gx /= gLen; gy /= gLen; gz /= gLen;
+    }
+    const tgtSpd = noclipSpeed * sprintBoost * flyMag;
+    const flyK = 1 - Math.exp(-15.0 * dt);
+    noclipVelX += (gx * tgtSpd - noclipVelX) * flyK;
+    noclipVelY += (gy * tgtSpd - noclipVelY) * flyK;
+    noclipVelZ += (gz * tgtSpd - noclipVelZ) * flyK;
+
+    const span = map.worldSpan ?? (N * C);
+    me.x = THREE.MathUtils.clamp(me.x + noclipVelX * dt, -35, span + 35);
+    me.y = THREE.MathUtils.clamp(me.y + noclipVelY * dt, -12, 180);
+    me.z = THREE.MathUtils.clamp(me.z + noclipVelZ * dt, -35, span + 35);
+    me.vy = 0;
+    hVelX = noclipVelX;
+    hVelZ = noclipVelZ;
+    me.spd = Math.hypot(noclipVelX, noclipVelY, noclipVelZ);
+    me.swingT = localSwingT;
+    stam = Math.min(SPEED.STAM_DRAIN, stam + dt * 2.5);
+
+    const kFade = 1 - Math.exp(-14 * dt);
+    camBobY += (0 - camBobY) * kFade;
+    camSwayX += (0 - camSwayX) * kFade;
+    camRoll += (0 - camRoll) * kFade;
+    camNod += (0 - camNod) * kFade;
+    shakeXRate = 0;
+    shakeYRate = 0;
+  } else {
   // Chase adrenaline boost near monsters: conserves stamina + raises escape sprint speed to lose Entities cleanly
   let nearestThreatDist = 999;
   if (!isK) {
@@ -1921,14 +2473,14 @@ function updateLocalPlayer(dt, elapsed) {
     ? Math.max(0, Math.min(1, (18 - nearestThreatDist) / 14))
     : 0;
 
-  me.crouch = !isK && (me.state === 'down' || !!keys[DEF_KB.crouch] || mobCrouchToggle);
+  me.crouch = !isK && (me.state === 'down' || (!tpOpen && (!!keys[DEF_KB.crouch] || mobCrouchToggle)));
   const stamMinUnlock = SPEED.STAM_DRAIN * STAM_EXHAUST_RATIO;
   if (stamExhausted && stam >= stamMinUnlock) {
     stamExhausted = false;
   }
-  const sprintInput = !!keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint;
+  const sprintInput = !tpOpen && (!!keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint);
   const trySprint = !isK && me.state === 'ok' && !me.crouch && !busyAct && sprintInput && wishLen > 0;
-  const wantSprint = trySprint && !stamExhausted && stam > 0;
+  wantSprint = trySprint && !stamExhausted && stam > 0;
 
   if (wantSprint) {
     const drainScale = 1.0 - chaseProx * 0.42;
@@ -1968,7 +2520,7 @@ function updateLocalPlayer(dt, elapsed) {
   }
 
   // Hold Space/Jump continuously OR tap before touchdown for super smooth Bunny-Hopping!
-  if ((keys[DEF_KB.jump] || mobJumpHeld) && !scState && me.state === 'ok' && !me.crouch && !me.carrying && wishLen > 0.1) {
+  if (!tpOpen && (keys[DEF_KB.jump] || mobJumpHeld) && !scState && me.state === 'ok' && !me.crouch && !me.carrying && wishLen > 0.1) {
     if (jumpBuffer <= 0) jumpBuffer = 0.08;
   }
 
@@ -1979,7 +2531,7 @@ function updateLocalPlayer(dt, elapsed) {
   }
 
   const dynBhopCap = SPEED.BHOP_MAX + chaseProx * 1.2;
-  const grounded = me.y <= floorBaseY + 0.045 && me.vy <= 0.45;
+  grounded = me.y <= floorBaseY + 0.045 && me.vy <= 0.45;
   if (grounded && jumpBuffer > 0 && me.state === 'ok' && !me.crouch && !me.carrying) {
     me.vy = SPEED.JUMP_VEL;
     me.y = floorBaseY + 0.01;
@@ -2108,7 +2660,7 @@ function updateLocalPlayer(dt, elapsed) {
   }
 
   // Camera placement + stronger visceral Found Footage running/walking camera shake & handheld tremor
-  const eyeH = isK ? 1.82 : me.state === 'down' ? 0.45 : me.crouch ? 0.92 : 1.62;
+  eyeH = isK ? 1.82 : me.state === 'down' ? 0.45 : me.crouch ? 0.92 : 1.62;
   const rawMoveMix = grounded ? Math.min(1, me.spd / 4.6) : 0;
   const mixK = 1 - Math.exp(-9.5 * dt);
   smoothMoveMix += (rawMoveMix - smoothMoveMix) * mixK;
@@ -2143,6 +2695,7 @@ function updateLocalPlayer(dt, elapsed) {
   const moveBlurGate = THREE.MathUtils.clamp((me.spd - 0.55) / 3.0, 0, 1);
   shakeXRate = ((camSwayX - prevSwayX) * 1.25 * invShakeDt) * moveBlurGate;
   shakeYRate = (((camBobY - prevBobY) * 1.35 + (camNod - prevNod) * 3.6) * invShakeDt) * moveBlurGate;
+  }
 
   // Heavy smooth found-footage Camera Pan Delay Curve (weighted camcorder gimbal inertia without stretching motion blur beyond mouse stop)
   const kCam = 1 - Math.exp(-14.5 * dt);
@@ -2591,7 +3144,10 @@ function updateHUD(elapsed, fpsVal) {
     }
   }
 
-  $('speedText').textContent = `SPD: ${me.spd.toFixed(1)} m/s${bhopChain > 0 ? `  [BHOP x${bhopChain}]` : ''}`;
+  $('speedText').textContent = `SPD: ${me.spd.toFixed(1)} m/s${noclipMode ? ` • [NOCLIP ${Math.round(noclipSpeed)}m/s]` : bhopChain > 0 ? `  [BHOP x${bhopChain}]` : ''}`;
+  if (tpOpen && $('tpCurrentPos')) {
+    $('tpCurrentPos').textContent = `Tầng: ${meta.code} (${meta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
+  }
 
   // Clear On-Screen Mission / Objective Panel + Zone Indicator + Nearest Waypoint Distance
   const curC = Math.floor(me.x / C), curR = Math.floor(me.z / C);
@@ -2601,29 +3157,7 @@ function updateHUD(elapsed, fpsVal) {
     const gainTag = zoneHit?.type === 'blackout' || zoneHit?.type === 'mb_van_tunnel' ? 'GAIN +12dB' : 'AUTO';
     camExpoEl.textContent = `1/${fpsCap > 0 ? Math.max(15, fpsCap) : 60} • F1.8 • ${gainTag}`;
   }
-  const zoneNames = {
-    manila: 'PHÒNG MANILA', arches: 'KHU VÒM NƯỚC', pitfalls: 'HỐ SÂU PITFALLS', huge_pitfall: 'VỰC THẲM PITFALLS',
-    poolrooms: 'HỒ BƠI NGẦM', wet_concrete: 'BÊ TÔNG ẨM', blackout: 'VÙNG TẮT ĐIỆN',
-    redrooms: 'PHÒNG ĐỎ DỊ THƯỜNG', colonnade: 'ĐẠI SẢNH CỘT', office: 'MÊ CUNG VĂN PHÒNG',
-    crawl_bay: 'KHE HẦM THẤP', mold_utility: 'KHU KỸ THUẬT MỐC', monolith_maze: 'MÊ CUNG KHỐI VÀNG',
-    async_threshold: 'NGƯỠNG CỬA A-SYNC', suburb_pitfalls: 'KHU PHỐ NGÕ CỤT', red_city: 'THÀNH PHỐ ĐỎ & ỐNG RỈ',
-    null_kx_glitch: 'VÙNG LỖI NULL_KX', async_archive: 'KHO HỒ SƠ KV-31', flooded_sump: 'TRẠM BƠM NƯỚC ĐỌNG',
-    breaker_vault: 'TRẠM BIẾN ÁP XANH', gravity_error: 'PHÒNG LỖI TRỌNG LỰC', ceiling_plenum: 'TRẦN SỤP & GIẾNG THANG',
-    still_life_relay: 'TRẠM SÓNG STILL-LIFE', fluorescent_greenhouse: 'HÀNH LANG ĐÈN LỤC', stairwell_loop: 'CẦU THANG VÔ TẬN',
-    ff1_ladder_hatch: 'HỐC THANG SẮT (FF#1)', ff1_dont_move: 'TƯỜNG DON\'T MOVE (FF#1)',
-    ff1_white_gallery: 'SẢNH TRẮNG & CỬA SỔ (FF#1)', ff1_filing_corridor: 'DÃY TỦ HỒ SƠ & KEEP CLEAR (FF#1)',
-    ff2_tape_kitchen: 'Ô BĂNG XANH & BẾP (FF#2)', ff2_crashed_car: 'XE HƠI ĐÂM TƯỜNG (FF#2)',
-    ff2_hardwood_home: 'NHÀ SÀN GỖ & LAN CAN (FF#2)', ff2_vine_plasma: 'TỔ RỄ ĐEN & VẾT NỨT LỤC (FF#2)',
-    flooded_yellow_hall: 'ĐẠI SẢNH VÀNG NGẬP NƯỚC', mb_courtyard: 'SÂN CHUNG CƯ 3 TẦNG NGẦM',
-    mb_mall_atrium: 'TRUNG TÂM THƯƠNG MẠI 1990S', mb_red_skybridge: 'CẦU KÍNH ĐỎ & THÀNH PHỐ ĐÊM',
-    mb_brick_alcove_hall: 'HÀNH LANG GẠCH NÂU & CỬA SỔ', mb_bicycle_tripod: 'GÓC XE ĐẠP & GIÁ BA CHÂN LỤC',
-    mb_library_fan_hall: 'PHÒNG QUẠT TRẦN & GIÁ SÁCH', mb_unrealized_mural: 'BỨC TRANH TƯỜNG UNREALIZED',
-    mb_diner_fridge: 'PHÒNG ĂN NEON OPEN & TỦ LẠNH', mb_van_tunnel: 'HẦM XE TẢI TRẮNG & DOLLAR GENER',
-    mb_grey_basement: 'TẦNG HẦM XÁM & CỬA BĂNG XANH', mb_cctv_cove: 'HỐC CAMERA CCTV & CỬA CHUI',
-    mb_dining_blue_drapes: 'PHÒNG ĂN RÈM XANH HOÀNG GIA', mb_gold_tile_blood: 'TƯỜNG GẠCH VÀNG & VẾT MÁU KÉO',
-    mb_floating_wall_glitch: 'TƯỜNG TREO LƠ LỬNG & GIƯỜNG CŨI'
-  };
-  const zoneLabel = zoneNames[zoneHit?.type] || 'MÊ CUNG LEVEL 0';
+  const zoneLabel = ZONE_LABELS[zoneHit?.type] || 'MÊ CUNG LEVEL 0';
 
   if (isK) {
     const aliveS = Object.values(players).filter(p => p.role === 's' && p.state !== 'dead' && p.state !== 'escaped').length;
@@ -2886,6 +3420,20 @@ function updateRevealMarkers(elapsed) {
 
 // ---------- Input Event Listeners ----------
 window.addEventListener('keydown', (e) => {
+  const inTextField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable);
+  if (inMatch && !matchEnded && e.code === 'Escape' && tpOpen) {
+    if (e.repeat) return;
+    e.preventDefault();
+    closeTpPanel(true);
+    return;
+  }
+  if (inMatch && !matchEnded && e.code === 'KeyT' && !inTextField) {
+    if (e.repeat) return;
+    e.preventDefault();
+    if (tpOpen) closeTpPanel(true);
+    else openTpPanel();
+    return;
+  }
   if (inMatch && !matchEnded && (e.code === 'Escape' || e.code === 'KeyP')) {
     if (e.repeat) return;
     // Ignore Escape synthetic echo right after pointerlockchange unlocked into pause
@@ -2899,10 +3447,13 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (inTextField) return;
   keys[e.code] = true;
-  if (!inMatch || paused) return;
+  if (!inMatch || paused || tpOpen) return;
 
-  if (e.code === DEF_KB.light) {
+  if (e.code === 'KeyN') {
+    if (!e.repeat) setNoclipMode(!noclipMode);
+  } else if (e.code === DEF_KB.light) {
     toggleFlashlight();
   } else if (e.code === DEF_KB.use) {
     triggerLocalUseTap();
@@ -2985,7 +3536,7 @@ document.addEventListener('pointerlockchange', () => {
     document.body.style.cursor = 'none';
     paused = false;
     pauseScr.classList.add('hidden');
-  } else if (inMatch && !matchEnded && !location.hash.includes('test') && !isMobileUiActive()) {
+  } else if (inMatch && !matchEnded && !location.hash.includes('test') && !isMobileUiActive() && !tpOpen) {
     openPauseMenu();
   } else {
     document.body.style.cursor = '';
@@ -3018,8 +3569,8 @@ document.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mousedown', (e) => {
-  if (!inMatch || paused || matchEnded || isMobileUiActive()) return;
-  if (e.target && e.target.closest?.('.screen, button, select, input, a, #mobileControls, #mobLookPad, #invBar')) return;
+  if (!inMatch || paused || tpOpen || matchEnded || isMobileUiActive()) return;
+  if (e.target && e.target.closest?.('.screen, button, select, input, a, #mobileControls, #mobLookPad, #invBar, #tpPanel, #tpHudBtn, #noclipBadge')) return;
   audio.ensureContext();
   if (document.pointerLockElement !== renderer.domElement) {
     document.body.style.cursor = 'none';
@@ -3284,13 +3835,82 @@ function bindMobileControls() {
     const lbl = audio.nextTrack();
     pushFeed(`♪ Băng nhạc: ${lbl}`);
   });
+  $('mobTpBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!inMatch || matchEnded) return;
+    if (tpOpen) closeTpPanel(false);
+    else openTpPanel();
+  });
 }
 bindMobileControls();
+
+// ---------- Teleport Control Panel & No-Clip UI Bindings ----------
+$('tpHudBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!inMatch || matchEnded) return;
+  if (tpOpen) closeTpPanel(true);
+  else openTpPanel();
+});
+$('tpHudNcBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!inMatch || matchEnded) return;
+  setNoclipMode(!noclipMode);
+});
+$('noclipOffBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  setNoclipMode(false);
+});
+$('pauseTpBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  openTpPanel();
+});
+$('tpCloseBtn')?.addEventListener('click', () => closeTpPanel(true));
+$('tpNoclipBtn')?.addEventListener('click', () => setNoclipMode(!noclipMode));
+$('tpNoclipSpeed')?.addEventListener('input', (e) => setNoclipSpeed(e.target.value));
+$('tpSearch')?.addEventListener('input', (e) => {
+  tpSearchQuery = e.target.value || '';
+  renderTpPanel();
+});
+$('tpTabs')?.addEventListener('click', (e) => {
+  const btn = e.target?.closest?.('[data-tp-tab]');
+  if (!btn) return;
+  tpActiveTab = btn.dataset.tpTab || 'all';
+  $('tpTabs').querySelectorAll('.tp-tab').forEach(b => b.classList.toggle('active', b === btn));
+  renderTpPanel();
+});
+$('tpGoCoordBtn')?.addEventListener('click', () => {
+  const me = players[myId];
+  const x = parseFloat($('tpX')?.value);
+  const y = parseFloat($('tpY')?.value);
+  const z = parseFloat($('tpZ')?.value);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    pushFeed('Vui lòng nhập tọa độ X và Z hợp lệ!', '#ff7a6e');
+    return;
+  }
+  teleportToTarget({
+    levelId: activeLocalLevelId,
+    x,
+    y: Number.isFinite(y) ? y : (me?.y || 0),
+    z,
+    rawCoords: true,
+    preserveY: true,
+    title: `Tọa độ (${x.toFixed(1)}, ${(Number.isFinite(y) ? y : 0).toFixed(1)}, ${z.toFixed(1)})`
+  });
+});
+$('tpList')?.addEventListener('click', (e) => {
+  const row = e.target?.closest?.('[data-tp-id]');
+  if (!row) return;
+  const item = $('tpList')._itemsMap?.get(row.dataset.tpId);
+  if (item) teleportToTarget(item);
+});
 
 const exitToLobby = () => {
   inMatch = false;
   paused = false;
+  tpOpen = false;
   matchEnded = false;
+  setNoclipMode(false, true);
+  $('tpPanel')?.classList.add('hidden');
   resetMobileInputs();
   document.body.style.cursor = '';
   if (document.pointerLockElement) {
@@ -4441,6 +5061,53 @@ async function runSelfTests() {
     );
     if (!subFlowPass) console.error('SUBFLOW TEST DIAG:', JSON.stringify(subFlowDiag));
     assert(subFlowPass, 'sublevel_enter_coop_join_repair_and_return_level0');
+
+    // Teleport Control Panel & No-Clip Mode verification
+    openTpPanel();
+    const tpOpenedWithoutPause = tpOpen === true && !paused && !$('tpPanel').classList.contains('hidden') && $('pauseScr').classList.contains('hidden');
+    const tpRowsCount = document.querySelectorAll('#tpList .tp-item').length;
+    const lvl0Marks = collectLevelLandmarks('level0');
+    const hasElevMark = lvl0Marks.some(m => m.id === 'level0_elev');
+    const hasEntMark = lvl0Marks.some(m => m.id === 'lvl0_ent_level37');
+
+    setNoclipMode(true, true);
+    const ncBadgeShown = noclipMode === true && !$('noclipBadge').classList.contains('hidden') && $('tpHudBtn').classList.contains('noclip-on');
+    closeTpPanel(false);
+    const meNc = players[myId];
+    meNc.x = tMap.SPAWN.x; meNc.y = 0; meNc.z = tMap.SPAWN.z; meNc.yaw = 0; meNc.pitch = 0.35;
+    keys[DEF_KB.fwd] = true;
+    keys[DEF_KB.jump] = true;
+    for (let s = 0; s < 16; s++) updateLocalPlayer(0.05, s * 0.05);
+    keys[DEF_KB.fwd] = false;
+    keys[DEF_KB.jump] = false;
+    const flewUpSmoothly = meNc.y > 4.0 && meNc.spd > 2.0;
+
+    setNoclipMode(false, true);
+    const ncDisabledClean = noclipMode === false && $('noclipBadge').classList.contains('hidden');
+    const tpPoolOk = teleportToTarget({ id: 'dim_level37', levelId: 'level37', title: 'Level 37' });
+    const landedInPool = tpPoolOk && activeLocalLevelId === 'level37' && players[myId].levelId === 'level37';
+    const poolMarks = collectLevelLandmarks('level37');
+    const hasSlideMark = poolMarks.some(m => m.id.startsWith('level37_slide_'));
+    const tpBackOk = teleportToTarget({ id: 'dim_level0', levelId: 'level0', title: 'Level 0' });
+    const returnedByTp = tpBackOk && activeLocalLevelId === 'level0' && players[myId].levelId === 'level0';
+    // Restore spawn cleanly
+    meNc.x = tMap.SPAWN.x; meNc.y = 0; meNc.z = tMap.SPAWN.z; meNc.yaw = 0; meNc.pitch = 0; meNc.vy = 0;
+    noclipDropLockUntil = 0;
+
+    const tpPass = (
+      tpOpenedWithoutPause && tpRowsCount >= 25 && hasElevMark && hasEntMark &&
+      ncBadgeShown && flewUpSmoothly && ncDisabledClean &&
+      landedInPool && hasSlideMark && returnedByTp
+    );
+    if (!tpPass) {
+      console.error('TP/NOCLIP TEST DIAG:', JSON.stringify({
+        tpOpenedWithoutPause, tpRowsCount, hasElevMark, hasEntMark,
+        ncBadgeShown, flewUpSmoothly, ncY: meNc.y, ncDisabledClean,
+        landedInPool, hasSlideMark, returnedByTp
+      }));
+    }
+    assert(tpPass, 'teleport_panel_and_noclip_3d_flight_work_cleanly');
+
     // Clean up test artifacts so Playwright visual exploration starts fresh
     levelsClearedSet.delete('level37');
     levelDiscoveredSet.delete('level37');
@@ -4473,8 +5140,17 @@ async function runSelfTests() {
       activeLocalLevelId,
       activeJoinTarget,
       levelsCleared: [...levelsClearedSet],
-      discovered: [...levelDiscoveredSet]
+      discovered: [...levelDiscoveredSet],
+      noclipMode,
+      noclipSpeed,
+      tpOpen
     }),
+    setNoclipMode,
+    setNoclipSpeed,
+    openTpPanel,
+    closeTpPanel,
+    collectLevelLandmarks,
+    teleportToTarget,
     enterLevel: (levelId, via = 'portal') => {
       noclipDropLockUntil = performance.now() + 1500;
       sendAction({ act: 'enterLevel', levelId, via });

@@ -215,6 +215,7 @@
     #hud.clean-cam .action-bar-wrap:not(.force-show),
     #hud.clean-cam .sc-wrap,
     #hud.clean-cam .hud-light-btn,
+    #hud.clean-cam .hud-tp-btn,
     #hud.clean-cam .hud-vitals,
     #hud.clean-cam .hud-inv,
     #hud.clean-cam .hud-feed { display: none !important; }
@@ -338,6 +339,8 @@
     #hud.aspect-43 .hud-team { right: 24px; top: 24px; width: 190px; font-size: 11px; }
     #hud.aspect-43 .hud-vitals { bottom: 22px; left: 22px; width: 192px; padding: 8px 10px; }
     #hud.aspect-43 .hud-light-btn { bottom: 132px; left: 22px; width: 192px; padding: 6px 9px; font-size: 11px; }
+    #hud.aspect-43 .hud-tp-btn { bottom: 168px; left: 22px; width: 192px; padding: 6px 8px; font-size: 10px; }
+    #hud.aspect-43 .noclip-badge { bottom: 90px; font-size: 10px; padding: 3px 9px; }
     #hud.aspect-43 .hud-inv { bottom: 22px; gap: 5px; }
     #hud.aspect-43 .inv-slot { width: 66px; font-size: 10px; padding: 5px 3px; }
     #hud.aspect-43 .hud-feed { bottom: 22px; right: 22px; width: 196px; font-size: 11px; }
@@ -380,7 +383,8 @@
       pointer-events: none;
       touch-action: none;
     }
-    #hud.mobile-ui #flashToggleBtn {
+    #hud.mobile-ui #flashToggleBtn,
+    #hud.mobile-ui #tpHudBtn {
       display: none;
     }
     #hud.mobile-ui .cam-top-left {
@@ -729,6 +733,148 @@
         gap: 6px;
       }
     }
+
+    /* Teleport & No-Clip HUD Controls + Modal Console */
+    .hud-tp-btn {
+      position: absolute; bottom: 184px; left: 32px; width: 230px;
+      pointer-events: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+      padding: 7px 10px; font-family: var(--mono); font-size: 11px; font-weight: bold;
+      letter-spacing: 0.4px; cursor: pointer; white-space: nowrap;
+      background: rgba(10, 18, 22, 0.76); color: #bfeef8;
+      border: 1px solid rgba(98, 224, 255, 0.36); border-radius: 3px;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .hud-tp-btn:hover { background: rgba(18, 36, 44, 0.9); border-color: var(--cyan); color: #ecfbff; }
+    .hud-tp-btn.noclip-on {
+      background: rgba(12, 42, 34, 0.86); color: #a8ffd6;
+      border-color: rgba(86, 232, 146, 0.85);
+      box-shadow: inset 3px 0 0 #56e892, 0 0 12px rgba(86, 232, 146, 0.25);
+    }
+    .tp-nc-pill {
+      padding: 1px 6px; border-radius: 2px; font-size: 10px; white-space: nowrap;
+      background: rgba(255,255,255,0.08); color: #9ad2de;
+      border: 1px solid rgba(98, 224, 255, 0.25);
+    }
+    .hud-tp-btn.noclip-on .tp-nc-pill {
+      background: rgba(86, 232, 146, 0.25); color: #86ffc0;
+      border-color: rgba(86, 232, 146, 0.72);
+    }
+    .noclip-badge {
+      position: absolute; bottom: 104px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 8px; z-index: 26;
+      padding: 4px 11px; border-radius: 4px; pointer-events: auto;
+      background: rgba(8, 28, 22, 0.9);
+      border: 1px solid #56e892;
+      box-shadow: 0 0 14px rgba(86, 232, 146, 0.3);
+      color: #b4ffd9; font-size: 11px; font-weight: bold; letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .noclip-badge button {
+      padding: 2px 7px; font-size: 10px; margin: 0;
+      background: rgba(86, 232, 146, 0.22); border: 1px solid #56e892;
+      color: #d8ffec; border-radius: 3px; cursor: pointer;
+    }
+    #hud.mobile-ui .noclip-badge {
+      top: auto; left: 45%; bottom: 62px; padding: 2px 8px; gap: 6px; font-size: 9.5px;
+      max-width: 48vw; overflow: hidden; text-overflow: ellipsis;
+    }
+    #mobTpBtn.noclip-on {
+      border-color: #56e892; color: #9affc9; background: rgba(16, 48, 36, 0.85);
+    }
+
+    .tp-card {
+      width: min(1020px, 95vw); max-height: 92vh;
+      display: flex; flex-direction: column; gap: 10px;
+      background: rgba(11, 12, 10, 0.96);
+      border: 1px solid rgba(98, 224, 255, 0.45);
+      box-shadow: 0 0 36px rgba(0, 0, 0, 0.85), inset 0 0 24px rgba(98, 224, 255, 0.08);
+      padding: 16px 18px; border-radius: 6px; overflow: hidden;
+    }
+    .tp-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 10px; border-bottom: 1px solid rgba(255, 226, 128, 0.2);
+      padding-bottom: 10px;
+    }
+    .tp-noclip-bar {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+      padding: 8px 12px; border-radius: 4px;
+      background: rgba(14, 24, 22, 0.82); border: 1px solid rgba(86, 232, 146, 0.35);
+    }
+    .tp-noclip-btn {
+      padding: 6px 12px; font-weight: bold; font-size: 12px; border-radius: 4px;
+      background: rgba(30, 34, 30, 0.9); color: #cde6da;
+      border: 1px solid rgba(255,255,255,0.28); cursor: pointer;
+    }
+    .tp-noclip-btn.on {
+      background: rgba(28, 120, 74, 0.9); color: #fff;
+      border-color: #6effb0; box-shadow: 0 0 12px rgba(86, 232, 146, 0.45);
+    }
+    .tp-toolbar {
+      display: grid; grid-template-columns: 1.2fr 1.1fr; gap: 10px; align-items: center;
+    }
+    .tp-coords-bar {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+    }
+    .tp-coords-bar input {
+      width: 68px; padding: 5px 6px; font-size: 12px;
+      background: rgba(20, 20, 16, 0.92); color: #fff5cb;
+      border: 1px solid rgba(240, 212, 92, 0.35); border-radius: 3px;
+    }
+    .tp-tabs {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .tp-tab {
+      padding: 5px 10px; font-size: 11px; font-weight: bold; border-radius: 3px;
+      background: rgba(26, 24, 18, 0.9); color: #cfc7a8;
+      border: 1px solid rgba(240, 212, 92, 0.25); cursor: pointer;
+    }
+    .tp-tab.active {
+      background: rgba(42, 68, 78, 0.85); color: #8af0ff; border-color: var(--cyan);
+    }
+    .tp-scroll {
+      flex: 1; min-height: 200px; max-height: 56vh; overflow-y: auto;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(275px, 1fr));
+      gap: 8px; padding-right: 4px; align-content: start;
+    }
+    .tp-sec-title {
+      grid-column: 1 / -1; margin-top: 4px; padding: 4px 8px;
+      font-size: 11px; font-weight: bold; letter-spacing: 1px;
+      color: var(--yb); background: rgba(245, 222, 128, 0.08);
+      border-left: 3px solid var(--y);
+    }
+    .tp-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 10px; border-radius: 4px; text-align: left; cursor: pointer;
+      background: rgba(22, 22, 18, 0.86);
+      border: 1px solid rgba(240, 212, 92, 0.24); color: #f6eed2;
+      transition: background .12s, border-color .12s, transform .08s;
+    }
+    .tp-item:hover {
+      background: rgba(34, 48, 54, 0.92); border-color: var(--cyan); transform: translateY(-1px);
+    }
+    .tp-item.here {
+      border-color: #56e892; background: rgba(16, 42, 32, 0.86);
+    }
+    .tp-item-info { min-width: 0; flex: 1; }
+    .tp-item-title {
+      font-size: 12px; font-weight: bold; color: #fff6c8;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .tp-item-sub {
+      font-size: 10.5px; color: #9ec8d4; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .tp-tag {
+      flex-shrink: 0; padding: 2px 6px; border-radius: 3px; font-size: 9.5px; font-weight: bold;
+      background: rgba(98, 224, 255, 0.16); color: #8af0ff; border: 1px solid rgba(98, 224, 255, 0.4);
+    }
+    .tp-tag.done { background: rgba(86, 232, 146, 0.18); color: #78ffae; border-color: rgba(86, 232, 146, 0.5); }
+    .tp-tag.warn { background: rgba(255, 138, 86, 0.18); color: #ffb38a; border-color: rgba(255, 138, 86, 0.5); }
+    @media (max-width: 760px) {
+      .tp-toolbar { grid-template-columns: 1fr; }
+      .tp-coords-bar { justify-content: flex-start; }
+      .tp-scroll { grid-template-columns: 1fr; max-height: 46vh; }
+    }
   </style>
 </head>
 <body>
@@ -888,6 +1034,7 @@
           <input id="pauseSfx" type="range" min="0" max="1" step="0.02" value="1.0" />
           <div class="btn-row" style="margin-top:14px;">
             <button id="resumeBtn" class="primary">Tiếp tục chơi (Khóa chuột)</button>
+            <button id="pauseTpBtn" type="button">Teleport &amp; No-Clip [T]</button>
             <button id="leaveBtn" class="danger">Thoát ra Menu</button>
           </div>
         </div>
@@ -981,6 +1128,16 @@
       <line id="scNeedle" x1="50" y1="50" x2="50" y2="10" stroke="#ff3828" stroke-width="3"/>
     </svg>
 
+    <div id="noclipBadge" class="noclip-badge hidden">
+      <span id="noclipBadgeText">NOCLIP BẬT [N] • 18 m/s • Space: Lên • C/Ctrl: Xuống</span>
+      <button id="noclipOffBtn" type="button">TẮT</button>
+    </div>
+
+    <button id="tpHudBtn" type="button" class="hud-tp-btn" title="Mở bảng Teleport (T) / Bật tắt No-Clip (N)">
+      <span>TELEPORT [T]</span>
+      <span id="tpHudNcBtn" class="tp-nc-pill">NOCLIP [N]</span>
+    </button>
+
     <button id="flashToggleBtn" type="button" class="hud-light-btn on" title="Bật / Tắt Đèn Pin (Phím F)">
       <span>ĐÈN PIN [F]</span>
       <span class="light-state">BẬT</span>
@@ -995,6 +1152,7 @@
     <div id="mobLookPad" aria-label="Vuốt xoay góc nhìn"></div>
     <div id="mobileControls" aria-label="Phím điều khiển cảm ứng">
       <div id="mobTopBtns">
+        <button id="mobTpBtn" type="button" class="mob-mini-btn">TP/BAY</button>
         <button id="mobMusicBtn" type="button" class="mob-mini-btn">NHẠC</button>
         <button id="mobPauseBtn" type="button" class="mob-mini-btn">MENU</button>
       </div>
@@ -1012,6 +1170,48 @@
         <button id="mobCrouchBtn" type="button" class="mob-btn">NGỒI<small>Ctrl</small></button>
         <button id="mobFlashBtn" type="button" class="mob-btn active">ĐÈN<small>BẬT</small></button>
       </div>
+    </div>
+  </div>
+
+  <!-- 7. TELEPORT & NO-CLIP CONTROL PANEL -->
+  <div id="tpPanel" class="screen hidden" style="z-index:88;">
+    <div class="tp-card">
+      <div class="tp-header">
+        <div>
+          <h2 style="margin:0;font-size:17px;color:#8af0ff;">A-SYNC NAVIGATION // TELEPORT &amp; NO-CLIP</h2>
+          <div id="tpCurrentPos" style="font-size:11px;color:#d6cea8;margin-top:2px;">Vị trí hiện tại: Level 0</div>
+        </div>
+        <button id="tpCloseBtn" type="button" class="danger" style="padding:6px 12px;">Đóng [T / ESC]</button>
+      </div>
+
+      <div class="tp-noclip-bar">
+        <button id="tpNoclipBtn" type="button" class="tp-noclip-btn">CHẾ ĐỘ NO-CLIP [N]: TẮT</button>
+        <label for="tpNoclipSpeed" style="margin:0;display:flex;align-items:center;gap:8px;font-size:12px;color:#d6f5e6;">
+          Tốc độ bay: <strong id="tpNoclipSpeedVal">18 m/s</strong>
+          <input id="tpNoclipSpeed" type="range" min="6" max="60" step="1" value="18" style="width:150px;" />
+        </label>
+        <span style="font-size:11px;color:#9ccab8;">Bay xuyên tường &amp; sàn • W/A/S/D hướng nhìn • Space: Lên • C/Ctrl: Xuống • Shift: Tăng tốc</span>
+      </div>
+
+      <div class="tp-toolbar">
+        <input id="tpSearch" type="text" placeholder="Tìm tên tầng, khu vực, máy, cầu trượt, thực thể..." style="margin:0;padding:7px 10px;" />
+        <div class="tp-coords-bar">
+          <span style="font-size:11px;color:#d6cea8;">XYZ:</span>
+          <input id="tpX" type="number" step="0.5" placeholder="X" title="Tọa độ X" />
+          <input id="tpY" type="number" step="0.5" placeholder="Y" title="Độ cao Y" />
+          <input id="tpZ" type="number" step="0.5" placeholder="Z" title="Tọa độ Z" />
+          <button id="tpGoCoordBtn" type="button" class="primary" style="padding:6px 10px;font-size:11px;">ĐẾN TỌA ĐỘ</button>
+        </div>
+      </div>
+
+      <div class="tp-tabs" id="tpTabs">
+        <button type="button" class="tp-tab active" data-tp-tab="all">Tất cả địa điểm</button>
+        <button type="button" class="tp-tab" data-tp-tab="here">Địa điểm trong Tầng này</button>
+        <button type="button" class="tp-tab" data-tp-tab="entrances">Lối vào 20 Sub-Levels (Lv.0)</button>
+        <button type="button" class="tp-tab" data-tp-tab="levels">21 Tầng Backrooms</button>
+      </div>
+
+      <div id="tpList" class="tp-scroll"></div>
     </div>
   </div>
 
