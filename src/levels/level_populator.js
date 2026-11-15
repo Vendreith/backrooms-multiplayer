@@ -130,7 +130,7 @@ export function populateLevelLoreProps(ctx) {
 
   // ==================== ARCHETYPE SPECIFIC DRESSING ====================
 
-  if (arch === 'poolrooms') {
+  if (arch === 'poolrooms' && !meta.customPoolrooms) {
     const atria = meta.atria || [];
     for (let i = 0; i < atria.length; i++) {
       const a = atria[i];

@@ -20,6 +20,7 @@ import { NetworkManager } from './network.js';
 import { LEVEL_CATALOG, LEVEL_LIST, getLevelMeta } from './levels/catalog.js';
 import { getTerrainAt } from './levels/terrain.js';
 import { genSubLevelMap } from './levels/world_generators.js';
+import { getPoolroomsZoneAt, updatePoolroomsWorldEvents, resetPoolroomsEventsState } from './levels/poolrooms_world.js';
 
 // ---------- DOM Elements ----------
 const $ = (id) => document.getElementById(id);
@@ -555,6 +556,44 @@ function collectLevelLandmarks(levelId) {
     }
   }
 
+  if (m.POOL_ZONES?.length) {
+    m.POOL_ZONES.forEach((z) => {
+      list.push({
+        id: `${levelId}_${z.id}`,
+        cat: 'here',
+        badge: `KHU ${z.code}`,
+        badgeClass: 'accent',
+        title: z.name,
+        subtitle: z.desc || `Khu vực Poolrooms (${Math.round(z.teleX)}, ${Math.round(z.teleZ)})`,
+        levelId,
+        x: z.teleX,
+        y: z.teleY || 0,
+        z: z.teleZ,
+        yaw: z.teleYaw ?? 0,
+        preserveY: true
+      });
+    });
+  }
+
+  if (m.PUMPS?.length) {
+    m.PUMPS.forEach((pm) => {
+      list.push({
+        id: `${levelId}_pump_${pm.id}`,
+        cat: 'here',
+        badge: pm.done ? 'BƠM XONG' : 'TRẠM BƠM',
+        badgeClass: pm.done ? 'done' : 'portal',
+        title: pm.name,
+        subtitle: `Van thủy lực (${Math.round(pm.x)}, ${Math.round(pm.z)})`,
+        levelId,
+        x: pm.x,
+        y: (pm.y || 0) + 0.15,
+        z: pm.z + 1.8,
+        yaw: 0,
+        preserveY: true
+      });
+    });
+  }
+
   for (const p of Object.values(players)) {
     if (!p || p.id === myId || p.state === 'dead' || p.state === 'escaped') continue;
     const pLvl = p.levelId || 'level0';
@@ -769,6 +808,7 @@ function switchLocalWorld(targetLevelId, via = 'portal') {
 
   activeLocalLevelId = nextId;
   map = nextMap;
+  if (nextId === 'level37') resetPoolroomsEventsState();
   busyAct = null;
   scState = null;
   hVelX = 0;
@@ -1692,9 +1732,29 @@ function processPlayerActionHost(actorId, msg) {
         if (doneCount >= NEED) pMap.exitsOpen = true;
         broadcastEvent({ ev: 'taskDone', levelId: pCurLevel, idx: t.id, doneCount, exitsOpen: pMap.exitsOpen });
       } else {
+        if (pMap.PUMPS?.length) {
+          for (const pm of pMap.PUMPS) { pm.done = true; pm.p = 1; }
+        }
         pMap.exitsOpen = true;
         levelsClearedSet.add(pCurLevel);
         broadcastEvent({ ev: 'subTaskDone', levelId: pCurLevel, idx: t.id, clearedCount: levelsClearedSet.size });
+      }
+    }
+  } else if (msg.act === 'pumpProg') {
+    const pm = pMap.PUMPS?.[msg.idx];
+    if (!pm || pm.done) return;
+    pm.p = Math.max(pm.p || 0, Math.min(1, (pm.p || 0) + msg.delta));
+    if (pm.p >= 1 && !pm.done) {
+      pm.done = true;
+      pm.p = 1;
+      const donePumps = pMap.PUMPS.filter(x => x.done).length;
+      broadcastEvent({ ev: 'pumpDone', levelId: pCurLevel, idx: pm.id, donePumps });
+      if (donePumps >= pMap.PUMPS.length && pMap.TASKS?.[0] && !pMap.TASKS[0].done) {
+        pMap.TASKS[0].done = true;
+        pMap.TASKS[0].p = 1;
+        pMap.exitsOpen = true;
+        levelsClearedSet.add(pCurLevel);
+        broadcastEvent({ ev: 'subTaskDone', levelId: pCurLevel, idx: 0, clearedCount: levelsClearedSet.size });
       }
     }
   } else if (msg.act === 'taskFail') {
@@ -1974,12 +2034,26 @@ function handleNetEvent(ev) {
       sMap.TASKS[ev.idx].p = 1;
       sMap.exitsOpen = true;
     }
+    if (sMap?.PUMPS?.length) {
+      for (const pm of sMap.PUMPS) { pm.done = true; pm.p = 1; }
+    }
     levelsClearedSet.add(ev.levelId);
     if (ev.levelId === activeLocalLevelId) {
       audio.playAlertBeep();
       const tm = world?.taskMeshes?.[ev.idx];
       if (tm?.ledMat) tm.ledMat.color.setHex(0x4ed884);
-      pushFeed('MÁY THOÁT TẦNG ĐÃ CHẠY! Cổng Trở Về Level 0 đã mở!', '#4ed884');
+      pushFeed(ev.levelId === 'level37' ? 'CỐNG THOÁT KHU J ĐÃ MỞ! Cổng Trở Về Level 0 đã kích hoạt!' : 'MÁY THOÁT TẦNG ĐÃ CHẠY! Cổng Trở Về Level 0 đã mở!', '#4ed884');
+    }
+  } else if (ev.ev === 'pumpDone') {
+    const sMap = getOrCreateLevelMap(ev.levelId);
+    const pm = sMap?.PUMPS?.[ev.idx];
+    if (pm) {
+      pm.done = true;
+      pm.p = 1;
+    }
+    if (ev.levelId === activeLocalLevelId && pm) {
+      audio.playPumpActivation?.({ x: pm.x, y: pm.y || 0, z: pm.z }, ev.donePumps >= (sMap.PUMPS?.length || 3));
+      pushFeed(`Đã kích hoạt ${pm.name} (${ev.donePumps}/${sMap.PUMPS?.length || 3})!`, '#4ae8ff');
     }
   } else if (ev.ev === 'relicGone') {
     const rel = map.RELICS?.find(r => r.id === ev.id);
@@ -2188,6 +2262,17 @@ function applyHostSnapshot(snap) {
       }
     }
   }
+  if (snap.subPumps) {
+    for (const [lid, pArr] of Object.entries(snap.subPumps)) {
+      const sm = getOrCreateLevelMap(lid);
+      if (sm?.PUMPS && Array.isArray(pArr)) {
+        for (let i = 0; i < sm.PUMPS.length && i < pArr.length; i++) {
+          sm.PUMPS[i].p = Math.max(sm.PUMPS[i].p || 0, pArr[i] || 0);
+          if (sm.PUMPS[i].p >= 1) sm.PUMPS[i].done = true;
+        }
+      }
+    }
+  }
 }
 
 function syncTaskCabinetLEDs() {
@@ -2336,14 +2421,17 @@ function updateHostSimulation(dt) {
   if (!net.isSolo && snapAccum >= 0.05) {
     snapAccum = 0;
     const subTasks = {};
+    const subPumps = {};
     for (const [lid, lMap] of levelMaps.entries()) {
       if (lid !== 'level0' && lMap?.TASKS?.[0]) subTasks[lid] = lMap.TASKS[0].p;
+      if (lid !== 'level0' && lMap?.PUMPS?.length) subPumps[lid] = lMap.PUMPS.map(pm => pm.p || 0);
     }
     net.broadcast({
       t: 'snap',
       players,
       tasks: getOrCreateLevelMap('level0').TASKS.map(t => t.p),
       subTasks,
+      subPumps,
       discovered: [...levelDiscoveredSet],
       cleared: [...levelsClearedSet],
       activeJoin: activeJoinTarget,
@@ -2528,6 +2616,11 @@ function updateLocalPlayer(dt, elapsed) {
 
   const terrain = getTerrainAt(me.x, me.z, map, me.y);
   const floorBaseY = terrain.floorY;
+  const prevInWater = !!me.inWater;
+  me.inWater = !!terrain.inWater;
+  if (me.inWater && !prevInWater && Math.hypot(hVelX, hVelZ) > 2.2) {
+    audio.playWaterSplash?.(me, 0.52);
+  }
   if (terrain.inWater && !isK) {
     groundSpd *= 0.80;
   }
@@ -2574,7 +2667,8 @@ function updateLocalPlayer(dt, elapsed) {
       stepPulseT = 1.0;
       stepPulseAmp = Math.min(0.65, impact * 0.55);
       me.vy = 0;
-      audio.playLand(me, impact);
+      if (terrain.inWater) audio.playWaterSplash?.(me, Math.min(1.0, impact + 0.25));
+      else audio.playLand(me, impact);
     }
   } else {
     // Smooth step/ramp elevation follow + Poolrooms water-slide momentum!
@@ -2638,7 +2732,7 @@ function updateLocalPlayer(dt, elapsed) {
       stepPulseT = 1.0;
       stepPulseAmp = isK ? 1.24 : wantSprint ? 1.44 : me.crouch ? 0.34 : 0.68;
       landTrauma = Math.min(0.65, landTrauma + (isK ? 0.30 : wantSprint ? 0.26 : 0.12));
-      audio.playFootstep(me, wantSprint, me.crouch, isK, getSurfaceAt(me.x, me.z, map));
+      audio.playFootstep(me, wantSprint, me.crouch, isK, terrain.inWater ? 'water' : getSurfaceAt(me.x, me.z, map));
     }
   }
 
@@ -2883,6 +2977,16 @@ function findBestPrompt(me) {
       return { text: `[E] Kích hoạt ${rel.label}`, act: () => sendAction({ act: 'pickup', kind: 'relic', id: rel.id }) };
     }
   }
+  // 4a. Poolrooms Hydraulic Pump Valve Stations (`map.PUMPS`)
+  for (const pm of (map.PUMPS || [])) {
+    if (!pm.done && Math.hypot(me.x - pm.x, me.z - pm.z) < 2.85) {
+      const pct = Math.round((pm.p || 0) * 100);
+      return {
+        text: `[Giữ E] Mở Van ${pm.name} (${pct}%)`,
+        hold: { kind: 'pump', targetId: `pump_${pm.id}`, duration: 4.5, pumpIdx: pm.id }
+      };
+    }
+  }
   // 4. Breaker Box Tasks (displays unique Machine Code, Symbol & Saved %!)
   for (const t of map.TASKS) {
     if (!t.done && Math.hypot(me.x - t.x, me.z - t.z) < 2.8) {
@@ -3000,6 +3104,16 @@ function updateInteractions(dt, me) {
       sendAction({ act: 'taskProg', idx: busyAct.taskIdx, delta: inc });
       syncTaskCabinetLEDs();
       $('actLabel').textContent = `Đang sửa Máy ${t?.code || ''} ${t?.symbol || ''}... ${Math.round(busyAct.prog * 100)}%`;
+      $('actBar').style.width = `${busyAct.prog * 100}%`;
+      if (busyAct.prog >= 1) busyAct = null;
+    } else if (busyAct.kind === 'pump') {
+      const pm = map.PUMPS?.[busyAct.pumpIdx];
+      const dur = busyAct.duration || 4.5;
+      const inc = dt / dur;
+      busyAct.prog = Math.min(1, Math.max(pm?.p || 0, busyAct.prog) + inc);
+      if (pm) pm.p = busyAct.prog;
+      sendAction({ act: 'pumpProg', idx: busyAct.pumpIdx, delta: inc });
+      $('actLabel').textContent = `Đang mở Van ${pm?.name || ''}... ${Math.round(busyAct.prog * 100)}%`;
       $('actBar').style.width = `${busyAct.prog * 100}%`;
       if (busyAct.prog >= 1) busyAct = null;
     } else {
@@ -3168,6 +3282,33 @@ function updateHUD(elapsed, fpsVal) {
       <div class="mission-step ${aliveS === 0 ? 'done' : 'active'}">▸ Săn gục toàn bộ Survivor (Còn: ${aliveS})</div>
       <div class="mission-step">▸ Nhấn [E] bắt nạn nhân gục & treo lên Móc</div>
       <div class="mission-hint">Bấm [Q] soi vị trí (${revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'SẴN'}) • [R] đặt bẫy</div>`;
+  } else if (activeLocalLevelId === 'level37' && map.POOL_ZONES) {
+    const repairDone = doneCount >= 1;
+    const pumps = map.PUMPS || [];
+    const pumpsDone = pumps.filter(pm => pm.done).length;
+    const curZone = getPoolroomsZoneAt(me.x, me.z, map);
+    let tgt = null;
+    let tgtLbl = 'CỔNG HỒI QUY';
+    if (repairDone) {
+      tgt = map.PORTALS?.[0] || map.TASKS[0];
+    } else {
+      let bestPD = Infinity;
+      for (const pm of pumps) {
+        if (pm.done) continue;
+        const d = Math.hypot(pm.x - me.x, pm.z - me.z);
+        if (d < bestPD) { bestPD = d; tgt = pm; tgtLbl = pm.name; }
+      }
+      if (!tgt) { tgt = map.TASKS[0]; tgtLbl = 'KHU J — HẦM XẢ NƯỚC'; }
+    }
+    const dist = tgt ? Math.hypot(tgt.x - me.x, tgt.z - me.z) : 0;
+    const ang = tgt ? Math.atan2(-(tgt.x - me.x), -(tgt.z - me.z)) : 0;
+    const rel = Math.atan2(Math.sin(ang - me.yaw), Math.cos(ang - me.yaw));
+    const arrow = Math.abs(rel) < 0.55 ? '↑ THẲNG' : rel > 0.55 && rel < 2.4 ? '← TRÁI' : rel < -0.55 && rel > -2.4 ? '→ PHẢI' : '↓ SAU';
+    $('missionBox').innerHTML = `
+      <div class="mission-title"><span style="white-space:nowrap">${compactCode}</span><span style="text-align:right;font-size:10px">${curZone?.name || meta.vnName}</span></div>
+      <div class="mission-step ${pumpsDone >= pumps.length && pumps.length > 0 ? 'done' : 'active'}">${pumpsDone >= pumps.length && pumps.length > 0 ? '✓' : '1.'} Mở 3 Trạm Bơm Thủy Lực (${pumpsDone}/${pumps.length}) — Giữ [E]</div>
+      <div class="mission-step ${repairDone ? 'active' : ''}">${repairDone ? '✓' : '2.'} Thoát qua Cổng Khu J ([E])</div>
+      <div class="mission-hint">${tgtLbl}: ${Math.round(dist)}m (${arrow}) • Tránh nước sâu khi có Hydrolitis</div>`;
   } else if (activeLocalLevelId !== 'level0') {
     const repairDone = doneCount >= 1;
     const tgt = repairDone ? (map.PORTALS?.[0] || map.TASKS[0]) : map.TASKS[0];
@@ -3992,6 +4133,9 @@ function animate(now) {
 
     const killers = Object.values(players).filter(p => p.role === 'k' && (p.levelId || 'level0') === activeLocalLevelId);
     updateWorldLighting(world, map, camera.position, elapsed, killers.map(k => ({ x: k.x, z: k.z })));
+    if (activeLocalLevelId === 'level37' && world.updateExtra) {
+      world.updateExtra(elapsed, camera.position, map, scene.fog, killers[0] ? { x: killers[0].x, y: 0, z: killers[0].z } : null);
+    }
 
     // Update active thrown UV Flares
     for (let i = world.flareMeshes.length - 1; i >= 0; i--) {
@@ -4094,20 +4238,46 @@ function animate(now) {
     }
 
     // Dynamic Zone Light & Scene Atmosphere Adaptation (per-scene colors, shadow intensity, fog tint & depth!)
+    gfx.setCoolGrade?.(
+      (me && !isK && activeLocalLevelId !== 'level0')
+        ? (activeLocalLevelId === 'level37' ? 0.92 : 0.65)
+        : 0.0
+    );
     if (me && !isK) {
       if (activeLocalLevelId !== 'level0' && map?.levelCfg) {
         const lc = map.levelCfg;
-        scene.fog.color.setHex(lc.fogColor ?? 0x161207);
-        scene.background.setHex(lc.fogColor ?? 0x161207);
-        scene.fog.density = lc.fogDensity ?? 0.008;
-        hemiLight.color.setHex(lc.hemiSky ?? 0xd8e0e8);
-        hemiLight.groundColor.setHex(lc.hemiGround ?? 0x26200d);
-        hemiLight.intensity = (lc.hemiInt ?? 0.80) * (lc.isOutdoor ? 0.68 : 0.56);
-        ambLight.color.setHex(lc.ambColor ?? 0x88929a);
-        ambLight.intensity = (lc.ambInt ?? 0.35) * 0.45;
         const br = Number(fxSettings.brightness) || 1.0;
-        const brightCap = (lc.id === 'level37' || lc.id === 'level974' || lc.id === 'level9223') ? 0.76 : (lc.isOutdoor ? 0.90 : 0.85);
-        renderer.toneMappingExposure = brightCap * br;
+        if (activeLocalLevelId === 'level37' && map.POOL_ZONES) {
+          const pz = getPoolroomsZoneAt(me.x, me.z, map);
+          const atmLerp = 1 - Math.exp(-2.8 * dt);
+          _atmoFogCol.setHex(pz.fogColor ?? lc.fogColor ?? 0xaadbe0);
+          _atmoHemiSky.setHex(pz.hemiSky ?? lc.hemiSky ?? 0xdff8ff);
+          _atmoHemiGnd.setHex(pz.hemiGround ?? lc.hemiGround ?? 0x3b8ea5);
+          scene.fog.color.lerp(_atmoFogCol, atmLerp);
+          scene.background.lerp(_atmoFogCol, atmLerp);
+          scene.fog.density += ((pz.fogDensity ?? lc.fogDensity ?? 0.0052) - scene.fog.density) * atmLerp;
+          hemiLight.color.lerp(_atmoHemiSky, atmLerp);
+          hemiLight.groundColor.lerp(_atmoHemiGnd, atmLerp);
+          hemiLight.intensity += (((pz.hemiInt ?? lc.hemiInt ?? 0.70) * 0.56) - hemiLight.intensity) * atmLerp;
+          _atmoHemiSky.setHex(pz.ambColor ?? lc.ambColor ?? 0x9cdde8);
+          ambLight.color.lerp(_atmoHemiSky, atmLerp);
+          ambLight.intensity += (((pz.ambInt ?? lc.ambInt ?? 0.35) * 0.45) - ambLight.intensity) * atmLerp;
+          const targetExp = Math.min(0.76, pz.exposure ?? 0.73) * br;
+          renderer.toneMappingExposure += (targetExp - renderer.toneMappingExposure) * atmLerp;
+          audio.updatePoolroomsZoneAudio?.(dt, pz, !!me.inWater);
+          updatePoolroomsWorldEvents(dt, elapsed, me, map, world, audio, (cueTxt) => pushFeed(cueTxt, '#7ceeff'));
+        } else {
+          scene.fog.color.setHex(lc.fogColor ?? 0x161207);
+          scene.background.setHex(lc.fogColor ?? 0x161207);
+          scene.fog.density = lc.fogDensity ?? 0.008;
+          hemiLight.color.setHex(lc.hemiSky ?? 0xd8e0e8);
+          hemiLight.groundColor.setHex(lc.hemiGround ?? 0x26200d);
+          hemiLight.intensity = (lc.hemiInt ?? 0.80) * (lc.isOutdoor ? 0.68 : 0.56);
+          ambLight.color.setHex(lc.ambColor ?? 0x88929a);
+          ambLight.intensity = (lc.ambInt ?? 0.35) * 0.45;
+          const brightCap = (lc.id === 'level37' || lc.id === 'level974' || lc.id === 'level9223') ? 0.76 : (lc.isOutdoor ? 0.90 : 0.85);
+          renderer.toneMappingExposure = brightCap * br;
+        }
       } else {
         const targetZL = getZoneLuminanceAt(me.x, me.z, map);
         zoneLightSmooth += (targetZL - zoneLightSmooth) * (1 - Math.exp(-2.8 * dt));
@@ -4996,9 +5166,17 @@ async function runSelfTests() {
     };
     poolEntAI.update(0.1, fakeEnt, fakeWetSurv, poolMap, {});
     const chasedWet = poolEntAI.state === 'CHASE' && poolEntAI.targetId === 's1';
+    const zonesOk = (poolMap.POOL_ZONES?.length === 10) && poolMap.POOL_ZONES.every(z => {
+      const zt = getTerrainAt(z.teleX, z.teleZ, poolMap, z.teleY);
+      return zt && zt.inWater === false;
+    });
+    const pumpsOk = poolMap.PUMPS?.length === 3;
     const poolDiag = {
       waters: poolMap.WATER_RECTS?.length || 0,
       slides: poolMap.SLIDES?.length || 0,
+      zones: poolMap.POOL_ZONES?.length || 0,
+      zonesOk,
+      pumps: poolMap.PUMPS?.length || 0,
       basin,
       slide,
       basinTerr,
@@ -5013,6 +5191,7 @@ async function runSelfTests() {
     const poolPass = (
       poolDiag.waters >= 3 &&
       poolDiag.slides >= 4 &&
+      zonesOk && pumpsOk &&
       basinTerr?.inWater === true && basinTerr.floorY < -0.5 &&
       bridgeTerr?.inWater === false &&
       slideTerr?.onSlide === true && Math.hypot(slideTerr.slideVelX, slideTerr.slideVelZ) > 0.5 &&
@@ -5022,7 +5201,7 @@ async function runSelfTests() {
     if (!poolPass) console.error('POOL TEST DIAG:', JSON.stringify(poolDiag));
     assert(poolPass, 'poolrooms_water_slides_and_water_only_monster');
 
-    // Interactive enter -> Co-op Join -> Repair 1 Machine -> Return to Level 0 loop
+    // Interactive enter -> Co-op Join -> Activate 3 Pumps to Unlock Portal -> Return to Level 0 loop
     players['ally_coop'] = {
       id: 'ally_coop', name: 'Teammate', role: 's', colorIdx: 1, isAI: false, levelId: 'level0',
       x: tMap.SPAWN.x, y: 0, z: tMap.SPAWN.z, yaw: 0, pitch: 0,
@@ -5034,8 +5213,10 @@ async function runSelfTests() {
     const joinOffered = activeJoinTarget?.levelId === 'level37';
     processPlayerActionHost('ally_coop', { act: 'enterLevel', levelId: 'level37', via: 'join' });
     const allyJoined = players['ally_coop'].levelId === 'level37';
-    processPlayerActionHost(myId, { act: 'taskProg', idx: 0, delta: 1.1 });
-    const taskCleared = map.TASKS[0].done === true && levelsClearedSet.has('level37');
+    processPlayerActionHost(myId, { act: 'pumpProg', idx: 0, delta: 1.0 });
+    processPlayerActionHost(myId, { act: 'pumpProg', idx: 1, delta: 1.0 });
+    processPlayerActionHost(myId, { act: 'pumpProg', idx: 2, delta: 1.0 });
+    const taskCleared = map.PUMPS.every(pm => pm.done) && map.TASKS[0].done === true && levelsClearedSet.has('level37');
     const portalPt = map.PORTALS[0];
     players[myId].x = portalPt.x; players[myId].z = portalPt.z;
     const portalPrompt = findBestPrompt(players[myId]);

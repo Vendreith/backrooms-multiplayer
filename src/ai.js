@@ -121,21 +121,30 @@ export class EntityAIController {
       const baseHear = (this.archetype.hearRange || 12) * stealthScale;
 
       for (const s of aliveSurvs) {
+        let inWaterNow = false;
+        let onSlideNow = false;
         if (waterOnly) {
           const tSurf = getTerrainAt(s.x, s.z, map, s.y);
           if (!tSurf.inWater) continue; // Poolrooms / Ocean Stalker STRICTLY ignores Survivors out of water!
+          inWaterNow = true;
+          onSlideNow = !!tSurf.onSlide;
         }
         const d = Math.hypot(s.x - aiPlayer.x, s.z - aiPlayer.z);
         const darkMod = behavior === 'stalk_dark' ? (s.fl ? 1.45 : 0.72) : 1.0;
         const stealthFactor = (s.crouch && !s.fl ? 0.62 : s.fl ? 1.12 : 1.0) * darkMod;
         const effSight = baseSight * stealthFactor;
-        const effHear = (s.crouch && behavior !== 'stalk_dark') ? 0 : (s.spd > 5.8 ? baseHear : baseHear * 0.48);
+        const effHear = (s.crouch && behavior !== 'stalk_dark')
+          ? (waterOnly ? baseHear * 0.25 : 0)
+          : waterOnly
+            ? (onSlideNow || s.spd > 5.0 ? baseHear * 1.48 : baseHear * 0.55)
+            : (s.spd > 5.8 ? baseHear : baseHear * 0.48);
         if (d > Math.max(effSight, effHear)) continue;
 
-        const los = d <= effSight && (waterOnly || !blocked(aiPlayer.x, aiPlayer.z, s.x, s.z, map));
-        const audible = !s.crouch && d <= effHear;
+        const los = d <= effSight && !blocked(aiPlayer.x, aiPlayer.z, s.x, s.z, map);
+        const waterLos = waterOnly && d <= effSight * 0.85 && inWaterNow;
+        const audible = (!s.crouch || (waterOnly && s.spd > 4.2)) && d <= effHear;
         const nearDown = s.state === 'down' && d <= baseSight;
-        if (los || audible || nearDown) {
+        if (los || waterLos || audible || nearDown) {
           const prio = s.state === 'down' ? d * 0.72 : d;
           if (prio < bestScore) { bestScore = prio; bestTarget = s; }
         }
@@ -148,8 +157,8 @@ export class EntityAIController {
         this.targetId = bestTarget.id;
         this.targetPos = { x: bestTarget.x, z: bestTarget.z };
       } else if (this.state === 'CHASE' && this.targetPos) {
-        this.lostT += dt * (waterOnly ? 2.8 : 1.0);
-        const maxLose = waterOnly ? 1.9 : (this.archetype.loseTime || 4.5);
+        this.lostT += dt * (waterOnly ? 2.1 : 1.0);
+        const maxLose = waterOnly ? 2.6 : (this.archetype.loseTime || 4.5);
         if (this.lostT >= maxLose || Math.hypot(this.targetPos.x - aiPlayer.x, this.targetPos.z - aiPlayer.z) < 2.2) {
           this.state = 'PATROL';
           this.targetPos = null;

@@ -232,7 +232,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     mistBase.position.set(span * 0.5, -18, span * 0.5);
     root.add(mistBase);
   } else {
-    const baseY = cfg.archetype === 'ocean' ? -0.82 : -0.02;
+    const baseY = cfg.archetype === 'ocean' ? -0.82 : cfg.archetype === 'poolrooms' ? -2.85 : -0.02;
     const floorGeo = reg(disposables, new THREE.PlaneGeometry(span, span));
     const floorMesh = new THREE.Mesh(floorGeo, mats.floorMat);
     floorMesh.rotation.x = -Math.PI * 0.5;
@@ -271,9 +271,21 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
       if (!p.draw) continue;
       const dx = Math.max(0.5, p.x1 - p.x0);
       const dz = Math.max(0.5, p.z1 - p.z0);
-      const g = makeTiledBox(dx, 0.36, dz, 5.0);
-      g.translate((p.x0 + p.x1) * 0.5, p.y - 0.18, (p.z0 + p.z1) * 0.5);
+      const pBot = p.yBase != null ? Math.min(p.y - 0.36, p.yBase) : (p.y - 0.36);
+      const pH = Math.max(0.36, p.y - pBot);
+      const g = makeTiledBox(dx, pH, dz, 5.0);
+      g.translate((p.x0 + p.x1) * 0.5, pBot + pH * 0.5, (p.z0 + p.z1) * 0.5);
       platGeoms.push(g);
+    }
+    if (cfg.archetype === 'poolrooms' && map.WATER_RECTS?.length) {
+      for (const w of map.WATER_RECTS) {
+        const dx = Math.max(1, w.x1 - w.x0);
+        const dz = Math.max(1, w.z1 - w.z0);
+        const bedY = w.bedY ?? -0.95;
+        const g = makeTiledBox(dx, 0.34, dz, 4.5);
+        g.translate((w.x0 + w.x1) * 0.5, bedY - 0.17, (w.z0 + w.z1) * 0.5);
+        platGeoms.push(g);
+      }
     }
     for (const r of (map.RAMPS || [])) {
       if (!r.draw) continue;
@@ -291,10 +303,12 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     }
     const mergedP = reg(disposables, mergeList(platGeoms));
     if (mergedP) {
-      const pMat = reg(disposables, new THREE.MeshStandardMaterial({
-        color: cfg.archetype === 'field' ? 0x735c3d : cfg.archetype === 'ocean' ? 0x6b503a : cfg.archetype === 'sunset_beach' ? 0xd4b97e : (cfg.palette?.trim ?? 0xaaaaaa),
-        roughness: 0.72
-      }));
+      const pMat = cfg.archetype === 'poolrooms'
+        ? mats.wallMat
+        : reg(disposables, new THREE.MeshStandardMaterial({
+            color: cfg.archetype === 'field' ? 0x735c3d : cfg.archetype === 'ocean' ? 0x6b503a : cfg.archetype === 'sunset_beach' ? 0xd4b97e : (cfg.palette?.trim ?? 0xaaaaaa),
+            roughness: 0.72
+          }));
       root.add(new THREE.Mesh(mergedP, pMat));
     }
 
@@ -336,22 +350,140 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     }
   }
 
-  // 5. Shimmering Water Basins (Poolrooms, Thalassophobia, Sunset Beach)
+  // 5. Shimmering Water Basins (Custom GLSL Shader for Poolrooms, standard for Beach/Ocean)
+  let poolWaterMat = null;
   if (map.WATER_RECTS?.length && mats.waterMat) {
-    const wGeoms = [];
-    for (const w of map.WATER_RECTS) {
-      const dx = Math.max(1, w.x1 - w.x0);
-      const dz = Math.max(1, w.z1 - w.z0);
-      const g = new THREE.PlaneGeometry(dx, dz);
-      g.rotateX(-Math.PI * 0.5);
-      g.translate((w.x0 + w.x1) * 0.5, w.waterY ?? 0, (w.z0 + w.z1) * 0.5);
-      wGeoms.push(g);
-    }
-    const mW = reg(disposables, mergeList(wGeoms));
-    if (mW) {
-      const waterMesh = new THREE.Mesh(mW, mats.waterMat);
-      root.add(waterMesh);
-      waterMeshes.push(waterMesh);
+    if (cfg.archetype === 'poolrooms') {
+      const wGeoms = [];
+      for (const w of map.WATER_RECTS) {
+        const dx = Math.max(1, w.x1 - w.x0);
+        const dz = Math.max(1, w.z1 - w.z0);
+        const segX = Math.min(18, Math.max(4, Math.ceil(dx / 6.0)));
+        const segZ = Math.min(18, Math.max(4, Math.ceil(dz / 6.0)));
+        const raw = new THREE.PlaneGeometry(dx, dz, segX, segZ);
+        const g = raw.toNonIndexed();
+        raw.dispose();
+        g.rotateX(-Math.PI * 0.5);
+        g.translate((w.x0 + w.x1) * 0.5, w.waterY ?? -0.18, (w.z0 + w.z1) * 0.5);
+        const vCount = g.attributes.position.count;
+        const depthArr = new Float32Array(vCount).fill(Math.max(0.25, (w.waterY ?? -0.18) - (w.bedY ?? -0.95)));
+        const tempArr = new Float32Array(vCount).fill(w.temp ?? 0.25);
+        g.setAttribute('aBedDepth', new THREE.BufferAttribute(depthArr, 1));
+        g.setAttribute('aZoneTemp', new THREE.BufferAttribute(tempArr, 1));
+        wGeoms.push(g);
+      }
+      const mW = reg(disposables, mergeList(wGeoms));
+      if (mW) {
+        poolWaterMat = reg(disposables, new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          uniforms: {
+            uTime: { value: 0 },
+            uPlayerPos: { value: new THREE.Vector3(map.SPAWN?.x ?? 54, 0, map.SPAWN?.z ?? 54) },
+            uEntityPos: { value: new THREE.Vector3(-999, 0, -999) },
+            uFogColor: { value: new THREE.Color(cfg.fogColor) },
+            uFogDensity: { value: cfg.fogDensity }
+          },
+          vertexShader: `
+            attribute float aBedDepth;
+            attribute float aZoneTemp;
+            uniform float uTime;
+            uniform vec3 uPlayerPos;
+            uniform vec3 uEntityPos;
+            varying vec3 vWorldPos;
+            varying float vBedDepth;
+            varying float vZoneTemp;
+            varying float vWaveH;
+            varying float vRipple;
+            void main() {
+              vec3 pos = position;
+              vec4 wp = modelMatrix * vec4(pos, 1.0);
+              float w1 = sin(wp.x * 0.52 + uTime * 1.45) * cos(wp.z * 0.44 - uTime * 1.15);
+              float w2 = sin((wp.x + wp.z) * 0.85 - uTime * 2.15) * 0.5;
+              float dP = distance(wp.xz, uPlayerPos.xz);
+              float ripP = sin(dP * 3.8 - uTime * 7.2) * exp(-dP * 0.24) * 0.045;
+              float dE = distance(wp.xz, uEntityPos.xz);
+              float ripE = sin(dE * 3.1 - uTime * 6.0) * exp(-dE * 0.16) * 0.055;
+              float disp = (w1 * 0.020 + w2 * 0.012) + ripP + ripE;
+              pos.y += disp;
+              wp.y += disp;
+              vWorldPos = wp.xyz;
+              vBedDepth = aBedDepth;
+              vZoneTemp = aZoneTemp;
+              vWaveH = disp;
+              vRipple = abs(ripP) + abs(ripE);
+              gl_Position = projectionMatrix * viewMatrix * wp;
+            }
+          `,
+          fragmentShader: `
+            uniform float uTime;
+            uniform vec3 uFogColor;
+            uniform float uFogDensity;
+            varying vec3 vWorldPos;
+            varying float vBedDepth;
+            varying float vZoneTemp;
+            varying float vWaveH;
+            varying float vRipple;
+            void main() {
+              vec2 uv = vWorldPos.xz;
+              // Analytical micro-normal perturbation for luminous skylight highlights
+              float nx = cos(uv.x * 1.35 + uTime * 1.7) * 0.08 + cos((uv.x - uv.y) * 2.4 - uTime * 2.3) * 0.05;
+              float nz = sin(uv.y * 1.25 - uTime * 1.5) * 0.08 + sin((uv.x + uv.y) * 2.2 + uTime * 2.0) * 0.05;
+              vec3 N = normalize(vec3(nx, 1.0, nz));
+              vec3 V = normalize(cameraPosition - vWorldPos);
+              float NdotV = max(dot(N, V), 0.0);
+              float fresnel = pow(1.0 - NdotV, 2.8);
+
+              // Dual-layer aquatic caustics
+              float c1 = sin(uv.x * 1.85 + uTime * 1.6 + sin(uv.y * 1.4 - uTime * 1.1));
+              float c2 = cos(uv.y * 1.75 - uTime * 1.4 + cos(uv.x * 1.5 + uTime * 1.3));
+              float caustics = pow(max(0.0, (c1 * c2) * 0.5 + 0.5), 3.0);
+
+              // Depth & zone temperature attenuation (warm aqua -> deep abyssal teal)
+              float depthT = clamp((vBedDepth - 0.55) / 2.0, 0.0, 1.0);
+              vec3 warmShallow = vec3(0.42, 0.88, 0.90);
+              vec3 coolMid = vec3(0.14, 0.62, 0.72);
+              vec3 abyssTeal = vec3(0.04, 0.22, 0.30);
+              vec3 baseCol = mix(warmShallow, coolMid, clamp(vZoneTemp * 0.8 + depthT * 0.45, 0.0, 1.0));
+              baseCol = mix(baseCol, abyssTeal, depthT * 0.78);
+
+              // Skylight reflection tint + caustic shimmer + soft wave crest highlight
+              vec3 reflCol = mix(vec3(0.76, 0.96, 1.0), vec3(0.95, 0.93, 0.84), (1.0 - vZoneTemp) * 0.45);
+              vec3 col = baseCol + caustics * mix(0.20, 0.06, depthT) * vec3(0.55, 0.95, 1.0);
+              col = mix(col, reflCol, clamp(fresnel * 0.62 + 0.06, 0.0, 0.72));
+              col += vec3(0.65, 0.96, 1.0) * min(0.28, vRipple * 5.0);
+
+              // Seamless exponential squared fog matching THREE.FogExp2
+              float dist = length(cameraPosition - vWorldPos);
+              float fogF = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
+              col = mix(col, uFogColor, clamp(fogF, 0.0, 1.0));
+
+              float alpha = mix(0.58, 0.89, clamp(depthT * 0.55 + fresnel * 0.42, 0.0, 1.0));
+              gl_FragColor = vec4(col, alpha);
+            }
+          `
+        }));
+        const waterMesh = new THREE.Mesh(mW, poolWaterMat);
+        root.add(waterMesh);
+        waterMeshes.push(waterMesh);
+      }
+    } else {
+      const wGeoms = [];
+      for (const w of map.WATER_RECTS) {
+        const dx = Math.max(1, w.x1 - w.x0);
+        const dz = Math.max(1, w.z1 - w.z0);
+        const g = new THREE.PlaneGeometry(dx, dz);
+        g.rotateX(-Math.PI * 0.5);
+        g.translate((w.x0 + w.x1) * 0.5, w.waterY ?? 0, (w.z0 + w.z1) * 0.5);
+        wGeoms.push(g);
+      }
+      const mW = reg(disposables, mergeList(wGeoms));
+      if (mW) {
+        const waterMesh = new THREE.Mesh(mW, mats.waterMat);
+        root.add(waterMesh);
+        waterMeshes.push(waterMesh);
+      }
     }
   }
 
@@ -533,7 +665,38 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     flareLightPool.push(fpl);
   }
 
-  // 11. End-of-Level Breaker Machine (`map.TASKS`) & Glowing Return Portal (`map.PORTALS`)
+  // 11. End-of-Level Breaker Machine (`map.TASKS`), Poolrooms Pump Valves (`map.PUMPS`) & Return Portal (`map.PORTALS`)
+  const pumpMeshes = [];
+  for (const pm of (map.PUMPS || [])) {
+    const pg = new THREE.Group();
+    pg.position.set(pm.x, pm.y || 0, pm.z);
+    if (pm.ry) pg.rotation.y = pm.ry;
+    const baseMat = reg(disposables, new THREE.MeshStandardMaterial({ color: 0x42565e, roughness: 0.42, metalness: 0.58 }));
+    const brassMat = reg(disposables, new THREE.MeshStandardMaterial({ color: 0xd4a442, roughness: 0.35, metalness: 0.72 }));
+    const ledMat = reg(disposables, new THREE.MeshBasicMaterial({ color: pm.done ? 0x36ff88 : 0xff4c38 }));
+    const ped = new THREE.Mesh(reg(disposables, new THREE.BoxGeometry(1.35, 1.45, 1.05)), baseMat);
+    ped.position.y = 0.72;
+    const pipeVert = new THREE.Mesh(reg(disposables, new THREE.CylinderGeometry(0.20, 0.22, 2.6, 10)), brassMat);
+    pipeVert.position.set(0.38, 1.3, 0);
+    const wheelGroup = new THREE.Group();
+    wheelGroup.position.set(0, 1.15, 0.58);
+    const rimMat = reg(disposables, new THREE.MeshStandardMaterial({ color: 0xd93829, roughness: 0.4 }));
+    const rim = new THREE.Mesh(reg(disposables, new THREE.TorusGeometry(0.36, 0.055, 8, 16)), rimMat);
+    const spokeA = new THREE.Mesh(reg(disposables, new THREE.BoxGeometry(0.72, 0.05, 0.05)), baseMat);
+    const spokeB = new THREE.Mesh(reg(disposables, new THREE.BoxGeometry(0.05, 0.72, 0.05)), baseMat);
+    wheelGroup.add(rim, spokeA, spokeB);
+    const led = new THREE.Mesh(reg(disposables, new THREE.BoxGeometry(0.72, 0.22, 1.10)), ledMat);
+    led.position.y = 1.54;
+    const beacon = new THREE.Mesh(
+      reg(disposables, new THREE.CylinderGeometry(0.07, 0.07, 22, 8)),
+      reg(disposables, new THREE.MeshBasicMaterial({ color: 0x4ae8ff, transparent: true, opacity: 0.24 }))
+    );
+    beacon.position.y = 12.2;
+    pg.add(ped, pipeVert, wheelGroup, led, beacon);
+    root.add(pg);
+    pumpMeshes.push({ pump: pm, group: pg, wheelGroup, ledMat, beacon });
+  }
+
   for (const t of (map.TASKS || [])) {
     const tg = new THREE.Group();
     tg.position.set(t.x, t.y || 0, t.z);
@@ -597,6 +760,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     lightPool,
     flareLightPool,
     taskMeshes,
+    pumpMeshes,
     hookMeshes: [],
     exitMeshes: [],
     portalMeshes,
@@ -612,16 +776,30 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
       scene.remove(root);
       for (const d of disposables) if (d && d.dispose) d.dispose();
     },
-    updateExtra(elapsed, camPos, curMap) {
+    updateExtra(elapsed, camPos, curMap, sceneFog, entPos) {
       if (skyDome) {
         skyDome.mesh.position.copy(camPos);
         skyDome.mat.uniforms.uTime.value = elapsed;
       }
-      if (mats.waterTex) {
+      if (poolWaterMat) {
+        poolWaterMat.uniforms.uTime.value = elapsed;
+        if (camPos) poolWaterMat.uniforms.uPlayerPos.value.copy(camPos);
+        if (entPos) poolWaterMat.uniforms.uEntityPos.value.copy(entPos);
+        if (sceneFog) {
+          poolWaterMat.uniforms.uFogColor.value.copy(sceneFog.color);
+          poolWaterMat.uniforms.uFogDensity.value = sceneFog.density ?? cfg.fogDensity;
+        }
+      } else if (mats.waterTex) {
         mats.waterTex.offset.x = (elapsed * 0.04) % 1;
         mats.waterTex.offset.y = (elapsed * 0.025) % 1;
       }
-      updateAnimatedProps(animPropHandles, elapsed);
+      updateAnimatedProps(animPropHandles, elapsed, curMap);
+      for (const pm of pumpMeshes) {
+        const done = !!pm.pump?.done;
+        pm.ledMat.color.setHex(done ? 0x36ff88 : (pm.pump?.p > 0.01 ? 0xffc83d : 0xff4c38));
+        pm.wheelGroup.rotation.z = done ? elapsed * 2.4 : (pm.pump?.p || 0) * Math.PI * 4.0;
+        pm.beacon.material.color.setHex(done ? 0x36ff88 : 0x4ae8ff);
+      }
       for (const pm of portalMeshes) {
         const unlocked = curMap?.TASKS?.every(t => t.done);
         pm.glowMat.opacity = unlocked ? (0.48 + Math.sin(elapsed * 4.0) * 0.16) : 0.14;

@@ -204,6 +204,7 @@ uniform float uGamma;
 uniform float uHue;
 uniform float uSaturation;
 uniform float uScanlineMask;
+uniform float uCoolGrade;
 
 float crtLinearizeDist(float d, float zn, float zf) {
   float zNdc = clamp(d, 0.0, 0.99995) * 2.0 - 1.0;
@@ -325,7 +326,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     texture2D(inputBuffer, clamp(clampedCuv + vec2(-halStep.x, halStep.y), vec2(0.006), vec2(0.994))).rgb
   );
   float halLuma = dot(halSample, vec3(0.299, 0.587, 0.114));
-  col += vec3(1.0, 0.48, 0.16) * smoothstep(0.72, 1.85, halLuma) * 0.14 * clamp(uCrtAmount, 0.0, 1.0);
+  vec3 halTint = mix(vec3(1.0, 0.48, 0.16), vec3(0.75, 0.96, 1.0), clamp(uCoolGrade, 0.0, 1.0));
+  col += halTint * smoothstep(0.72, 1.85, halLuma) * 0.14 * clamp(uCrtAmount, 0.0, 1.0);
 
   // Bypass close-up sharpening whenever low-res Footage / Stream filter is active (sharpen near zero)
   if (nearFocus > 0.01 && uDisableSharpen < 0.5) {
@@ -346,8 +348,9 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   col = pow(max(col * uneasyBreathe, vec3(0.0)), vec3(1.04 + clamp(uGradeHaze, 0.0, 1.2) * 0.05));
 
   float preLumaHdr = dot(col, vec3(0.299, 0.587, 0.114));
-  vec3 deepAmberShadow = vec3(0.82, 0.66, 0.24);
-  vec3 sicklyYellowHi = vec3(1.26, 1.08, 0.48);
+  float coolMix = clamp(uCoolGrade, 0.0, 1.0);
+  vec3 deepAmberShadow = mix(vec3(0.82, 0.66, 0.24), vec3(0.74, 0.90, 0.98), coolMix);
+  vec3 sicklyYellowHi = mix(vec3(1.26, 1.08, 0.48), vec3(1.04, 1.06, 1.08), coolMix);
   vec3 grade = mix(deepAmberShadow, sicklyYellowHi, smoothstep(0.03, 0.58, preLumaHdr));
   col *= grade;
 
@@ -382,7 +385,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float closeGrainEase = mix(1.0, 0.24, nearFocus);
   float lightGrain = baseGrain * (1.0 + lightGrainBoost * 5.2) * closeGrainEase;
   float darkBite = max(0.0, -gMix) * lightGrainBoost * mix(0.62, 0.32, uIsKiller) * min(grainMul, 1.5) * mix(1.0, 0.16, nearFocus);
-  col = clamp(col * max(0.28, 1.0 - darkBite) + vec3(gMix) * lightGrain * vec3(1.12, 1.00, 0.76), vec3(0.0), vec3(1.0));
+  vec3 grainTint = mix(vec3(1.12, 1.00, 0.76), vec3(0.95, 1.00, 1.05), clamp(uCoolGrade, 0.0, 1.0));
+  col = clamp(col * max(0.28, 1.0 - darkBite) + vec3(gMix) * lightGrain * grainTint, vec3(0.0), vec3(1.0));
 
   // Digital sensor luma + low-light shadow chroma noise (prevents sterile smooth digital blur)
   if (uSensorNoise > 0.005) {
@@ -779,7 +783,8 @@ export class BackroomsCRTGradeEffect extends Effect {
         ['uGamma', new THREE.Uniform(1.0)],
         ['uHue', new THREE.Uniform(0.0)],
         ['uSaturation', new THREE.Uniform(1.0)],
-        ['uScanlineMask', new THREE.Uniform(1.0)]
+        ['uScanlineMask', new THREE.Uniform(1.0)],
+        ['uCoolGrade', new THREE.Uniform(0.0)]
       ])
     });
   }
@@ -1019,6 +1024,11 @@ export class GraphicsManager {
     this.presetKey = key in GFX_PRESETS ? key : 'high';
     this.applyFx(getPresetDefaultFx(this.presetKey), hemiLight, ambLight);
     return preset;
+  }
+
+  setCoolGrade(val = 0.0) {
+    const u = this.crtGrade?.uniforms?.get('uCoolGrade');
+    if (u) u.value = THREE.MathUtils.clamp(val, 0, 1);
   }
 
   setSize(w, h) {

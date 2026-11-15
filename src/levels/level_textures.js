@@ -68,28 +68,41 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 512, seed = 101) {
     const step = size / 8;
     for (let y = 0; y < 8; y++) {
       for (let x = 0; x < 8; x++) {
-        const tint = 0.93 + (rnd() - 0.5) * 0.08;
+        const tint = 0.94 + (rnd() - 0.5) * 0.09;
+        const tx = x * step;
+        const ty = y * step;
         ctx.fillStyle = rgba(rgb, 1, tint);
-        ctx.fillRect(x * step + 2, y * step + 2, step - 4, step - 4);
-        // Subtle porcelain highlight
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-        ctx.fillRect(x * step + 4, y * step + 4, step - 12, 6);
+        ctx.fillRect(tx + 1.5, ty + 1.5, step - 3, step - 3);
+        // Subtle porcelain bevel top/left highlight & bottom/right shadow
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+        ctx.fillRect(tx + 2.5, ty + 2.5, step - 6, 3.5);
+        ctx.fillRect(tx + 2.5, ty + 2.5, 3, step - 6);
+        ctx.fillStyle = 'rgba(65, 118, 132, 0.12)';
+        ctx.fillRect(tx + 3, ty + step - 5, step - 5, 2.5);
+        ctx.fillRect(tx + step - 5, ty + 3, 2.5, step - 5);
+        // Occasional subtle ceramic glaze sheen speck
+        if (rnd() > 0.72) {
+          ctx.fillStyle = 'rgba(225, 252, 255, 0.06)';
+          ctx.fillRect(tx + 6, ty + 6, step - 12, step - 12);
+        }
       }
     }
-    ctx.strokeStyle = 'rgba(105, 162, 174, 0.62)';
-    ctx.lineWidth = 3;
+    // Primary ceramic grout grid + delicate inset seam
+    ctx.strokeStyle = 'rgba(84, 144, 158, 0.68)';
+    ctx.lineWidth = 2.6;
     ctx.beginPath();
     for (let i = 0; i <= 8; i++) {
       ctx.moveTo(i * step, 0); ctx.lineTo(i * step, size);
       ctx.moveTo(0, i * step); ctx.lineTo(size, i * step);
     }
     ctx.stroke();
-    // Aqua mineral band along lower edge
-    const g = ctx.createLinearGradient(0, size * 0.78, 0, size);
+    // Subtle mineral waterline staining & damp gradient
+    const g = ctx.createLinearGradient(0, size * 0.68, 0, size);
     g.addColorStop(0, 'rgba(60, 195, 210, 0)');
-    g.addColorStop(1, 'rgba(40, 155, 175, 0.16)');
+    g.addColorStop(0.55, 'rgba(55, 178, 196, 0.09)');
+    g.addColorStop(1, 'rgba(32, 132, 152, 0.22)');
     ctx.fillStyle = g;
-    ctx.fillRect(0, size * 0.78, size, size * 0.22);
+    ctx.fillRect(0, size * 0.68, size, size * 0.32);
   } else if (pattern === 'red_concrete' || pattern === 'red_asphalt') {
     if (pattern === 'red_concrete') {
       // Clinical crimson hospital corridor dado + painted panel seams + scuffing

@@ -7,6 +7,7 @@ import { SpatialGrid2D } from '../engine.js';
 import { LEVEL_CATALOG } from './catalog.js';
 import { initTerrainIndex } from './terrain.js';
 import { populateLevelLoreProps } from './level_populator.js';
+import { buildPoolroomsWorld } from './poolrooms_world.js';
 
 function mulberry32(seed) {
   let a = seed | 0;
@@ -278,104 +279,97 @@ export function genSubLevelMap(levelId, seed = 2026) {
   const mid = span * 0.5;
   let SPAWN = { x: gC * 3.5, z: gC * 3.5, y: 0, yaw: 0 };
   let END_POS = { x: span - gC * 4.5, z: span - gC * 4.5, y: 0 };
+  let TASK_POS = null;
+  let POOL_K_SPAWN = null;
+  let PUMPS = null;
+  let POOL_ZONES = null;
   let hEdges = null, vEdges = null, cellSolid = null;
   let waterCells = null;
 
   // =========================================================================
-  // ARCHETYPE A: POOLROOMS (Level 37) - Giant Aqua Tiled Complex, Pools & Slides
+  // ARCHETYPE A: POOLROOMS (Level 37) - 10-Zone Liminal Aquatic Labyrinth
   // =========================================================================
   if (arch === 'poolrooms') {
-    const core = buildMazeCore(gN, gC, rnd, cfg, 24);
-    hEdges = core.hEdges;
-    vEdges = core.vEdges;
-    cellSolid = core.cellSolid;
-    meta.plazas = core.plazas;
+    const poolRes = buildPoolroomsWorld({
+      gN, gC, wallH, rnd,
+      RECTS, WALLS, WATER_RECTS, PLATFORMS, RAMPS, SLIDES,
+      PROPS, ANIM_PROPS, LIGHTS, CRAWL_WALLS: []
+    });
+    PUMPS = poolRes.PUMPS;
+    POOL_ZONES = poolRes.POOL_ZONES;
+    TASK_POS = poolRes.TASK_POS;
+    POOL_K_SPAWN = poolRes.K_SPAWN;
+    SPAWN = poolRes.SPAWN;
+    END_POS = poolRes.END_POS;
+    meta.atria = poolRes.atria;
+    meta.customPoolrooms = true;
+
+    // Rasterize navigation grids cleanly from carved architecture so A* & K_SPAWN route through all 10 zones
+    hEdges = Array.from({ length: gN + 1 }, () => new Uint8Array(gN).fill(0));
+    vEdges = Array.from({ length: gN }, () => new Uint8Array(gN + 1).fill(0));
+    cellSolid = Array.from({ length: gN }, () => new Uint8Array(gN).fill(0));
     waterCells = Array.from({ length: gN }, () => new Uint8Array(gN).fill(0));
 
-    // Carve 4 massive centerpiece Pool Atria + connect winding wet corridors
-    const atria = [
-      { cx: Math.floor(gN * 0.25), cz: Math.floor(gN * 0.25), rx: 7, rz: 7 },
-      { cx: Math.floor(gN * 0.72), cz: Math.floor(gN * 0.28), rx: 8, rz: 6 },
-      { cx: Math.floor(gN * 0.30), cz: Math.floor(gN * 0.72), rx: 7, rz: 8 },
-      { cx: Math.floor(gN * 0.74), cz: Math.floor(gN * 0.74), rx: 8, rz: 8 }
-    ];
-    meta.atria = atria;
-    for (const a of atria) {
-      const c0 = Math.max(2, a.cx - a.rx), c1 = Math.min(gN - 3, a.cx + a.rx);
-      const r0 = Math.max(2, a.cz - a.rz), r1 = Math.min(gN - 3, a.cz + a.rz);
-      for (let r = r0; r <= r1; r++) {
-        for (let c = c0; c <= c1; c++) {
-          if (c < c1) vEdges[r][c + 1] = 0;
-          if (r < r1) hEdges[r + 1][c] = 0;
-          // Interior basin water cells (leave 1.5-cell dry ceramic walkway perimeter!)
-          if (c >= c0 + 2 && c <= c1 - 2 && r >= r0 + 2 && r <= r1 - 2) {
-            waterCells[r][c] = 1;
+    for (let r = 0; r < gN; r++) {
+      for (let c = 0; c < gN; c++) {
+        if (r < 3 || r >= gN - 3 || c < 3 || c >= gN - 3) {
+          cellSolid[r][c] = 1;
+          continue;
+        }
+        const cx = (c + 0.5) * gC;
+        const cz = (r + 0.5) * gC;
+        for (let i = 0; i < RECTS.length; i++) {
+          const b = RECTS[i];
+          if (!b.crawl && cx >= b.x0 && cx <= b.x1 && cz >= b.z0 && cz <= b.z1) {
+            cellSolid[r][c] = 1;
+            break;
           }
         }
-      }
-      // Sunken ceramic basin filled with clear aqua water
-      WATER_RECTS.push({
-        x0: (c0 + 2) * gC,
-        z0: (r0 + 2) * gC,
-        x1: (c1 - 1) * gC,
-        z1: (r1 - 1) * gC,
-        bedY: -0.68,
-        waterY: -0.06,
-        col: 0x26c6da
-      });
-      // Dry stone bridge bisecting the water atrium safely!
-      PLATFORMS.push({
-        x0: (a.cx - 1) * gC,
-        z0: (r0 + 1) * gC,
-        x1: (a.cx + 1) * gC,
-        z1: (r1) * gC,
-        y: 0.08,
-        surface: 'tile',
-        draw: true,
-        col: 0xe6f2f5
-      });
-      // Signature Curved / High Water Slide Tower ("Cầu Trượt Nước")!
-      const deckX = (c0 + 1) * gC + 1.5;
-      const deckZ = (a.cz) * gC;
-      PLATFORMS.push({
-        x0: deckX - 2.6, z0: deckZ - 2.6, x1: deckX + 2.6, z1: deckZ + 2.6,
-        y: 4.8, surface: 'tile', draw: true, col: 0xdff4f7
-      });
-      // Stair ramp climbing up onto launch deck from dry perimeter (-z direction)
-      RAMPS.push({
-        x0: deckX - 1.8, z0: deckZ - 11.5, x1: deckX + 1.8, z1: deckZ - 2.6,
-        axis: 'z', y0: 0, y1: 4.8, surface: 'tile', draw: true, col: 0xcbe8ed
-      });
-      // Long sweeping Water Slide chute shooting players down into the basin (+x)
-      SLIDES.push({
-        x0: deckX + 2.5, z0: deckZ - 1.4, x1: deckX + 19.5, z1: deckZ + 1.4,
-        axis: 'x', y0: 4.8, y1: -0.4, dirX: 1, dirZ: 0, speed: 12.8,
-        col: 0x34d5eb
-      });
-      // Decorative colonnade pillars around basin edge
-      for (let p = c0 + 2; p <= c1 - 2; p += 3) {
-        DECO_BLOCKS.push({ x: p * gC, z: (r0 + 1.5) * gC, y0: 0, w: 1.4, d: 1.4, h: wallH, col: 0xe2eef0 });
-        DECO_BLOCKS.push({ x: p * gC, z: (r1 - 1.5) * gC, y0: 0, w: 1.4, d: 1.4, h: wallH, col: 0xe2eef0 });
-      }
-      LIGHTS.push({ x: a.cx * gC, z: a.cz * gC, y: wallH - 0.6, gain: 1.1 });
-    }
-
-    // Flood ~35% of winding corridors with shallow ankle/waist-deep water pools too!
-    for (let r = 6; r < gN - 6; r += 5) {
-      for (let c = 6; c < gN - 6; c += 5) {
-        if (rnd() < 0.42 && !waterCells[r][c]) {
-          waterCells[r][c] = 1;
-          WATER_RECTS.push({
-            x0: c * gC, z0: r * gC, x1: (c + 3) * gC, z1: (r + 3) * gC,
-            bedY: -0.58, waterY: -0.05, col: 0x26c6da
-          });
+        let inW = false;
+        for (let i = 0; i < WATER_RECTS.length; i++) {
+          const w = WATER_RECTS[i];
+          if (cx >= w.x0 && cx <= w.x1 && cz >= w.z0 && cz <= w.z1) {
+            inW = true;
+            break;
+          }
+        }
+        if (inW) {
+          let dryPlat = false;
+          for (let i = 0; i < PLATFORMS.length; i++) {
+            const p = PLATFORMS[i];
+            if (p.y > -0.1 && cx >= p.x0 && cx <= p.x1 && cz >= p.z0 && cz <= p.z1) {
+              dryPlat = true;
+              break;
+            }
+          }
+          if (!dryPlat) waterCells[r][c] = 1;
         }
       }
     }
-
-    wallsFromEdges(gN, gC, wallH, hEdges, vEdges, core.CRAWL_WALLS, RECTS, WALLS);
-    SPAWN = { x: (atria[0].cx - atria[0].rx + 1.35) * gC, z: (atria[0].cz - atria[0].rz + 1.35) * gC, y: 0.08, yaw: Math.PI * 1.25 };
-    END_POS = { x: (atria[3].cx + atria[3].rx - 1) * gC, z: (atria[3].cz + atria[3].rz - 1) * gC, y: 0.08 };
+    for (let i = 0; i < RECTS.length; i++) {
+      const b = RECTS[i];
+      const val = b.crawl ? 3 : 1;
+      const rEdge0 = Math.max(1, Math.ceil((b.z0 - 0.5) / gC));
+      const rEdge1 = Math.min(gN - 1, Math.floor((b.z1 + 0.5) / gC));
+      const c0 = Math.max(0, Math.floor((b.x0 + 0.8) / gC));
+      const c1 = Math.min(gN - 1, Math.floor((b.x1 - 0.8) / gC));
+      for (let r = rEdge0; r <= rEdge1; r++) {
+        const ez = r * gC;
+        if (ez >= b.z0 - 0.3 && ez <= b.z1 + 0.3) {
+          for (let c = c0; c <= c1; c++) if (hEdges[r][c] !== 1) hEdges[r][c] = val;
+        }
+      }
+      const cEdge0 = Math.max(1, Math.ceil((b.x0 - 0.5) / gC));
+      const cEdge1 = Math.min(gN - 1, Math.floor((b.x1 + 0.5) / gC));
+      const r0 = Math.max(0, Math.floor((b.z0 + 0.8) / gC));
+      const r1 = Math.min(gN - 1, Math.floor((b.z1 - 0.8) / gC));
+      for (let c = cEdge0; c <= cEdge1; c++) {
+        const ex = c * gC;
+        if (ex >= b.x0 - 0.3 && ex <= b.x1 + 0.3) {
+          for (let r = r0; r <= r1; r++) if (vEdges[r][c] !== 1) vEdges[r][c] = val;
+        }
+      }
+    }
   }
 
   // =========================================================================
@@ -794,16 +788,17 @@ export function genSubLevelMap(levelId, seed = 2026) {
   }
 
   // Final End-of-Level Breaker Machine (`NEED = 1`) + Glowing Return Portal to Level 0!
+  const tPos = TASK_POS || END_POS;
   const TASKS = [{
     id: 0,
     code: cfg.code,
     sym: '⚡',
-    label: 'MÁY THOÁT TẦNG',
+    label: arch === 'poolrooms' ? 'BẢNG ĐIỀU KHIỂN XẢ NƯỚC KHU J' : 'MÁY THOÁT TẦNG',
     col: '#56e892',
     hex: 0x56e892,
-    x: END_POS.x,
-    z: END_POS.z,
-    y: END_POS.y || 0,
+    x: tPos.x,
+    z: tPos.z,
+    y: tPos.y || 0,
     p: 0,
     done: false
   }];
@@ -812,7 +807,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     id: `ret_${levelId}`,
     type: 'return',
     targetLevel: 'level0',
-    x: END_POS.x + 4.8,
+    x: meta.customPoolrooms ? END_POS.x : (END_POS.x + 4.8),
     z: END_POS.z,
     y: END_POS.y || 0,
     label: 'Cổng Trở Về Level 0',
@@ -821,7 +816,9 @@ export function genSubLevelMap(levelId, seed = 2026) {
 
   // Level-specific Monster Spawn + Long-Distance Patrol Route
   let K_SPAWN = { x: mid, z: mid, y: 0 };
-  if (arch === 'poolrooms' && WATER_RECTS.length > 1) {
+  if (arch === 'poolrooms' && POOL_K_SPAWN) {
+    K_SPAWN = { ...POOL_K_SPAWN };
+  } else if (arch === 'poolrooms' && WATER_RECTS.length > 1) {
     const bw = WATER_RECTS[1];
     K_SPAWN = { x: (bw.x0 + bw.x1) * 0.5, z: (bw.z0 + bw.z1) * 0.5, y: 0 };
   } else if (arch === 'void_staircase') {
@@ -830,12 +827,22 @@ export function genSubLevelMap(levelId, seed = 2026) {
     K_SPAWN = { x: Math.min(span - 20, Math.max(20, mid + 35)), z: Math.min(span - 20, Math.max(20, mid - 25)), y: 0 };
   }
 
-  const ENTITY_ROUTES = [[
-    { x: K_SPAWN.x, z: K_SPAWN.z },
-    { x: span * 0.72, z: span * 0.35 },
-    { x: END_POS.x - 16, z: END_POS.z - 16 },
-    { x: span * 0.28, z: span * 0.68 }
-  ]];
+  const ENTITY_ROUTES = meta.customPoolrooms
+    ? [[
+        { x: K_SPAWN.x, z: K_SPAWN.z },
+        { x: 535, z: 126 }, // Zone D Sunken Cathedral
+        { x: 315, z: 126 }, // Zone B Grand Atrium
+        { x: 286, z: 368 }, // Zone E Slide Basin
+        { x: 114, z: 320 }, // Zone C Shallow Labyrinth
+        { x: 108, z: 534 }, // Zone H Maintenance
+        { x: 435, z: 540 }  // Zone J Drainage Vault
+      ]]
+    : [[
+        { x: K_SPAWN.x, z: K_SPAWN.z },
+        { x: span * 0.72, z: span * 0.35 },
+        { x: END_POS.x - 16, z: END_POS.z - 16 },
+        { x: span * 0.28, z: span * 0.68 }
+      ]];
 
   const mapObj = {
     levelId,
@@ -851,6 +858,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     waterCells,
     RECTS, WALLS, wallGrid, hEdges, vEdges, cellSolid,
     WATER_RECTS, PLATFORMS, RAMPS, SLIDES,
+    POOL_ZONES, PUMPS,
     HOUSES, TOWERS, FURNITURE, TREES, WHEAT, PIPES, DECO_BLOCKS, PROPS, ANIM_PROPS,
     LIGHTS, TASKS, PORTALS,
     HOOKS: [], EXITS: [], TRAPS: [], ENTRANCES: [],

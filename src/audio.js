@@ -698,6 +698,29 @@ class AudioManager {
   playFootstep(pos, sprinting = false, crouching = false, isMonster = false, surface = 'carpet') {
     if (!this.ensureContext()) return;
     const t = this.ctx.currentTime;
+    if (surface === 'water') {
+      const wLen = isMonster ? 0.24 : sprinting ? 0.21 : 0.17;
+      const wBuf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * wLen), this.ctx.sampleRate);
+      const wData = wBuf.getChannelData(0);
+      for (let i = 0; i < wData.length; i++) {
+        wData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (wData.length * 0.34));
+      }
+      const wSrc = this.ctx.createBufferSource();
+      wSrc.buffer = wBuf;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(isMonster ? 420 : sprinting ? 1150 : 880, t);
+      bp.frequency.exponentialRampToValueAtTime(340, t + wLen);
+      bp.Q.value = 1.4;
+      const wg = this.ctx.createGain();
+      wg.gain.value = isMonster ? 0.38 : crouching ? 0.09 : sprinting ? 0.30 : 0.19;
+      wSrc.connect(bp);
+      bp.connect(wg);
+      const wPan = this._makePanner(pos, 2.5, 34);
+      wg.connect(wPan);
+      wSrc.start(t);
+      return;
+    }
     const len = surface === 'metal' ? 0.14 : isMonster ? 0.11 : 0.085;
     const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * len), this.ctx.sampleRate);
     const data = buf.getChannelData(0);
@@ -1118,6 +1141,105 @@ class AudioManager {
       volume: inElevator ? 0.24 : 0.34,
       cutoffHz: dist > 15 ? 2100 : 3800
     });
+  }
+
+  playWaterSplash(pos, strength = 0.65) {
+    if (!this.ensureContext() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const dur = 0.22 + strength * 0.24;
+    const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (d.length * 0.28));
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(980, t);
+    bp.frequency.exponentialRampToValueAtTime(260, t + dur);
+    bp.Q.value = 1.1;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.01, t);
+    g.gain.linearRampToValueAtTime(0.32 * strength, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(bp);
+    bp.connect(g);
+    const out = pos ? this._makePanner(pos, 3.0, 38) : this.sfxGain;
+    g.connect(out);
+    src.start(t);
+  }
+
+  playPumpActivation(pos, allDone = false) {
+    if (!this.ensureContext() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const out = pos ? this._makePanner(pos, 4.0, 48) : this.sfxGain;
+    const freqs = allDone ? [220, 330, 440, 660] : [164.8, 246.9, 329.6];
+    freqs.forEach((f, idx) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = idx === 0 ? 'sawtooth' : 'triangle';
+      const st = t + idx * 0.09;
+      osc.frequency.setValueAtTime(f * 0.88, st);
+      osc.frequency.exponentialRampToValueAtTime(f, st + 0.25);
+      g.gain.setValueAtTime(0.001, st);
+      g.gain.linearRampToValueAtTime(0.18, st + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, st + (allDone ? 1.15 : 0.7));
+      osc.connect(g);
+      g.connect(out);
+      osc.start(st);
+      osc.stop(st + 1.25);
+    });
+  }
+
+  playPoolHydroBoom(pos) {
+    if (!this.ensureContext() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const out = pos ? this._makePanner(pos, 5.0, 65) : this.sfxGain;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(92, t);
+    osc.frequency.exponentialRampToValueAtTime(34, t + 0.95);
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.linearRampToValueAtTime(0.24, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.15);
+    osc.connect(g);
+    g.connect(out);
+    osc.start(t);
+    osc.stop(t + 1.2);
+  }
+
+  playPoolZoneArrival(mood) {
+    if (!this.ensureContext() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const base = mood === 'deep_abyssal' || mood === 'cool_cathedral' ? 174.61 : mood === 'damp_maintenance' ? 146.83 : 261.63;
+    for (const mult of [1, 1.498]) {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(base * mult, t);
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.06, t + 0.18);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.45);
+      osc.connect(g);
+      g.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 1.55);
+    }
+  }
+
+  updatePoolroomsZoneAudio(dt, zone, inWater = false) {
+    if (!this.ctx || this.muted || !zone) return;
+    const t = this.ctx.currentTime;
+    if (this.humGain) {
+      const targetHum = zone.mood === 'damp_maintenance' ? 0.042 : zone.mood === 'deep_abyssal' ? 0.022 : 0.014;
+      this.humGain.gain.setTargetAtTime(targetHum, t, 0.45);
+    }
+    if (this.atmoDroneFilter) {
+      const cutoff = inWater ? 260 : zone.mood === 'deep_abyssal' ? 320 : zone.mood === 'cool_cathedral' ? 520 : 680;
+      this.atmoDroneFilter.frequency.setTargetAtTime(cutoff, t, 0.35);
+    }
   }
 }
 

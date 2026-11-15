@@ -22,6 +22,10 @@ const BUCKET_DEFS = {
   warmWood:    { color: 0x6b4528, roughness: 0.84, metalness: 0.04 },
   paleWood:    { color: 0xb88f5e, roughness: 0.86, metalness: 0.02 },
   ceramic:     { color: 0xe8eced, roughness: 0.34, metalness: 0.06 },
+  warmCeramic: { color: 0xf4ead4, roughness: 0.36, metalness: 0.05 },
+  tealCeramic: { color: 0x3b9aa6, roughness: 0.32, metalness: 0.08 },
+  maintCeramic:{ color: 0x627478, roughness: 0.72, metalness: 0.18 },
+  aquaGlass:   { basic: true, color: 0x76e8f8, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide },
   crimson:     { color: 0xa61e1e, roughness: 0.58, metalness: 0.12 },
   oliveGold:   { color: 0xc99c2c, roughness: 0.42, metalness: 0.35 },
   stone:       { color: 0x5c5b57, roughness: 0.92, metalness: 0.03 },
@@ -177,9 +181,72 @@ function buildStaticProp(b, p, map) {
       for (let ry = -0.5; ry <= 0.45; ry += 0.32) box(b, 'brightSteel', 0.56, 0.04, 0.08, 0, ry, 0);
       break;
     case 'skylight_shaft':
-      box(b, 'ceramic', 4.6, 0.35, 4.6, 0, 0, 0);
+      box(b, 'warmCeramic', 4.6, 0.35, 4.6, 0, 0, 0);
       box(b, 'glowWhite', 3.9, 0.14, 3.9, 0, -0.14, 0);
       cone(b, 'sunBeam', 3.8, p.beamH || 11.5, 8, 0, -(p.beamH || 11.5) * 0.5, 0, 0.12, 0, 0.08);
+      break;
+    case 'tiled_arch_column': {
+      const ch = p.h || 13.5;
+      box(b, 'warmCeramic', 3.6, 0.55, 3.6, 0, 0.28, 0);
+      box(b, 'tealCeramic', 3.4, 0.24, 3.4, 0, 0.68, 0);
+      box(b, 'warmCeramic', 3.7, 0.52, 3.7, 0, ch - 0.26, 0);
+      break;
+    }
+    case 'pool_bench':
+      box(b, 'warmCeramic', 2.4, 0.44, 0.76, 0, 0.22, 0);
+      box(b, 'tealCeramic', 2.44, 0.08, 0.80, 0, 0.44, 0);
+      break;
+    case 'towel_stack':
+      box(b, 'warmCeramic', 0.62, 0.09, 0.44, 0, 0.045, 0);
+      box(b, 'skyBlue', 0.58, 0.09, 0.42, 0.02, 0.135, 0, 0, 0.14, 0);
+      box(b, 'pastelPink', 0.56, 0.08, 0.40, -0.01, 0.22, 0, 0, -0.1, 0);
+      break;
+    case 'pool_sign_board':
+      cyl(b, 'brightSteel', 0.04, 0.04, 1.55, 6, 0, 0.78, 0);
+      box(b, 'warmCeramic', 0.92, 0.62, 0.08, 0, 1.48, 0);
+      box(b, 'tealCeramic', 0.80, 0.14, 0.10, 0, 1.65, 0);
+      box(b, 'glowCyan', 0.72, 0.08, 0.10, 0, 1.42, 0);
+      break;
+    case 'wet_footprints':
+      for (let fi = 0; fi < 5; fi++) {
+        const side = fi % 2 === 0 ? -0.14 : 0.14;
+        box(b, 'aquaGlass', 0.14, 0.015, 0.28, side, 0.01, -0.8 + fi * 0.44);
+      }
+      break;
+    case 'pool_drain_grate':
+      box(b, 'darkSteel', 1.15, 0.05, 1.15, 0, 0.025, 0);
+      for (let gi = -0.38; gi <= 0.38; gi += 0.19) {
+        box(b, 'brightSteel', 0.96, 0.065, 0.06, 0, 0.035, gi);
+      }
+      break;
+    case 'pool_noodle':
+      cyl(b, p.pink ? 'pastelPink' : 'skyBlue', 0.065, 0.065, 1.55, 8, 0, 0.065, 0, Math.PI * 0.5, 0.25, 0);
+      break;
+    case 'pool_diving_board':
+      box(b, 'brightSteel', 0.85, 0.52, 1.25, 0, 0.26, -0.75);
+      box(b, 'skyBlue', 0.72, 0.10, 3.4, 0, 0.58, 0.75);
+      box(b, 'warmCeramic', 0.72, 0.03, 0.42, 0, 0.64, 2.22);
+      break;
+    case 'hydraulic_pipe_elbow':
+      cyl(b, 'maintCeramic', 0.22, 0.22, 1.6, 8, 0, 0.8, 0);
+      cyl(b, 'maintCeramic', 0.22, 0.22, 1.1, 8, 0.48, 1.52, 0, 0, 0, Math.PI * 0.5);
+      torus(b, 'crimson', 0.26, 0.05, 0.1, 1.15, 0.26, 0, 0, 0);
+      break;
+    case 'beach_ball':
+      cyl(b, 'skyBlue', 0.28, 0.28, 0.26, 10, 0, 0.22, 0);
+      cyl(b, 'pastelPink', 0.24, 0.28, 0.16, 10, 0, 0.36, 0);
+      cyl(b, 'glowWarm', 0.24, 0.28, 0.16, 10, 0, 0.08, 0);
+      break;
+    case 'rubber_duck':
+      box(b, 'oliveGold', 0.32, 0.22, 0.38, 0, 0.12, 0);
+      cyl(b, 'oliveGold', 0.12, 0.12, 0.18, 8, 0, 0.28, 0.10);
+      box(b, 'crimson', 0.10, 0.06, 0.12, 0, 0.28, 0.22);
+      break;
+    case 'lifeguard_stand':
+      for (const sx of [-0.55, 0.55]) for (const sz of [-0.55, 0.55]) cyl(b, 'warmCeramic', 0.08, 0.10, 2.2, 6, sx, 1.1, sz);
+      box(b, 'warmCeramic', 1.35, 0.14, 1.35, 0, 2.22, 0);
+      box(b, 'tealCeramic', 0.95, 0.65, 0.12, 0, 2.75, -0.52);
+      box(b, 'crimson', 0.55, 0.12, 0.12, 0.72, 1.4, 0.45);
       break;
 
     // --- OFFICE (LEVEL 4) ---
@@ -650,6 +717,10 @@ export function buildPropsBatched(root, map, disposables) {
     const buoyMat = reg(new THREE.MeshStandardMaterial({ color: 0xd93025, roughness: 0.45 }));
     const cyanCubeMat = reg(new THREE.MeshStandardMaterial({ color: 0x62efff, emissive: 0x2be0ff, emissiveIntensity: 2.2 }));
     const steamMat = reg(new THREE.MeshBasicMaterial({ color: 0xc8d2d8, transparent: true, opacity: 0.18, depthWrite: false }));
+    const abyssMat = reg(new THREE.MeshBasicMaterial({ color: 0x091c24, transparent: true, opacity: 0.72, depthWrite: false }));
+    const rippleMat = reg(new THREE.MeshBasicMaterial({ color: 0xdffaff, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide }));
+    const sluiceFrameMat = reg(new THREE.MeshStandardMaterial({ color: 0x2b3e46, roughness: 0.52, metalness: 0.55 }));
+    const sluiceDoorMat = reg(new THREE.MeshStandardMaterial({ color: 0x5c808a, roughness: 0.38, metalness: 0.62 }));
 
     const coneGeo = reg(new THREE.ConeGeometry(2.4, 9.5, 8));
     coneGeo.translate(0, -4.75, 0);
@@ -665,11 +736,18 @@ export function buildPropsBatched(root, map, disposables) {
     const cubeGeo = reg(new THREE.OctahedronGeometry(0.55, 0));
     const lanternGeo = reg(new THREE.CylinderGeometry(0.24, 0.20, 0.44, 7));
     const steamGeo = reg(new THREE.CylinderGeometry(0.65, 0.35, 2.4, 7));
+    const abyssBodyGeo = reg(new THREE.CapsuleGeometry ? new THREE.CapsuleGeometry(0.55, 3.8, 4, 8) : new THREE.CylinderGeometry(0.55, 0.4, 4.2, 8));
+    abyssBodyGeo.rotateX(Math.PI * 0.5);
+    const rippleGeo = reg(new THREE.RingGeometry(0.55, 0.72, 20));
+    rippleGeo.rotateX(-Math.PI * 0.5);
+    const sluiceLeafGeo = reg(new THREE.BoxGeometry(28.5, 6.8, 0.65));
+    const sluiceBarGeo = reg(new THREE.BoxGeometry(29.2, 0.45, 0.95));
 
     for (let i = 0; i < animSpecs.length; i++) {
       const a = animSpecs[i];
       const g = new THREE.Group();
       g.position.set(a.x, a.y ?? 0, a.z);
+      if (a.ry) g.rotation.y = a.ry;
       if (a.kind === 'siren_beacon') {
         g.add(new THREE.Mesh(bulbGeo, sirenBulbMat));
         const b1 = new THREE.Mesh(coneGeo, redGlowMat);
@@ -705,16 +783,42 @@ export function buildPropsBatched(root, map, disposables) {
         g.add(new THREE.Mesh(cubeGeo, cyanCubeMat));
       } else if (a.kind === 'steam_vent') {
         g.add(new THREE.Mesh(steamGeo, steamMat));
+      } else if (a.kind === 'abyss_silhouette') {
+        const body = new THREE.Mesh(abyssBodyGeo, abyssMat);
+        if (a.s) body.scale.setScalar(a.s);
+        g.add(body);
+      } else if (a.kind === 'water_ripple_ring') {
+        const r = new THREE.Mesh(rippleGeo, rippleMat);
+        if (a.s) r.scale.setScalar(a.s);
+        g.add(r);
+      } else if (a.kind === 'drainage_sluice_gate') {
+        const leaf = new THREE.Mesh(sluiceLeafGeo, sluiceDoorMat);
+        leaf.position.y = 3.4;
+        const bar1 = new THREE.Mesh(sluiceBarGeo, sluiceFrameMat);
+        bar1.position.y = 1.4;
+        const bar2 = new THREE.Mesh(sluiceBarGeo, sluiceFrameMat);
+        bar2.position.y = 4.9;
+        g.add(leaf, bar1, bar2);
       }
       root.add(g);
-      animHandles.push({ group: g, kind: a.kind, baseY: g.position.y, phase: a.phase ?? (i * 1.37) });
+      animHandles.push({
+        group: g,
+        kind: a.kind,
+        baseX: a.x,
+        baseY: g.position.y,
+        baseZ: a.z,
+        radius: a.radius ?? 9.0,
+        speed: a.speed ?? 0.28,
+        baseScale: a.s ?? 1.0,
+        phase: a.phase ?? (i * 1.37)
+      });
     }
   }
 
   return animHandles;
 }
 
-export function updateAnimatedProps(animHandles, elapsed) {
+export function updateAnimatedProps(animHandles, elapsed, curMap) {
   if (!animHandles || !animHandles.length) return;
   for (let i = 0; i < animHandles.length; i++) {
     const h = animHandles[i];
@@ -739,6 +843,21 @@ export function updateAnimatedProps(animHandles, elapsed) {
       const cyc = (t * 0.85) % 1;
       h.group.position.y = h.baseY + cyc * 2.2;
       h.group.scale.setScalar(0.65 + cyc * 1.25);
+    } else if (h.kind === 'abyss_silhouette') {
+      const ang = t * h.speed;
+      h.group.position.x = h.baseX + Math.cos(ang) * h.radius;
+      h.group.position.z = h.baseZ + Math.sin(ang * 0.85) * h.radius * 0.72;
+      h.group.position.y = h.baseY + Math.sin(t * 0.9) * 0.22;
+      h.group.rotation.y = -ang;
+    } else if (h.kind === 'water_ripple_ring') {
+      const cyc = (t * 0.52) % 1;
+      const sc = h.baseScale * (0.45 + cyc * 2.4);
+      h.group.scale.set(sc, 1, sc);
+    } else if (h.kind === 'drainage_sluice_gate') {
+      const pumpsDone = curMap?.PUMPS?.length ? curMap.PUMPS.filter((pm) => pm.done).length : 0;
+      const taskDone = curMap?.TASKS?.some((tk) => tk.done) ? 1 : 0;
+      const targetLift = (taskDone || (curMap?.PUMPS?.length && pumpsDone >= curMap.PUMPS.length)) ? 5.6 : (pumpsDone * 0.55);
+      h.group.position.y += ((h.baseY + targetLift) - h.group.position.y) * 0.04;
     }
   }
 }
