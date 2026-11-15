@@ -5,6 +5,7 @@
 import { THREE, BufferGeometryUtils } from '../engine.js';
 import { GFX_PRESETS } from '../constants.js';
 import { getLevelMaterials } from './level_textures.js';
+import { buildPropsBatched, updateAnimatedProps } from './prop_builder.js';
 
 function reg(disposables, item) {
   if (item) disposables.push(item);
@@ -214,7 +215,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
   if (cfg.sky) {
     skyDome = buildSkyDome(cfg.sky, disposables);
     root.add(skyDome.mesh);
-    sunLight = new THREE.DirectionalLight(cfg.sunColor || 0xffffff, cfg.sunInt ?? 0.85);
+    sunLight = new THREE.DirectionalLight(cfg.sunColor || 0xffffff, (cfg.sunInt ?? 0.85) * 0.62);
     const sd = cfg.sky.sunDir || [0.3, 0.7, 0.4];
     sunLight.position.set(sd[0] * 180, Math.abs(sd[1]) * 200 + 30, sd[2] * 180);
     root.add(sunLight);
@@ -240,9 +241,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
   }
 
   if (!cfg.isOutdoor) {
-    const ceilColor = cfg.archetype === 'poolrooms' ? 0xd9eef2 : cfg.archetype === 'blackout' ? 0x060708 : (cfg.palette?.wall ?? 0xaaaaaa);
-    const ceilMat = reg(disposables, new THREE.MeshStandardMaterial({ color: ceilColor, roughness: 0.9 }));
-    const ceilMesh = new THREE.Mesh(reg(disposables, new THREE.PlaneGeometry(span, span)), ceilMat);
+    const ceilMesh = new THREE.Mesh(reg(disposables, new THREE.PlaneGeometry(span, span)), mats.ceilMat);
     ceilMesh.rotation.x = Math.PI * 0.5;
     ceilMesh.position.set(span * 0.5, cfg.ceilH, span * 0.5);
     root.add(ceilMesh);
@@ -512,6 +511,9 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     if (mD) root.add(new THREE.Mesh(mD, mats.trimMat));
   }
 
+  // 9b. Lore-Accurate Batched Compound Props & Animated Beacons across all 20 Sub-Levels
+  const animPropHandles = buildPropsBatched(root, map, disposables);
+
   // 10. Pooled Dynamic PointLights
   const gfx = GFX_PRESETS[gfxKey] || GFX_PRESETS.ultra;
   const lightPool = [];
@@ -619,6 +621,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         mats.waterTex.offset.x = (elapsed * 0.04) % 1;
         mats.waterTex.offset.y = (elapsed * 0.025) % 1;
       }
+      updateAnimatedProps(animPropHandles, elapsed);
       for (const pm of portalMeshes) {
         const unlocked = curMap?.TASKS?.every(t => t.done);
         pm.glowMat.opacity = unlocked ? (0.48 + Math.sin(elapsed * 4.0) * 0.16) : 0.14;

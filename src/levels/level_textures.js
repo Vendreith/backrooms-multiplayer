@@ -1,6 +1,6 @@
-// ---------- Procedural On-Demand Texture Pack for 20 Iconic Backrooms Levels ----------
-// Generates crisp seamless PBR diffuse + roughness CanvasTextures cached per level theme
-// so entering any sub-level builds custom materials in milliseconds without slowing initial boot.
+// ---------- Procedural PBR Texture Pack for 20 Iconic Backrooms Levels ----------
+// Generates 512px seamless diffuse + ceiling + bump CanvasTextures cached per level theme
+// so every corridor, street, hotel, cave, and pool reacts richly to flashlights and dynamic lamps.
 
 import { THREE } from '../engine.js';
 
@@ -42,7 +42,20 @@ function toRepeatTex(canvas, repX = 1, repY = 1, srgb = true) {
   return tex;
 }
 
-function buildPatternCanvas(pattern, baseHex, trimHex, size = 256, seed = 101) {
+function buildBumpFromDiffuse(diffuseCanvas, size = 128) {
+  const [bc, bctx] = makeCanvas(size, size);
+  bctx.drawImage(diffuseCanvas, 0, 0, size, size);
+  const img = bctx.getImageData(0, 0, size, size);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = Math.min(255, Math.max(0, (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114)));
+    d[i] = d[i + 1] = d[i + 2] = lum;
+  }
+  bctx.putImageData(img, 0, 0);
+  return bc;
+}
+
+function buildPatternCanvas(pattern, baseHex, trimHex, size = 512, seed = 101) {
   const [c, ctx] = makeCanvas(size, size);
   const rnd = seededRng(seed);
   const rgb = hexToRgb(baseHex);
@@ -53,86 +66,149 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 256, seed = 101) {
 
   if (pattern === 'pool_tile') {
     const step = size / 8;
-    ctx.strokeStyle = 'rgba(130, 175, 185, 0.55)';
-    ctx.lineWidth = 2;
     for (let y = 0; y < 8; y++) {
       for (let x = 0; x < 8; x++) {
-        const tint = 0.94 + (rnd() - 0.5) * 0.08;
+        const tint = 0.93 + (rnd() - 0.5) * 0.08;
         ctx.fillStyle = rgba(rgb, 1, tint);
-        ctx.fillRect(x * step + 1, y * step + 1, step - 2, step - 2);
+        ctx.fillRect(x * step + 2, y * step + 2, step - 4, step - 4);
+        // Subtle porcelain highlight
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(x * step + 4, y * step + 4, step - 12, 6);
       }
     }
+    ctx.strokeStyle = 'rgba(105, 162, 174, 0.62)';
+    ctx.lineWidth = 3;
     ctx.beginPath();
     for (let i = 0; i <= 8; i++) {
       ctx.moveTo(i * step, 0); ctx.lineTo(i * step, size);
       ctx.moveTo(0, i * step); ctx.lineTo(size, i * step);
     }
     ctx.stroke();
+    // Aqua mineral band along lower edge
+    const g = ctx.createLinearGradient(0, size * 0.78, 0, size);
+    g.addColorStop(0, 'rgba(60, 195, 210, 0)');
+    g.addColorStop(1, 'rgba(40, 155, 175, 0.16)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, size * 0.78, size, size * 0.22);
   } else if (pattern === 'red_concrete' || pattern === 'red_asphalt') {
-    for (let i = 0; i < 650; i++) {
-      ctx.fillStyle = rgba(rnd() < 0.35 ? tRgb : rgb, 0.14 + rnd() * 0.18, 0.7 + rnd() * 0.5);
-      ctx.fillRect(rnd() * size, rnd() * size, 3 + rnd() * 14, 3 + rnd() * 14);
-    }
     if (pattern === 'red_concrete') {
-      ctx.strokeStyle = 'rgba(255, 65, 50, 0.32)';
-      ctx.lineWidth = 2;
-      for (let y = size / 4; y < size; y += size / 4) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+      // Clinical crimson hospital corridor dado + painted panel seams + scuffing
+      ctx.fillStyle = rgba(rgb, 1, 1.04);
+      ctx.fillRect(0, 0, size, size * 0.54);
+      ctx.fillStyle = rgba(rgb, 1, 0.72);
+      ctx.fillRect(0, size * 0.54, size, size * 0.46);
+      ctx.fillStyle = 'rgba(255, 58, 42, 0.72)';
+      ctx.fillRect(0, size * 0.52, size, 10);
+      ctx.fillStyle = 'rgba(18, 8, 8, 0.75)';
+      ctx.fillRect(0, size - 24, size, 24);
+      ctx.strokeStyle = 'rgba(30, 10, 10, 0.35)';
+      ctx.lineWidth = 3;
+      for (let x = 0; x < size; x += size / 4) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke();
       }
+    } else {
+      // Scuffed crimson linoleum/asphalt tile seams & streaks
+      const tile = size / 4;
+      ctx.strokeStyle = 'rgba(24, 10, 10, 0.42)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i <= 4; i++) {
+        ctx.beginPath(); ctx.moveTo(i * tile, 0); ctx.lineTo(i * tile, size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * tile); ctx.lineTo(size, i * tile); ctx.stroke();
+      }
+    }
+    for (let i = 0; i < 950; i++) {
+      ctx.fillStyle = rgba(rnd() < 0.35 ? tRgb : rgb, 0.14 + rnd() * 0.2, 0.55 + rnd() * 0.5);
+      ctx.fillRect(rnd() * size, rnd() * size, 4 + rnd() * 18, 3 + rnd() * 14);
     }
   } else if (pattern === 'office_panel' || pattern === 'office_carpet') {
     if (pattern === 'office_carpet') {
       const sq = size / 4;
       for (let y = 0; y < 4; y++) {
         for (let x = 0; x < 4; x++) {
-          ctx.fillStyle = rgba(rgb, 1, 0.92 + ((x + y) & 1) * 0.1);
+          ctx.fillStyle = rgba(rgb, 1, 0.91 + ((x + y) & 1) * 0.11);
           ctx.fillRect(x * sq, y * sq, sq, sq);
         }
       }
-      for (let i = 0; i < 900; i++) {
-        ctx.fillStyle = rgba(rgb, 0.18, 0.8 + rnd() * 0.4);
-        ctx.fillRect(rnd() * size, rnd() * size, 2, 2);
+      ctx.strokeStyle = 'rgba(72, 66, 56, 0.25)';
+      ctx.lineWidth = 2;
+      for (let i = 1; i < 4; i++) {
+        ctx.beginPath(); ctx.moveTo(i * sq, 0); ctx.lineTo(i * sq, size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * sq); ctx.lineTo(size, i * sq); ctx.stroke();
+      }
+      for (let i = 0; i < 1800; i++) {
+        ctx.fillStyle = rgba(rgb, 0.2, 0.72 + rnd() * 0.48);
+        ctx.fillRect(rnd() * size, rnd() * size, 2 + rnd() * 2, 2);
       }
     } else {
-      ctx.strokeStyle = 'rgba(130, 140, 150, 0.4)';
+      // Office painted drywall + chair rail + rubber cove baseboard + door trim panel lines
+      ctx.strokeStyle = 'rgba(118, 126, 134, 0.35)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(4, 4, size - 8, size - 8);
-      ctx.fillStyle = rgba(tRgb, 0.25, 1);
-      ctx.fillRect(0, 0, size, 12);
-      ctx.fillRect(0, size - 14, size, 14);
+      for (let x = 0; x < size; x += size / 2) {
+        ctx.strokeRect(x + 8, 18, size / 2 - 16, size - 48);
+      }
+      ctx.fillStyle = rgba(tRgb, 0.55, 0.85);
+      ctx.fillRect(0, 0, size, 18);
+      ctx.fillStyle = 'rgba(58, 62, 68, 0.85)';
+      ctx.fillRect(0, size - 24, size, 24);
+      ctx.fillStyle = rgba(tRgb, 0.38, 1);
+      ctx.fillRect(0, size * 0.55, size, 8);
     }
   } else if (pattern === 'field_grass' || pattern === 'crimson_grass' || pattern === 'cartoon_grass') {
-    for (let i = 0; i < 1100; i++) {
-      const shade = pattern === 'cartoon_grass' ? (0.94 + rnd() * 0.16) : (0.72 + rnd() * 0.45);
+    for (let i = 0; i < 2200; i++) {
+      const shade = pattern === 'cartoon_grass' ? (0.94 + rnd() * 0.16) : (0.68 + rnd() * 0.48);
       ctx.fillStyle = rgba(rnd() < 0.28 ? tRgb : rgb, 0.65, shade);
       const bx = rnd() * size, by = rnd() * size;
-      ctx.fillRect(bx, by, 2 + rnd() * 3, 5 + rnd() * 8);
+      ctx.fillRect(bx, by, 2 + rnd() * 4, 6 + rnd() * 12);
+    }
+    if (pattern !== 'cartoon_grass') {
+      for (let i = 0; i < 90; i++) {
+        ctx.fillStyle = pattern === 'crimson_grass' ? 'rgba(235, 165, 195, 0.38)' : 'rgba(230, 210, 125, 0.38)';
+        ctx.fillRect(rnd() * size, rnd() * size, 3, 3);
+      }
     }
   } else if (pattern === 'sand') {
-    for (let i = 0; i < 1200; i++) {
-      ctx.fillStyle = rgba(rgb, 0.28, 0.84 + rnd() * 0.26);
-      ctx.fillRect(rnd() * size, rnd() * size, 4 + rnd() * 16, 2 + rnd() * 3);
+    for (let i = 0; i < 2400; i++) {
+      ctx.fillStyle = rgba(rgb, 0.28, 0.82 + rnd() * 0.28);
+      ctx.fillRect(rnd() * size, rnd() * size, 6 + rnd() * 24, 2 + rnd() * 4);
     }
   } else if (pattern === 'hotel_wallpaper' || pattern === 'hotel_carpet') {
     if (pattern === 'hotel_wallpaper') {
       const stripe = size / 8;
       for (let i = 0; i < 8; i++) {
-        ctx.fillStyle = rgba(rgb, 1, (i & 1) ? 0.88 : 1.04);
+        ctx.fillStyle = rgba(rgb, 1, (i & 1) ? 0.86 : 1.05);
         ctx.fillRect(i * stripe, 0, stripe, size);
       }
-      ctx.fillStyle = rgba(tRgb, 0.35, 1);
-      ctx.fillRect(0, size - 18, size, 18);
+      // Damask diamonds + chair rail wainscoting
+      ctx.strokeStyle = rgba(tRgb, 0.22, 1);
+      ctx.lineWidth = 2;
+      for (let y = 24; y < size * 0.65; y += 64) {
+        for (let x = 32; x < size; x += 64) {
+          ctx.beginPath();
+          ctx.moveTo(x, y - 14); ctx.lineTo(x + 12, y);
+          ctx.lineTo(x, y + 14); ctx.lineTo(x - 12, y);
+          ctx.closePath(); ctx.stroke();
+        }
+      }
+      ctx.fillStyle = 'rgba(42, 22, 14, 0.92)';
+      ctx.fillRect(0, size * 0.70, size, size * 0.30);
+      ctx.fillStyle = rgba(tRgb, 0.78, 1);
+      ctx.fillRect(0, size * 0.69, size, 10);
+      ctx.fillRect(0, size - 20, size, 20);
     } else {
-      ctx.fillStyle = rgba(rgb, 1, 0.85);
+      ctx.fillStyle = rgba(rgb, 1, 0.82);
       ctx.fillRect(0, 0, size, size);
-      ctx.strokeStyle = rgba(tRgb, 0.48, 1);
-      ctx.lineWidth = 3;
       const g = size / 4;
+      ctx.strokeStyle = rgba(tRgb, 0.56, 1.05);
+      ctx.lineWidth = 4;
       for (let y = 0; y < 4; y++) {
         for (let x = 0; x < 4; x++) {
-          ctx.strokeRect(x * g + 6, y * g + 6, g - 12, g - 12);
-          ctx.fillStyle = rgba(tRgb, 0.22, 1);
-          ctx.fillRect(x * g + g * 0.35, y * g + g * 0.35, g * 0.3, g * 0.3);
+          const cx = x * g + g * 0.5, cy = y * g + g * 0.5;
+          ctx.strokeRect(x * g + 8, y * g + 8, g - 16, g - 16);
+          ctx.fillStyle = rgba(tRgb, 0.25, 1);
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - g * 0.24); ctx.lineTo(cx + g * 0.24, cy);
+          ctx.lineTo(cx, cy + g * 0.24); ctx.lineTo(cx - g * 0.24, cy);
+          ctx.closePath(); ctx.fill();
         }
       }
     }
@@ -143,13 +219,26 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 256, seed = 101) {
     const cw = size / cols, ch = size / rows;
     for (let r = 0; r < rows; r++) {
       for (let cl = 0; cl < cols; cl++) {
-        const lit = rnd() < 0.38;
-        ctx.fillStyle = lit ? 'rgba(255, 240, 178, 0.96)' : 'rgba(28, 34, 42, 0.94)';
-        ctx.fillRect(cl * cw + 12, r * ch + 10, cw - 24, ch - 20);
-        ctx.strokeStyle = 'rgba(70, 76, 84, 0.9)';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(cl * cw + 12, r * ch + 10, cw - 24, ch - 20);
+        const lit = rnd() < 0.42;
+        ctx.fillStyle = lit ? 'rgba(255, 244, 190, 0.96)' : 'rgba(22, 28, 36, 0.95)';
+        ctx.fillRect(cl * cw + 14, r * ch + 14, cw - 28, ch - 28);
+        // Interior curtain / blind silhouette on lit rooms
+        if (lit && rnd() < 0.55) {
+          ctx.fillStyle = 'rgba(195, 165, 105, 0.35)';
+          ctx.fillRect(cl * cw + 14, r * ch + 14, (cw - 28) * 0.35, ch - 28);
+        }
+        ctx.strokeStyle = 'rgba(72, 78, 86, 0.95)';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(cl * cw + 14, r * ch + 14, cw - 28, ch - 28);
+        // Window mullion crosshair
+        ctx.beginPath();
+        ctx.moveTo(cl * cw + cw * 0.5, r * ch + 14);
+        ctx.lineTo(cl * cw + cw * 0.5, r * ch + ch - 14);
+        ctx.stroke();
       }
+      // Concrete horizontal floor slab band
+      ctx.fillStyle = rgba(rgb, 1, 0.78);
+      ctx.fillRect(0, r * ch, size, 8);
     }
   } else if (pattern === 'city_facade') {
     ctx.fillStyle = rgba(rgb, 1, 1);
@@ -158,66 +247,185 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 256, seed = 101) {
     const cw = size / cols, ch = size / rows;
     for (let r = 0; r < rows; r++) {
       for (let cl = 0; cl < cols; cl++) {
-        const lit = rnd() < 0.42;
-        ctx.fillStyle = lit ? 'rgba(220, 236, 252, 0.78)' : 'rgba(38, 46, 56, 0.85)';
-        ctx.fillRect(cl * cw + 8, r * ch + 6, cw - 16, ch - 12);
+        const lit = rnd() < 0.44;
+        ctx.fillStyle = lit ? 'rgba(224, 238, 255, 0.82)' : 'rgba(34, 42, 54, 0.90)';
+        ctx.fillRect(cl * cw + 10, r * ch + 8, cw - 20, ch - 16);
       }
+      ctx.fillStyle = rgba(rgb, 0.9, 0.75);
+      ctx.fillRect(0, r * ch, size, 4);
     }
   } else if (pattern === 'aged_brick' || pattern === 'pipe_brick') {
     const bh = size / 8, bw = size / 4;
-    ctx.fillStyle = 'rgba(32, 26, 22, 0.95)';
+    ctx.fillStyle = 'rgba(26, 22, 18, 0.96)';
     ctx.fillRect(0, 0, size, size);
     for (let r = 0; r < 8; r++) {
       const off = (r & 1) ? bw * 0.5 : 0;
       for (let c0 = -1; c0 < 5; c0++) {
-        ctx.fillStyle = rgba(rgb, 1, 0.78 + rnd() * 0.36);
-        ctx.fillRect(c0 * bw + off + 2, r * bh + 2, bw - 4, bh - 4);
+        ctx.fillStyle = rgba(rgb, 1, 0.74 + rnd() * 0.42);
+        ctx.fillRect(c0 * bw + off + 3, r * bh + 3, bw - 6, bh - 6);
+      }
+    }
+    if (pattern === 'pipe_brick') {
+      // Industrial grime & moisture drip streaks
+      for (let i = 0; i < 60; i++) {
+        ctx.fillStyle = 'rgba(16, 12, 10, 0.25)';
+        ctx.fillRect(rnd() * size, rnd() * size, 3 + rnd() * 6, 18 + rnd() * 48);
       }
     }
   } else if (pattern === 'wood_plank' || pattern === 'wood_siding' || pattern === 'barn_wood') {
     const pCount = pattern === 'wood_plank' ? 8 : 10;
     const ph = size / pCount;
     for (let i = 0; i < pCount; i++) {
-      ctx.fillStyle = rgba(rgb, 1, 0.84 + rnd() * 0.28);
-      ctx.fillRect(0, i * ph, size, ph - 1);
-      ctx.fillStyle = 'rgba(20, 12, 8, 0.35)';
+      ctx.fillStyle = rgba(rgb, 1, 0.82 + rnd() * 0.30);
+      ctx.fillRect(0, i * ph, size, ph - 2);
+      ctx.fillStyle = 'rgba(18, 10, 6, 0.40)';
       ctx.fillRect(0, (i + 1) * ph - 2, size, 2);
+      // Nail heads & vertical board joints
+      const jx = ((i * 173 + 64) % (size - 32)) + 16;
+      ctx.fillRect(jx, i * ph, 2, ph - 2);
     }
   } else if (pattern === 'asphalt' || pattern === 'cave_rock' || pattern === 'concrete_wall' || pattern === 'warehouse_floor' || pattern === 'dark_metal' || pattern === 'grate_concrete' || pattern === 'brutalist_stone') {
-    for (let i = 0; i < 950; i++) {
-      ctx.fillStyle = rgba(rgb, 0.22, 0.65 + rnd() * 0.55);
-      ctx.fillRect(rnd() * size, rnd() * size, 4 + rnd() * 14, 3 + rnd() * 12);
+    for (let i = 0; i < 1600; i++) {
+      ctx.fillStyle = rgba(rgb, 0.24, 0.62 + rnd() * 0.58);
+      ctx.fillRect(rnd() * size, rnd() * size, 4 + rnd() * 18, 4 + rnd() * 16);
     }
-    if (pattern === 'grate_concrete') {
-      ctx.strokeStyle = 'rgba(18, 20, 22, 0.45)';
+    if (pattern === 'concrete_wall') {
+      // Brutalist poured-concrete panel joints + yellow-black warehouse safety stripe at base
+      ctx.strokeStyle = 'rgba(30, 32, 34, 0.38)';
       ctx.lineWidth = 3;
+      for (let i = 1; i < 4; i++) {
+        ctx.beginPath(); ctx.moveTo((i * size) / 4, 0); ctx.lineTo((i * size) / 4, size); ctx.stroke();
+      }
+      ctx.fillStyle = '#d4a31e';
+      ctx.fillRect(0, size - 44, size, 26);
+      ctx.fillStyle = '#1b1d20';
+      for (let x = -32; x < size + 32; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, size - 44); ctx.lineTo(x + 20, size - 44);
+        ctx.lineTo(x + 6, size - 18); ctx.lineTo(x - 14, size - 18);
+        ctx.closePath(); ctx.fill();
+      }
+    } else if (pattern === 'grate_concrete' || pattern === 'dark_metal') {
+      ctx.strokeStyle = 'rgba(14, 16, 18, 0.55)';
+      ctx.lineWidth = 4;
       for (let i = 0; i <= 8; i++) {
         const g = (i * size) / 8;
+        ctx.beginPath(); ctx.moveTo(g, 0); ctx.lineTo(g, size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, g); ctx.lineTo(size, g); ctx.stroke();
+      }
+    } else if (pattern === 'brutalist_stone') {
+      ctx.strokeStyle = 'rgba(175, 180, 188, 0.45)';
+      ctx.lineWidth = 2;
+      for (let i = 1; i < 4; i++) {
+        const g = (i * size) / 4;
         ctx.beginPath(); ctx.moveTo(g, 0); ctx.lineTo(g, size); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0, g); ctx.lineTo(size, g); ctx.stroke();
       }
     }
   } else if (pattern === 'pastel_wainscot' || pattern === 'pastel_carpet' || pattern === 'cartoon_stucco' || pattern === 'birch_bark') {
     if (pattern === 'birch_bark') {
-      ctx.fillStyle = '#e8e4de';
-      ctx.fillRect(0, 0, size, size);
-      ctx.fillStyle = 'rgba(38, 34, 32, 0.68)';
-      for (let i = 0; i < 36; i++) {
-        ctx.fillRect(rnd() * size, rnd() * size, 12 + rnd() * 38, 2 + rnd() * 5);
+      for (let i = 0; i < 160; i++) {
+        ctx.fillStyle = 'rgba(26, 22, 26, 0.72)';
+        ctx.fillRect(rnd() * size, rnd() * size, 14 + rnd() * 44, 3 + rnd() * 5);
       }
     } else if (pattern === 'pastel_wainscot') {
       ctx.fillStyle = rgba(rgb, 1, 1);
       ctx.fillRect(0, 0, size, size);
+      // Dreamcore vertical cream stripes + wainscot lower paneling
+      const st = size / 8;
+      for (let i = 0; i < 8; i += 2) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+        ctx.fillRect(i * st, 0, st, size * 0.62);
+      }
       ctx.fillStyle = '#fff5f9';
       ctx.fillRect(0, size * 0.62, size, size * 0.38);
       ctx.fillStyle = rgba(tRgb, 0.9, 1);
-      ctx.fillRect(0, size * 0.60, size, 8);
+      ctx.fillRect(0, size * 0.60, size, 12);
+      ctx.strokeStyle = rgba(tRgb, 0.5, 0.9);
+      ctx.lineWidth = 3;
+      for (let x = 16; x < size; x += 64) {
+        ctx.strokeRect(x, size * 0.66, 48, size * 0.28);
+      }
+    } else if (pattern === 'pastel_carpet') {
+      const sq = size / 4;
+      for (let y = 0; y < 4; y++) {
+        for (let x = 0; x < 4; x++) {
+          ctx.fillStyle = rgba(rgb, 1, ((x + y) & 1) ? 0.94 : 1.04);
+          ctx.fillRect(x * sq, y * sq, sq, sq);
+        }
+      }
+      for (let i = 0; i < 700; i++) {
+        ctx.fillStyle = 'rgba(255, 245, 252, 0.16)';
+        ctx.fillRect(rnd() * size, rnd() * size, 3, 3);
+      }
     } else {
-      for (let i = 0; i < 550; i++) {
+      for (let i = 0; i < 900; i++) {
         ctx.fillStyle = rgba(rgb, 0.14, 0.9 + rnd() * 0.18);
-        ctx.fillRect(rnd() * size, rnd() * size, 6 + rnd() * 12, 6 + rnd() * 12);
+        ctx.fillRect(rnd() * size, rnd() * size, 8 + rnd() * 16, 8 + rnd() * 16);
       }
     }
+  }
+  return c;
+}
+
+function buildCeilingCanvas(levelCfg, size = 256) {
+  const [c, ctx] = makeCanvas(size, size);
+  const arch = levelCfg.archetype;
+  const pal = levelCfg.palette || {};
+  const rnd = seededRng(levelCfg.order * 131 + 17);
+
+  if (arch === 'poolrooms') {
+    ctx.fillStyle = '#b4d2d9';
+    ctx.fillRect(0, 0, size, size);
+    const step = size / 4;
+    ctx.strokeStyle = 'rgba(110, 155, 165, 0.55)';
+    ctx.lineWidth = 4;
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        ctx.fillStyle = (x + y) & 1 ? '#abcad2' : '#bad7de';
+        ctx.fillRect(x * step + 4, y * step + 4, step - 8, step - 8);
+        ctx.strokeRect(x * step + 4, y * step + 4, step - 8, step - 8);
+      }
+    }
+  } else if (arch === 'office' || arch === 'redcity' || arch === 'warehouse' || arch === 'window_courtyard') {
+    const base = arch === 'redcity' ? '#321414' : arch === 'warehouse' ? '#62666b' : '#ccc9be';
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+    const step = size / 4;
+    ctx.strokeStyle = arch === 'redcity' ? '#190808' : '#7b7870';
+    ctx.lineWidth = 3;
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        ctx.strokeRect(x * step, y * step, step, step);
+        if (rnd() < 0.18) {
+          ctx.fillStyle = arch === 'redcity' ? 'rgba(18, 4, 4, 0.35)' : 'rgba(90, 82, 62, 0.14)';
+          ctx.fillRect(x * step + 4, y * step + 4, step - 8, step - 8);
+        }
+      }
+    }
+  } else if (arch === 'hotel') {
+    ctx.fillStyle = '#331c16';
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#9a7a3e';
+    ctx.lineWidth = 3;
+    const g = size / 2;
+    for (let y = 0; y < 2; y++) {
+      for (let x = 0; x < 2; x++) {
+        ctx.strokeRect(x * g + 8, y * g + 8, g - 16, g - 16);
+      }
+    }
+  } else if (arch === 'kitty_house') {
+    ctx.fillStyle = '#e5bdd0';
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#c484a4';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(8, 8, size - 16, size - 16);
+  } else if (arch === 'attic') {
+    return buildPatternCanvas('wood_plank', pal.wall ?? 0x5c422c, 0x2c1b10, size, levelCfg.order * 59);
+  } else if (arch === 'cave') {
+    return buildPatternCanvas('cave_rock', pal.wall ?? 0x383635, 0x1a1919, size, levelCfg.order * 61);
+  } else {
+    return buildPatternCanvas(pal.wallPattern || 'concrete_wall', pal.wall ?? 0x888888, pal.trim ?? 0x444444, size, levelCfg.order * 67);
   }
   return c;
 }
@@ -227,13 +435,20 @@ export function getLevelMaterials(levelCfg) {
   if (_levelTexCache.has(key)) return _levelTexCache.get(key);
 
   const pal = levelCfg.palette || {};
-  const wallCanvas = buildPatternCanvas(pal.wallPattern || 'concrete_wall', pal.wall ?? 0xcccccc, pal.trim ?? 0x888888, 256, levelCfg.order * 37 + 11);
-  const floorCanvas = buildPatternCanvas(pal.floorPattern || 'warehouse_floor', pal.floor ?? 0x777777, pal.trim ?? 0x555555, 256, levelCfg.order * 73 + 29);
+  const wallCanvas = buildPatternCanvas(pal.wallPattern || 'concrete_wall', pal.wall ?? 0xcccccc, pal.trim ?? 0x888888, 512, levelCfg.order * 37 + 11);
+  const floorCanvas = buildPatternCanvas(pal.floorPattern || 'warehouse_floor', pal.floor ?? 0x777777, pal.trim ?? 0x555555, 512, levelCfg.order * 73 + 29);
+  const ceilCanvas = buildCeilingCanvas(levelCfg, 256);
 
+  const wallBump = buildBumpFromDiffuse(wallCanvas, 128);
+  const floorBump = buildBumpFromDiffuse(floorCanvas, 128);
+
+  const spanRep = Math.max(24, Math.round((levelCfg.worldSpan || 500) / 8));
   const wallTex = toRepeatTex(wallCanvas, 1, 1, true);
-  const floorTex = toRepeatTex(floorCanvas, Math.max(24, Math.round((levelCfg.worldSpan || 500) / 8)), Math.max(24, Math.round((levelCfg.worldSpan || 500) / 8)), true);
+  const floorTex = toRepeatTex(floorCanvas, spanRep, spanRep, true);
+  const ceilTex = toRepeatTex(ceilCanvas, Math.max(18, Math.round((levelCfg.worldSpan || 400) / 10)), Math.max(18, Math.round((levelCfg.worldSpan || 400) / 10)), true);
+  const wallBumpTex = toRepeatTex(wallBump, 1, 1, false);
+  const floorBumpTex = toRepeatTex(floorBump, spanRep, spanRep, false);
 
-  // For Poolrooms / Ocean / Beach water shimmer
   let waterTex = null;
   if (pal.water) {
     const [wc, wctx] = makeCanvas(256, 256);
@@ -241,8 +456,8 @@ export function getLevelMaterials(levelCfg) {
     wctx.fillStyle = rgba(wrgb, 1, 1);
     wctx.fillRect(0, 0, 256, 256);
     const rnd = seededRng(levelCfg.order * 91);
-    for (let i = 0; i < 160; i++) {
-      wctx.strokeStyle = 'rgba(215, 252, 255, 0.32)';
+    for (let i = 0; i < 180; i++) {
+      wctx.strokeStyle = 'rgba(215, 252, 255, 0.34)';
       wctx.lineWidth = 2 + rnd() * 3;
       wctx.beginPath();
       wctx.arc(rnd() * 256, rnd() * 256, 10 + rnd() * 28, 0, Math.PI * 2);
@@ -251,20 +466,30 @@ export function getLevelMaterials(levelCfg) {
     waterTex = toRepeatTex(wc, 48, 48, true);
   }
 
+  const isTile = pal.wallPattern === 'pool_tile';
   const pack = {
     wallMat: new THREE.MeshStandardMaterial({
       map: wallTex,
-      roughness: pal.wallPattern === 'pool_tile' ? 0.28 : 0.84,
+      bumpMap: wallBumpTex,
+      bumpScale: isTile ? 0.045 : 0.075,
+      roughness: isTile ? 0.24 : 0.82,
       metalness: pal.wallPattern === 'dark_metal' ? 0.45 : 0.04
     }),
     floorMat: new THREE.MeshStandardMaterial({
       map: floorTex,
-      roughness: pal.floorPattern === 'pool_tile' ? 0.30 : 0.90,
-      metalness: 0.02
+      bumpMap: floorBumpTex,
+      bumpScale: pal.floorPattern === 'pool_tile' ? 0.04 : 0.07,
+      roughness: pal.floorPattern === 'pool_tile' ? 0.26 : 0.88,
+      metalness: pal.floorPattern === 'grate_concrete' ? 0.22 : 0.02
+    }),
+    ceilMat: new THREE.MeshStandardMaterial({
+      map: ceilTex,
+      roughness: isTile ? 0.35 : 0.90,
+      metalness: 0.04
     }),
     trimMat: new THREE.MeshStandardMaterial({
       color: pal.trim ?? 0x888888,
-      roughness: 0.52,
+      roughness: 0.50,
       metalness: 0.18
     }),
     accentMat: new THREE.MeshStandardMaterial({
@@ -277,13 +502,14 @@ export function getLevelMaterials(levelCfg) {
       map: waterTex,
       color: pal.water,
       transparent: true,
-      opacity: 0.72,
-      roughness: 0.14,
-      metalness: 0.12
+      opacity: levelCfg.archetype === 'poolrooms' ? 0.72 : 0.84,
+      roughness: 0.12,
+      metalness: 0.18
     }) : null,
     waterTex,
     wallTex,
-    floorTex
+    floorTex,
+    ceilTex
   };
 
   _levelTexCache.set(key, pack);

@@ -667,7 +667,7 @@ function renderTpPanel() {
         badge: isHere ? 'ĐANG Ở ĐÂY' : isClr ? '✓ ĐÃ SỬA' : 'ĐẾN TẦNG',
         badgeClass: isHere || isClr ? 'done' : '',
         hereClass: isHere,
-        x: m?.SPAWN?.x, y: m?.SPAWN?.y ?? 0, z: m?.SPAWN?.z, yaw: m?.SPAWN?.yaw ?? 0
+        x: m?.SPAWN?.x, y: m?.SPAWN?.y, z: m?.SPAWN?.z, yaw: m?.SPAWN?.yaw
       };
     });
     if (lvlItems.length) {
@@ -793,6 +793,8 @@ function switchLocalWorld(targetLevelId, via = 'portal') {
     me.levelId = nextId;
     camYaw = me.yaw || 0;
     camPitch = 0;
+    flashYaw = camYaw;
+    flashPitch = 0;
   }
 
   const meta = getLevelMeta(nextId);
@@ -4100,11 +4102,12 @@ function animate(now) {
         scene.fog.density = lc.fogDensity ?? 0.008;
         hemiLight.color.setHex(lc.hemiSky ?? 0xd8e0e8);
         hemiLight.groundColor.setHex(lc.hemiGround ?? 0x26200d);
-        hemiLight.intensity = lc.hemiInt ?? 0.85;
+        hemiLight.intensity = (lc.hemiInt ?? 0.80) * (lc.isOutdoor ? 0.68 : 0.56);
         ambLight.color.setHex(lc.ambColor ?? 0x88929a);
-        ambLight.intensity = lc.ambInt ?? 0.50;
+        ambLight.intensity = (lc.ambInt ?? 0.35) * 0.45;
         const br = Number(fxSettings.brightness) || 1.0;
-        renderer.toneMappingExposure = (lc.isOutdoor ? 1.02 : 0.98) * br;
+        const brightCap = (lc.id === 'level37' || lc.id === 'level974' || lc.id === 'level9223') ? 0.76 : (lc.isOutdoor ? 0.90 : 0.85);
+        renderer.toneMappingExposure = brightCap * br;
       } else {
         const targetZL = getZoneLuminanceAt(me.x, me.z, map);
         zoneLightSmooth += (targetZL - zoneLightSmooth) * (1 - Math.exp(-2.8 * dt));
@@ -4935,16 +4938,21 @@ async function runSelfTests() {
       const tTerr = sm.TASKS?.[0] ? getTerrainAt(sm.TASKS[0].x, sm.TASKS[0].z, sm, sm.TASKS[0].y || 0) : null;
       const pTerr = sm.PORTALS?.[0] ? getTerrainAt(sm.PORTALS[0].x, sm.PORTALS[0].z, sm, sm.PORTALS[0].y || 0) : null;
       const [sx, sz] = collide(sm.SPAWN.x, sm.SPAWN.z, 0.36, sm, false, spTerr.floorY);
+      const propCount = sm.PROPS?.length || 0;
+      const animCount = sm.ANIM_PROPS?.length || 0;
       const ok = (
         sm.worldSpan >= 500 &&
         sm.TASKS?.length === 1 &&
         sm.PORTALS?.length === 1 &&
+        propCount >= 18 &&
+        (sm.LIGHTS?.length || 0) >= 4 &&
+        Math.hypot(sx - sm.SPAWN.x, sz - sm.SPAWN.z) < 0.8 &&
         Number.isFinite(sx) && Number.isFinite(sz) &&
         Number.isFinite(spTerr.floorY) &&
         tTerr && Number.isFinite(tTerr.floorY) &&
         pTerr && Number.isFinite(pTerr.floorY)
       );
-      if (!ok) subDiag.push({ id: lvl.id, span: sm.worldSpan, tasks: sm.TASKS?.length, portals: sm.PORTALS?.length, spTerr, sx, sz });
+      if (!ok) subDiag.push({ id: lvl.id, span: sm.worldSpan, props: propCount, anims: animCount, lights: sm.LIGHTS?.length, tasks: sm.TASKS?.length, portals: sm.PORTALS?.length, spTerr, sx, sz });
     }
     if (subDiag.length > 0) console.error('SUBLEVEL VERIFY FAIL:', subDiag);
     assert(subDiag.length === 0, 'all_20_sublevels_vast_architecture_and_loops');

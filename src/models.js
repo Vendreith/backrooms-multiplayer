@@ -2247,7 +2247,7 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
       const lgSoft = lg > 0.80 ? 0.80 + (lg - 0.80) * 0.45 : lg;
       pl.color.setHex(l.hex || (lg >= 0.9 ? 0xfff5c6 : lg >= 0.5 ? 0xffe696 : 0xffdb76));
       pl.intensity = (2.0 + lgSoft * 5.8) * fl; // Keeps bright halls clear while preserving wall/floor detail
-      pl.distance = 17 + lgSoft * 11;
+      pl.distance = l.dist ?? (17 + lgSoft * 11);
       pl.decay = Math.max(1.24, 1.58 - lgSoft * 0.28);
     }
   }

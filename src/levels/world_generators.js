@@ -6,6 +6,7 @@
 import { SpatialGrid2D } from '../engine.js';
 import { LEVEL_CATALOG } from './catalog.js';
 import { initTerrainIndex } from './terrain.js';
+import { populateLevelLoreProps } from './level_populator.js';
 
 function mulberry32(seed) {
   let a = seed | 0;
@@ -263,6 +264,9 @@ export function genSubLevelMap(levelId, seed = 2026) {
   const WHEAT = [];
   const PIPES = [];
   const DECO_BLOCKS = [];
+  const PROPS = [];
+  const ANIM_PROPS = [];
+  const meta = { corrC: 10, atria: null, roadGrid: null, plazas: null, seaLine: 0 };
   const WATERS = []; // Almond Water collectibles
   const FLARES = [];
   const SCANS = [];
@@ -285,6 +289,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     hEdges = core.hEdges;
     vEdges = core.vEdges;
     cellSolid = core.cellSolid;
+    meta.plazas = core.plazas;
     waterCells = Array.from({ length: gN }, () => new Uint8Array(gN).fill(0));
 
     // Carve 4 massive centerpiece Pool Atria + connect winding wet corridors
@@ -294,6 +299,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
       { cx: Math.floor(gN * 0.30), cz: Math.floor(gN * 0.72), rx: 7, rz: 8 },
       { cx: Math.floor(gN * 0.74), cz: Math.floor(gN * 0.74), rx: 8, rz: 8 }
     ];
+    meta.atria = atria;
     for (const a of atria) {
       const c0 = Math.max(2, a.cx - a.rx), c1 = Math.min(gN - 3, a.cx + a.rx);
       const r0 = Math.max(2, a.cz - a.rz), r1 = Math.min(gN - 3, a.cz + a.rz);
@@ -368,7 +374,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     }
 
     wallsFromEdges(gN, gC, wallH, hEdges, vEdges, core.CRAWL_WALLS, RECTS, WALLS);
-    SPAWN = { x: (atria[0].cx - atria[0].rx + 1) * gC, z: (atria[0].cz - atria[0].rz + 1) * gC, y: 0.08, yaw: 0 };
+    SPAWN = { x: (atria[0].cx - atria[0].rx + 1.35) * gC, z: (atria[0].cz - atria[0].rz + 1.35) * gC, y: 0.08, yaw: Math.PI * 1.25 };
     END_POS = { x: (atria[3].cx + atria[3].rx - 1) * gC, z: (atria[3].cz + atria[3].rz - 1) * gC, y: 0.08 };
   }
 
@@ -379,6 +385,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     // 1. Opening iconic Hospital Red Corridor (South -> North strip on left flank)
     // opens into sprawling Red Crimson Urban Skyline Labyrinth!
     const corrC = 10;
+    meta.corrC = corrC;
     const hw = 0.48;
     // Corridor side walls
     RECTS.push({ x0: corrC * gC - hw, z0: gC * 2, x1: corrC * gC + hw, z1: gC * 32, y0: 0, y1: 5.5, h: 5.5 });
@@ -481,6 +488,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     else if (arch === 'suburbs' || arch === 'motion_town') {
       const isCartoon = arch === 'motion_town';
       const roadGrid = [Math.round(span * 0.25), Math.round(span * 0.5), Math.round(span * 0.75)];
+      meta.roadGrid = roadGrid;
       SPAWN = isCartoon ? { x: mid, z: 32, y: 0, yaw: Math.PI } : { x: 68, z: roadGrid[0], y: 0, yaw: -Math.PI * 0.5 };
       END_POS = { x: mid, z: span - 54, y: isCartoon ? 10.0 : 0 };
       // Long asphalt/cobble avenues N-S and E-W
@@ -561,6 +569,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     else if (arch === 'sunset_beach') {
       // Western half (`x < span * 0.58`) is undulating golden sand beach; Eastern half (`x >= span * 0.54`) is calm sunset sea!
       const seaLine = span * 0.56;
+      meta.seaLine = seaLine;
       WATER_RECTS.push({ x0: seaLine, z0: 0, x1: span, z1: span, bedY: -0.68, waterY: -0.02, col: 0x26828e });
       PLATFORMS.push({ x0: 0, z0: 0, x1: seaLine, z1: span, y: 0.05, surface: 'sand', draw: true, col: 0xdcc38a });
       // Long coastal wooden boardwalk & ocean pier out into Sunset horizon
@@ -658,6 +667,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     hEdges = core.hEdges;
     vEdges = core.vEdges;
     cellSolid = core.cellSolid;
+    meta.plazas = core.plazas;
 
     // Special Open Central Sky Atrium for Level 188 (Courtyard of Windows)!
     if (arch === 'window_courtyard') {
@@ -674,10 +684,15 @@ export function genSubLevelMap(levelId, seed = 2026) {
       TOWERS.push({ x: (cMid + rad + 3) * gC, z: cMid * gC, w: gC * 4, d: rad * 2 * gC, h: 32, col: 0xcbd0d6, windowAccent: 0xfff1b0 });
       TOWERS.push({ x: cMid * gC, z: (cMid - rad - 3) * gC, w: rad * 2 * gC, d: gC * 4, h: 32, col: 0xcbd0d6, windowAccent: 0xfff1b0 });
       TOWERS.push({ x: cMid * gC, z: (cMid + rad + 3) * gC, w: rad * 2 * gC, d: gC * 4, h: 32, col: 0xcbd0d6, windowAccent: 0xfff1b0 });
-      SPAWN = { x: (cMid) * gC, z: (cMid - rad + 2) * gC, y: 0, yaw: 0 };
+      SPAWN = { x: (cMid) * gC, z: (cMid - rad + 2) * gC, y: 0, yaw: Math.PI };
       END_POS = { x: (gN - 6) * gC, z: (gN - 6) * gC, y: 0 };
     } else {
-      SPAWN = { x: gC * 4.5, z: gC * 4.5, y: 0, yaw: 0 };
+      // Open a 2x2 welcoming furnished entry vestibule at (4,4)..(5,5) facing down into the room
+      if (cellSolid) { cellSolid[4][4] = 0; cellSolid[4][5] = 0; cellSolid[5][4] = 0; cellSolid[5][5] = 0; }
+      if (vEdges[4]) vEdges[4][5] = 0;
+      if (hEdges[5]) { hEdges[5][4] = 0; hEdges[5][5] = 0; }
+      if (vEdges[5]) vEdges[5][5] = 0;
+      SPAWN = { x: gC * 4.5, z: gC * 4.5, y: 0, yaw: Math.PI * 1.25 };
       END_POS = { x: (gN - 5.5) * gC, z: (gN - 5.5) * gC, y: 0 };
     }
 
@@ -744,6 +759,13 @@ export function genSubLevelMap(levelId, seed = 2026) {
   }
 
   // Build spatial collision grid
+  populateLevelLoreProps({
+    cfg, span, mid, gC, gN, wallH, rnd, meta,
+    RECTS, WALLS, WATER_RECTS, PLATFORMS, RAMPS, HOUSES, TOWERS, TREES, WHEAT,
+    DECO_BLOCKS, LIGHTS, CRAWL_WALLS: RECTS.filter(r => r.crawl), hEdges, vEdges, cellSolid,
+    SPAWN, END_POS, K_SPAWN: null, PROPS, ANIM_PROPS
+  });
+
   const wallGrid = new SpatialGrid2D(Math.max(4, gC));
   wallGrid.build(RECTS);
 
@@ -829,7 +851,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     waterCells,
     RECTS, WALLS, wallGrid, hEdges, vEdges, cellSolid,
     WATER_RECTS, PLATFORMS, RAMPS, SLIDES,
-    HOUSES, TOWERS, FURNITURE, TREES, WHEAT, PIPES, DECO_BLOCKS,
+    HOUSES, TOWERS, FURNITURE, TREES, WHEAT, PIPES, DECO_BLOCKS, PROPS, ANIM_PROPS,
     LIGHTS, TASKS, PORTALS,
     HOOKS: [], EXITS: [], TRAPS: [], ENTRANCES: [],
     WATERS, SCANS, JELLIES, RATIONS, FLARES,
