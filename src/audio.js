@@ -107,6 +107,9 @@ class AudioManager {
     this._heartT = 0;
     this._nextCreepyT = 5.5;
     this._lastCreepyKey = '';
+    this._poolAudio = null;
+    this._phantomTimers = [];
+    this._nextPadChimeT = 0;
   }
 
   /**
@@ -451,6 +454,8 @@ class AudioManager {
       this.ambFilter.frequency.setTargetAtTime(8500, now, 0.3);
       if (this.humGain) this.humGain.gain.setTargetAtTime(0.015, now, 0.3);
       if (this.atmoGain) this.atmoGain.gain.setTargetAtTime(0.08, now, 0.4);
+      if (this._poolAudio) this._poolAudio.bus.gain.setTargetAtTime(0, now, 0.35);
+      this.stopPhantomFootsteps();
       this._breathT = 0;
 
       for (const [k, s] of Object.entries(this.sources)) {
@@ -458,6 +463,10 @@ class AudioManager {
         s.gain.gain.setTargetAtTime(target, now, 0.45);
       }
       return;
+    }
+
+    if (this._poolAudio && performance.now() - (this._lastPoolAudioT || 0) > 600) {
+      this._poolAudio.bus.gain.setTargetAtTime(0, now, 0.35);
     }
 
     // Rotate across all 10 Backrooms ambient tracks smoothly every 52s
@@ -1229,16 +1238,307 @@ class AudioManager {
     }
   }
 
-  updatePoolroomsZoneAudio(dt, zone, inWater = false) {
+  _ensurePoolAudio() {
+    if (this._poolAudio || !this.ensureContext()) return this._poolAudio;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    const bus = ctx.createGain();
+    bus.gain.value = 0.0;
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1800;
+
+    const delay = ctx.createDelay(0.6);
+    delay.delayTime.value = 0.21;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.36;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.32;
+
+    bus.connect(lp);
+    lp.connect(this.ambGain || this.master);
+    lp.connect(delay);
+    delay.connect(fb);
+    fb.connect(lp);
+    delay.connect(wet);
+    wet.connect(this.ambGain || this.master);
+
+    const mkDrone = (freqs, type, filterHz, vol) => {
+      const g = ctx.createGain();
+      g.gain.value = 0.0;
+      const flt = ctx.createBiquadFilter();
+      flt.type = 'lowpass';
+      flt.frequency.value = filterHz;
+      g.connect(flt);
+      flt.connect(bus);
+      const oscs = freqs.map((f, idx) => {
+        const o = ctx.createOscillator();
+        const og = ctx.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(f, t);
+        og.gain.value = vol / Math.max(1, freqs.length * (idx === 0 ? 1.0 : 1.35));
+        o.connect(og);
+        og.connect(g);
+        o.start(t);
+        return o;
+      });
+      return { g, flt, oscs };
+    };
+
+    // 6 distinct Poolrooms regional music layers:
+    const layers = {
+      peaceful_shallow: mkDrone([174.61, 220.0, 261.63, 329.63], 'sine', 950, 0.14),
+      dark_submerged: mkDrone([55.0, 82.41, 110.0], 'triangle', 320, 0.16),
+      colored_sanctuary: mkDrone([196.0, 246.94, 293.66, 369.99], 'sine', 1200, 0.15),
+      slide_cathedral: mkDrone([146.83, 220.0, 293.66, 440.0], 'triangle', 1100, 0.13),
+      industrial_nexus: mkDrone([65.41, 98.0, 130.81], 'sawtooth', 260, 0.09),
+      silent_horror: mkDrone([49.0, 73.42], 'sine', 180, 0.04)
+    };
+
+    this._poolAudio = { bus, lp, delay, fb, wet, layers };
+    return this._poolAudio;
+  }
+
+  updatePoolroomsZoneAudio(dt, zone, inWater = false, me = null, map = null) {
     if (!this.ctx || this.muted || !zone) return;
+    this._lastPoolAudioT = performance.now();
     const t = this.ctx.currentTime;
+    const pa = this._ensurePoolAudio();
+    if (!pa) return;
+
+    // Master Poolrooms music layer balance
+    const activeLayer = zone.musicLayer || (
+      zone.mood === 'damp_maintenance' ? 'industrial_nexus' :
+      zone.mood === 'deep_abyssal' ? 'dark_submerged' :
+      zone.mood === 'cool_cathedral' || zone.mood === 'tranquil_dusk' ? 'colored_sanctuary' :
+      zone.mood === 'pastel_waterpark' ? 'slide_cathedral' :
+      'peaceful_shallow'
+    );
+
+    pa.bus.gain.setTargetAtTime(Math.max(0.0, this.musicVol * 0.72), t, 0.45);
+    for (const [k, layer] of Object.entries(pa.layers)) {
+      const target = k === activeLayer ? 1.0 : 0.0;
+      layer.g.gain.setTargetAtTime(target, t, 0.75);
+    }
+
+    // Acoustic architecture presets (corridor vs cathedral vs tube vs maintenance)
+    const preset = zone.acousticPreset || 'large_chamber';
+    let delayT = 0.21;
+    let fbGain = 0.34;
+    let cutoff = 1850;
+    if (preset === 'small_corridor') { delayT = 0.11; fbGain = 0.24; cutoff = 1450; }
+    else if (preset === 'slide_tube') { delayT = 0.16; fbGain = 0.48; cutoff = 1150; }
+    else if (preset === 'underwater_passage') { delayT = 0.26; fbGain = 0.44; cutoff = 680; }
+    else if (preset === 'maintenance_room') { delayT = 0.13; fbGain = 0.22; cutoff = 960; }
+    else if (preset === 'vaulted_cathedral') { delayT = 0.35; fbGain = 0.56; cutoff = 2600; }
+
+    if (inWater) cutoff = Math.min(cutoff, 480);
+    pa.delay.delayTime.setTargetAtTime(delayT, t, 0.35);
+    pa.fb.gain.setTargetAtTime(fbGain, t, 0.35);
+    pa.lp.frequency.setTargetAtTime(cutoff, t, 0.35);
+
+    // Sparse delicate glass-chime note inside peaceful/colored/slide sanctuary zones (almost silent in silent_horror)
+    this._nextPadChimeT -= dt;
+    if (this._nextPadChimeT <= 0) {
+      this._nextPadChimeT = activeLayer === 'silent_horror' ? 14 : (2.8 + Math.random() * 4.2);
+      if (activeLayer !== 'silent_horror' && Math.random() < 0.85) {
+        const scales = {
+          peaceful_shallow: [523.25, 587.33, 659.25, 783.99, 880.0],
+          dark_submerged: [220.0, 261.63, 329.63, 392.0],
+          colored_sanctuary: [493.88, 587.33, 659.25, 739.99, 880.0],
+          slide_cathedral: [440.0, 587.33, 659.25, 880.0],
+          industrial_nexus: [196.0, 293.66, 329.63]
+        };
+        const notes = scales[activeLayer] || scales.peaceful_shallow;
+        const freq = notes[(Math.random() * notes.length) | 0];
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.032 * this.musicVol, t + 0.08);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+        o.connect(g);
+        g.connect(pa.lp);
+        o.start(t);
+        o.stop(t + 2.5);
+      }
+    }
+
     if (this.humGain) {
-      const targetHum = zone.mood === 'damp_maintenance' ? 0.042 : zone.mood === 'deep_abyssal' ? 0.022 : 0.014;
+      const targetHum = activeLayer === 'industrial_nexus' ? 0.036 : activeLayer === 'dark_submerged' ? 0.020 : 0.011;
       this.humGain.gain.setTargetAtTime(targetHum, t, 0.45);
     }
     if (this.atmoDroneFilter) {
-      const cutoff = inWater ? 260 : zone.mood === 'deep_abyssal' ? 320 : zone.mood === 'cool_cathedral' ? 520 : 680;
-      this.atmoDroneFilter.frequency.setTargetAtTime(cutoff, t, 0.35);
+      const aCut = inWater ? 240 : activeLayer === 'dark_submerged' ? 310 : activeLayer === 'silent_horror' ? 280 : 620;
+      this.atmoDroneFilter.frequency.setTargetAtTime(aCut, t, 0.35);
+    }
+  }
+
+  stopPhantomFootsteps() {
+    if (!this._phantomTimers?.length) return;
+    while (this._phantomTimers.length) clearTimeout(this._phantomTimers.pop());
+  }
+
+  playPhantomFootsteps(pos, style = 'wet_slap', occluded = false) {
+    if (!this.ensureContext() || this.muted) return;
+    this.stopPhantomFootsteps();
+    const steps = style === 'hurried_fade' ? 4 : style === 'overhead_echo' ? 3 : 3;
+    const baseIntervalMs = style === 'hurried_fade' ? 270 : style === 'shallow_wade' ? 480 : 410;
+    for (let i = 0; i < steps; i++) {
+      const tid = setTimeout(() => {
+        if (!this.ctx || this.muted) return;
+        const t = this.ctx.currentTime;
+        const stepPos = {
+          x: pos.x + (style === 'hurried_fade' ? i * 0.95 : (Math.random() - 0.5) * 0.5),
+          y: pos.y ?? 1.4,
+          z: pos.z + (style === 'hurried_fade' ? i * 0.95 : (Math.random() - 0.5) * 0.5)
+        };
+        const out = this._makePanner(stepPos, 3.0, 38);
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = occluded ? (style === 'overhead_echo' ? 920 : 780) : (style === 'overhead_echo' ? 1850 : 2400);
+        lp.connect(out);
+
+        // Soft noise slap + thump
+        const dur = style === 'shallow_wade' ? 0.24 : 0.14;
+        const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let k = 0; k < data.length; k++) {
+          data[k] = (Math.random() * 2 - 1) * Math.exp(-k / (data.length * (style === 'shallow_wade' ? 0.42 : 0.22)));
+        }
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = style === 'shallow_wade' ? 680 : 1250;
+        bp.Q.value = 1.6;
+        const gainFade = style === 'hurried_fade' ? Math.max(0.28, 1.0 - i * 0.22) : 0.85;
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.24 * gainFade, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        src.connect(bp);
+        bp.connect(g);
+        g.connect(lp);
+        src.start(t);
+
+        const thump = this.ctx.createOscillator();
+        const tg = this.ctx.createGain();
+        thump.type = 'sine';
+        thump.frequency.setValueAtTime(style === 'overhead_echo' ? 95 : 138, t);
+        thump.frequency.exponentialRampToValueAtTime(48, t + 0.09);
+        tg.gain.setValueAtTime(0.001, t);
+        tg.gain.linearRampToValueAtTime(0.16 * gainFade, t + 0.008);
+        tg.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+        thump.connect(tg);
+        tg.connect(lp);
+        thump.start(t);
+        thump.stop(t + 0.12);
+      }, i * baseIntervalMs);
+      this._phantomTimers.push(tid);
+    }
+  }
+
+  playPhantomObjectMove(pos, kind = 'chair_scrape', occluded = false) {
+    if (!this.ensureContext() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const out = this._makePanner(pos || { x: 0, y: 1.0, z: 0 }, 3.5, 44);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = occluded ? 950 : 2800;
+    lp.connect(out);
+
+    if (kind === 'chair_scrape' || kind === 'hatch_thud') {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = kind === 'chair_scrape' ? 'sawtooth' : 'triangle';
+      const f0 = kind === 'chair_scrape' ? 185 : 88;
+      const dur = kind === 'chair_scrape' ? 0.55 : 0.35;
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(36, f0 * 0.58), t + dur);
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.16, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g);
+      g.connect(lp);
+      o.start(t);
+      o.stop(t + dur + 0.04);
+    } else {
+      // Metallic ladder_rattle / pole_clatter / pipe_knock
+      const hits = kind === 'pipe_knock' ? 2 : 3;
+      const baseFreq = kind === 'ladder_rattle' ? 620 : kind === 'pole_clatter' ? 860 : 240;
+      for (let i = 0; i < hits; i++) {
+        const st = t + i * (kind === 'pipe_knock' ? 0.24 : 0.11);
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(baseFreq * (1 + i * 0.07), st);
+        o.frequency.exponentialRampToValueAtTime(baseFreq * 0.72, st + 0.22);
+        g.gain.setValueAtTime(0.001, st);
+        g.gain.linearRampToValueAtTime(0.15, st + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.001, st + 0.26);
+        o.connect(g);
+        g.connect(lp);
+        o.start(st);
+        o.stop(st + 0.28);
+      }
+    }
+  }
+
+  playPhantomAquaticMove(pos, kind = 'gentle_submerge', occluded = false) {
+    if (!this.ensureContext() || this.muted) return;
+    const strokes = kind === 'swim_strokes' ? 3 : kind === 'bubble_trail' ? 4 : 1;
+    const stepMs = kind === 'bubble_trail' ? 140 : 520;
+    for (let i = 0; i < strokes; i++) {
+      const tid = setTimeout(() => {
+        if (!this.ctx || this.muted) return;
+        const t = this.ctx.currentTime;
+        const out = this._makePanner(pos || { x: 0, y: 0.2, z: 0 }, 3.5, 46);
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = occluded ? 780 : 2100;
+        lp.connect(out);
+        if (kind === 'bubble_trail') {
+          const o = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          o.type = 'sine';
+          const f = 320 + Math.random() * 280;
+          o.frequency.setValueAtTime(f, t);
+          o.frequency.exponentialRampToValueAtTime(f * 1.45, t + 0.12);
+          g.gain.setValueAtTime(0.001, t);
+          g.gain.linearRampToValueAtTime(0.12, t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+          o.connect(g);
+          g.connect(lp);
+          o.start(t);
+          o.stop(t + 0.16);
+        } else {
+          const dur = kind === 'gentle_submerge' ? 0.55 : 0.34;
+          const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let k = 0; k < data.length; k++) {
+            data[k] = (Math.random() * 2 - 1) * Math.exp(-k / (data.length * 0.38));
+          }
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          const bp = this.ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.setValueAtTime(kind === 'bridge_drip' ? 1200 : 540, t);
+          bp.frequency.exponentialRampToValueAtTime(190, t + dur);
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.001, t);
+          g.gain.linearRampToValueAtTime(0.22, t + 0.05);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+          src.connect(bp);
+          bp.connect(g);
+          g.connect(lp);
+          src.start(t);
+        }
+      }, i * stepMs);
+      this._phantomTimers.push(tid);
     }
   }
 }

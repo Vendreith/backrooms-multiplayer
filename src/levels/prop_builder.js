@@ -248,6 +248,75 @@ function buildStaticProp(b, p, map) {
       box(b, 'tealCeramic', 0.95, 0.65, 0.12, 0, 2.75, -0.52);
       box(b, 'crimson', 0.55, 0.12, 0.12, 0.72, 1.4, 0.45);
       break;
+    case 'handrail_pair':
+      for (const sx of [-0.62, 0.62]) {
+        cyl(b, 'brightSteel', 0.032, 0.035, 1.02, 7, sx, 0.51, -0.8);
+        cyl(b, 'brightSteel', 0.032, 0.035, 1.02, 7, sx, 0.51, 0.8);
+        cyl(b, 'brightSteel', 0.03, 0.03, 1.72, 7, sx, 0.96, 0, Math.PI * 0.5, 0, 0);
+      }
+      break;
+    case 'underwater_lamp':
+      cyl(b, 'brightSteel', 0.24, 0.26, 0.08, 10, 0, 0, 0, Math.PI * 0.5, 0, 0);
+      cyl(b, p.warm ? 'glowWarm' : p.pink ? 'glowPink' : 'glowCyan', 0.18, 0.18, 0.09, 10, 0, 0, 0.02, Math.PI * 0.5, 0, 0);
+      break;
+    case 'lane_divider': {
+      const len = p.len || 10.0;
+      cyl(b, 'brightSteel', 0.02, 0.02, len, 6, 0, 0, 0, 0, 0, Math.PI * 0.5);
+      for (let lx = -len * 0.45; lx <= len * 0.45; lx += 0.65) {
+        cyl(b, Math.round(lx * 2) % 2 === 0 ? 'tealCeramic' : 'warmCeramic', 0.09, 0.09, 0.34, 8, lx, 0, 0, 0, 0, Math.PI * 0.5);
+      }
+      break;
+    }
+    case 'depth_marker':
+      box(b, 'warmCeramic', 0.72, 0.28, 0.05, 0, 0.14, 0);
+      box(b, 'darkSteel', 0.56, 0.12, 0.06, 0, 0.14, 0);
+      box(b, 'oliveGold', 0.68, 0.04, 0.06, 0, 0.25, 0);
+      break;
+    case 'pool_skimmer':
+      box(b, 'warmCeramic', 0.62, 0.44, 0.14, 0, 0.22, 0);
+      box(b, 'darkSteel', 0.46, 0.26, 0.16, 0, 0.20, 0.01);
+      break;
+    case 'lifebuoy_rack':
+      box(b, 'brightSteel', 0.14, 0.92, 0.08, 0, 0.46, 0);
+      torus(b, 'crimson', 0.36, 0.10, 0, 0.56, 0.10, 0, 0, 0);
+      box(b, 'ceramic', 0.24, 0.18, 0.22, 0.28, 0.56, 0.10);
+      box(b, 'ceramic', 0.24, 0.18, 0.22, -0.28, 0.56, 0.10);
+      break;
+    case 'rescue_pole':
+      cyl(b, 'brightSteel', 0.024, 0.024, 3.6, 7, 0, 0.06, 0, 0, 0, Math.PI * 0.5);
+      torus(b, 'brightSteel', 0.20, 0.025, 1.85, 0.06, 0, Math.PI * 0.5, 0, 0);
+      break;
+    case 'abandoned_sandals':
+      box(b, 'skyBlue', 0.12, 0.04, 0.28, -0.14, 0.02, -0.04, 0, 0.22, 0);
+      box(b, 'tealCeramic', 0.12, 0.02, 0.12, -0.14, 0.05, 0.01, 0, 0.22, 0);
+      box(b, 'skyBlue', 0.12, 0.04, 0.28, 0.15, 0.02, 0.05, 0, -0.35, 0);
+      box(b, 'tealCeramic', 0.12, 0.02, 0.12, 0.15, 0.05, 0.10, 0, -0.35, 0);
+      break;
+    case 'warning_sign_cone':
+      box(b, 'oliveGold', 0.36, 0.68, 0.06, 0, 0.34, 0.12, -0.22, 0, 0);
+      box(b, 'oliveGold', 0.36, 0.68, 0.06, 0, 0.34, -0.12, 0.22, 0, 0);
+      box(b, 'darkSteel', 0.24, 0.18, 0.07, 0, 0.40, 0.13, -0.22, 0, 0);
+      break;
+    case 'mineral_stain':
+      box(b, 'maintCeramic', 1.65, 0.02, 1.15, 0, 0.012, 0);
+      box(b, 'aquaGlass', 1.25, 0.025, 0.75, 0.12, 0.015, -0.08);
+      break;
+    case 'ceramic_island_planter':
+      cyl(b, 'warmCeramic', 1.85, 1.95, 0.62, 12, 0, 0.31, 0);
+      cyl(b, 'tealCeramic', 1.90, 1.90, 0.14, 12, 0, 0.64, 0);
+      cyl(b, 'foliage', 0.28, 0.34, 1.1, 7, 0, 1.12, 0);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        box(b, 'foliage', 0.52, 0.85, 0.52, Math.cos(a) * 0.72, 1.05, Math.sin(a) * 0.72, 0, a, 0);
+      }
+      box(b, 'foliage', 1.15, 1.15, 1.15, 0, 1.85, 0, 0.2, 0.4, 0.15);
+      break;
+    case 'floodgate_wheel':
+      box(b, 'darkSteel', 2.4, 2.8, 0.26, 0, 1.4, 0);
+      for (const sx of [-1.25, 1.25]) box(b, 'maintCeramic', 0.24, 3.6, 0.38, sx, 1.8, 0);
+      box(b, 'brightSteel', 0.14, 1.8, 0.14, 0, 2.7, 0.18);
+      torus(b, 'crimson', 0.44, 0.06, 0, 2.05, 0.28, 0, 0, 0);
+      break;
 
     // --- OFFICE (LEVEL 4) ---
     case 'cubicle':

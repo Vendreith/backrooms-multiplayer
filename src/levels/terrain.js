@@ -141,6 +141,49 @@ export function getTerrainAt(x, z, map, curY = 0) {
     }
   }
 
+  // 5. Helical / Spiral Ceramic Water Slides (polar collision & downhill tangent propulsion)
+  if (!onSlide && map.SPIRAL_SLIDES?.length) {
+    for (let i = 0; i < map.SPIRAL_SLIDES.length; i++) {
+      const s = map.SPIRAL_SLIDES[i];
+      const dx = x - s.cx;
+      const dz = z - s.cz;
+      const r = Math.hypot(dx, dz);
+      const halfW = (s.width || 2.8) * 0.52;
+      if (Math.abs(r - s.radius) > halfW) continue;
+      const dir = s.ccw ? -1 : 1;
+      const turns = s.turns || 1.35;
+      const totAng = turns * Math.PI * 2;
+      const angStart = s.angStart || 0;
+      const theta = Math.atan2(dz, dx);
+      let base = ((theta - angStart) * dir) % (Math.PI * 2);
+      if (base < 0) base += Math.PI * 2;
+      let bestSy = -999;
+      let bestAng = 0;
+      const maxK = Math.ceil(turns);
+      for (let k = -1; k <= maxK; k++) {
+        const angP = base + k * Math.PI * 2;
+        if (angP < -0.22 || angP > totAng + 0.16) continue;
+        const t = Math.max(0, Math.min(1, angP / totAng));
+        const sy = s.yTop - (s.yTop - s.yBot) * t;
+        if (curY >= sy - 1.55 && sy > bestSy) {
+          bestSy = sy;
+          bestAng = angStart + dir * t * totAng;
+        }
+      }
+      if (bestSy > -998 && bestSy >= floorY - 0.15) {
+        floorY = bestSy;
+        inWater = false;
+        waterDepth = 0;
+        onSlide = true;
+        const spd = s.speed || 10.5;
+        slideVelX = -Math.sin(bestAng) * dir * spd;
+        slideVelZ = Math.cos(bestAng) * dir * spd;
+        surfaceKind = 'slide';
+        break;
+      }
+    }
+  }
+
   return { floorY, inWater, waterY, waterDepth, slideVelX, slideVelZ, onSlide, surfaceKind };
 }
 

@@ -12,10 +12,10 @@ export const LEVEL_CATALOG = {
     vnName: 'Hồ Bơi Vô Tận',
     tagline: 'Mê cung gạch men xanh ngọc, cầu trượt nước cao tầng & Thủy Quái chỉ săn dưới nước.',
     archetype: 'poolrooms',
-    gridN: 112,
+    gridN: 224,
     cellSize: 6.0,
-    worldSpan: 672,
-    ceilH: 8.4,
+    worldSpan: 1344,
+    ceilH: 10.6,
     isOutdoor: false,
     hasSkylights: true,
     sky: {

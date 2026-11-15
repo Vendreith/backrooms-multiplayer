@@ -48,7 +48,7 @@ const hud = $('hud');
 const fearFx = $('fearFx');
 
 // ---------- Core Three.js Renderer, Scene & Camera ----------
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -3213,7 +3213,9 @@ function updateHUD(elapsed, fpsVal) {
   const secs = Math.floor(matchTime % 60).toString().padStart(2, '0');
   const cs = Math.floor((matchTime * 100) % 100).toString().padStart(2, '0');
   $('tapeTime').textContent = `00:${mins}:${secs}.${cs}`;
-  $('fpsCounter').textContent = `${Math.round(fpsVal)} FPS`;
+  $('fpsCounter').textContent = `${Math.max(1, Math.round(fpsVal))} FPS`;
+  const pingEl = $('pingCounter');
+  if (pingEl && !net.netReady) pingEl.textContent = `${frameMsSmooth.toFixed(1)} ms`;
   const meta = getLevelMeta(activeLocalLevelId);
   const compactCode = meta.code.length > 14 ? `${meta.code.slice(0, 11)}..` : meta.code;
   $('roleBadge').textContent = isK ? `ENTITY // ${compactCode}` : `CAM-04 // ${compactCode}`;
@@ -4077,11 +4079,14 @@ window.addEventListener('resize', applyViewportLayout);
 let lastClock = performance.now();
 let lastRender = performance.now();
 let fpsSmooth = 60;
+let frameMsSmooth = 16.7;
+const poolEyeAdapt = { adaptedExp: 0.72 };
 
 function animate(now) {
   requestAnimationFrame(animate);
+  const frameStartMs = performance.now();
 
-  // Respect 24 (Cinema) / 30 / 60 / 120 / Unlimited FPS Limiter smoothly across any monitor Hz
+  // Respect 15 (VHS) / 24 (Cinema) / 30 / 60 / 120 / Unlimited FPS Limiter smoothly across any monitor Hz
   if (fpsCap > 0) {
     const interval = 1000 / fpsCap;
     const elapsedRender = now - lastRender;
@@ -4094,8 +4099,10 @@ function animate(now) {
   const rawDt = (now - lastClock) / 1000;
   lastClock = now;
   const dt = Math.min(0.068, Math.max(0.001, rawDt));
-  const instFps = rawDt > 0 ? 1 / rawDt : 60;
-  fpsSmooth += (instFps - fpsSmooth) * 0.1;
+  // Ignore outlier >0.25s tab/teleport/warmup stalls so FPS counter never gets pinned to 1 FPS
+  const paceDt = rawDt > 0.25 ? (fpsCap > 0 ? 1 / fpsCap : 1 / 60) : Math.max(0.002, rawDt);
+  const instFps = Math.min(240, 1 / paceDt);
+  fpsSmooth += (instFps - fpsSmooth) * 0.16;
 
   const elapsed = now * 0.001;
   // Scale turn-hold window cleanly by frame interval so 24FPS still keeps crisp turn blur & stops on halt
@@ -4252,6 +4259,9 @@ function animate(now) {
         const br = Number(fxSettings.brightness) || 1.0;
         if (activeLocalLevelId === 'level37' && map.POOL_ZONES) {
           const pz = getPoolroomsZoneAt(me.x, me.z, map);
+          const lookX = me.x - Math.sin(me.yaw || 0) * 9.5;
+          const lookZ = me.z - Math.cos(me.yaw || 0) * 9.5;
+          const lookPz = getPoolroomsZoneAt(lookX, lookZ, map);
           const atmLerp = 1 - Math.exp(-2.8 * dt);
           _atmoFogCol.setHex(pz.fogColor ?? lc.fogColor ?? 0xaadbe0);
           _atmoHemiSky.setHex(pz.hemiSky ?? lc.hemiSky ?? 0xdff8ff);
@@ -4265,9 +4275,14 @@ function animate(now) {
           _atmoHemiSky.setHex(pz.ambColor ?? lc.ambColor ?? 0xe8ebe0);
           ambLight.color.lerp(_atmoHemiSky, atmLerp);
           ambLight.intensity += (((pz.ambInt ?? lc.ambInt ?? 0.48) * 0.50) - ambLight.intensity) * atmLerp;
-          const targetExp = Math.min(0.76, (pz.exposure ?? 0.74) * 0.92) * br;
-          renderer.toneMappingExposure += (targetExp - renderer.toneMappingExposure) * atmLerp;
-          audio.updatePoolroomsZoneAudio?.(dt, pz, !!me.inWater);
+          // Asymmetric Dynamic Eye Adaptation: dark -> bright (~0.55s settle), bright -> dark (~1.9s recovery)
+          const rawTargetExp = Math.min(0.84, Math.max(0.54, ((pz.exposure ?? 0.74) * 0.78 + (lookPz?.exposure ?? pz.exposure ?? 0.74) * 0.22) * 0.94));
+          const toBright = rawTargetExp > poolEyeAdapt.adaptedExp;
+          const eyeRate = 1 - Math.exp(-dt / (toBright ? 0.55 : 1.9));
+          poolEyeAdapt.adaptedExp += (rawTargetExp - poolEyeAdapt.adaptedExp) * eyeRate;
+          const clampedExp = Math.min(1.06, Math.max(0.50, poolEyeAdapt.adaptedExp * br));
+          renderer.toneMappingExposure += (clampedExp - renderer.toneMappingExposure) * Math.min(1, eyeRate * 1.45);
+          audio.updatePoolroomsZoneAudio?.(dt, pz, !!me.inWater, me, map);
           updatePoolroomsWorldEvents(dt, elapsed, me, map, world, audio, (cueTxt) => pushFeed(cueTxt, '#7ceeff'));
         } else {
           scene.fog.color.setHex(lc.fogColor ?? 0x161207);
@@ -4330,6 +4345,14 @@ function animate(now) {
   }
 
   gfx.render(dt);
+  const workMs = performance.now() - frameStartMs;
+  frameMsSmooth += (workMs - frameMsSmooth) * 0.16;
+  window.__BR_PERF = {
+    fps: Math.max(1, Math.round(fpsSmooth)),
+    frameMs: Number(frameMsSmooth.toFixed(2)),
+    drawCalls: renderer.info.render.calls,
+    triangles: renderer.info.render.triangles
+  };
 }
 
 // ---------- Automated #test Self-Check Suite ----------
@@ -5169,16 +5192,40 @@ async function runSelfTests() {
     };
     poolEntAI.update(0.1, fakeEnt, fakeWetSurv, poolMap, {});
     const chasedWet = poolEntAI.state === 'CHASE' && poolEntAI.targetId === 's1';
-    const zonesOk = (poolMap.POOL_ZONES?.length === 10) && poolMap.POOL_ZONES.every(z => {
+    const validMusicLayers = new Set([
+      'peaceful_shallow', 'dark_submerged', 'colored_sanctuary',
+      'slide_cathedral', 'industrial_nexus', 'silent_horror'
+    ]);
+    const validAcoustics = new Set([
+      'small_corridor', 'large_chamber', 'slide_tube',
+      'maintenance_room', 'vaulted_cathedral', 'underwater_passage'
+    ]);
+    const seenZoneIds = new Set();
+    const seenZoneCodes = new Set();
+    const zoneFailures = [];
+    const zonesOk = (poolMap.POOL_ZONES?.length === 40) && poolMap.POOL_ZONES.every(z => {
+      const idOk = !!z.id && !seenZoneIds.has(z.id);
+      const codeOk = !!z.code && !seenZoneCodes.has(z.code);
+      if (z.id) seenZoneIds.add(z.id);
+      if (z.code) seenZoneCodes.add(z.code);
+      const musicOk = validMusicLayers.has(z.musicLayer);
+      const acousticOk = validAcoustics.has(z.acousticPreset);
       const zt = getTerrainAt(z.teleX, z.teleZ, poolMap, z.teleY);
-      return zt && zt.inWater === false;
+      const dryOk = !!(zt && zt.inWater === false);
+      if (!idOk || !codeOk || !musicOk || !acousticOk || !dryOk) {
+        zoneFailures.push({ code: z.code, idOk, codeOk, musicOk, acousticOk, dryOk, zt });
+      }
+      return idOk && codeOk && musicOk && acousticOk && dryOk;
     });
     const pumpsOk = poolMap.PUMPS?.length === 3;
     const poolDiag = {
       waters: poolMap.WATER_RECTS?.length || 0,
       slides: poolMap.SLIDES?.length || 0,
+      spiralSlides: poolMap.SPIRAL_SLIDES?.length || 0,
+      lightVolumes: poolMap.LIGHT_VOLUMES?.length || 0,
       zones: poolMap.POOL_ZONES?.length || 0,
       zonesOk,
+      zoneFailures,
       pumps: poolMap.PUMPS?.length || 0,
       basin,
       slide,
@@ -5193,7 +5240,9 @@ async function runSelfTests() {
     };
     const poolPass = (
       poolDiag.waters >= 3 &&
-      poolDiag.slides >= 4 &&
+      poolDiag.slides >= 6 &&
+      poolDiag.spiralSlides >= 2 &&
+      poolDiag.lightVolumes >= 6 &&
       zonesOk && pumpsOk &&
       basinTerr?.inWater === true && basinTerr.floorY < -0.5 &&
       bridgeTerr?.inWater === false &&

@@ -2203,14 +2203,17 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
   }
   world.dynamicRedSet = newRedSet;
 
-  // 2. Pool PointLights across 58m range (prioritizing brighter multi-tier zones visible down corridors!)
+  // 2. Pool PointLights across 64m range (prioritizing brighter multi-tier zones & smooth fade!)
+  const isPool = !!map.customPoolrooms;
+  const maxRange = isPool ? 64 : 58;
+  const maxRange2 = maxRange * maxRange;
   const cands = [];
   for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
     const l = map.LIGHTS[i];
     if (l.dead) continue;
     const d2 = (l.x - camPos.x) ** 2 + (l.z - camPos.z) ** 2;
     const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
-    if (d2 < 58 * 58) cands.push({ l, idx: i, d2, score: d2 / (0.65 + lg * 0.75) });
+    if (d2 < maxRange2) cands.push({ l, idx: i, d2, score: d2 / (0.65 + lg * 0.75) });
   }
   cands.sort((a, b) => a.score - b.score);
 
@@ -2221,34 +2224,37 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
     const l = c.l;
     const isRed = l.red || newRedSet.has(c.idx);
     pl.position.set(l.x, l.y ?? (WH - 0.4), l.z);
-    let fl = 1.0;
+    let fl = l._dimFactor ?? 1.0;
     const ph = l.phase || 0;
     if (l.flicker || isRed) {
       const s = Math.sin(elapsed * 24 + ph) * Math.sin(elapsed * 7.3 + ph * 2);
-      fl = s > (isRed ? -0.45 : -0.25) ? 1.0 : 0.16;
+      fl *= s > (isRed ? -0.45 : -0.25) ? 1.0 : 0.16;
     }
+    const dist = Math.sqrt(c.d2);
+    const edgeFade = dist > (maxRange - 14) ? Math.max(0.05, 1 - (dist - (maxRange - 14)) / 14) : 1.0;
+    fl *= edgeFade;
     if (isRed) {
       pl.color.setHex(l.hex || 0xff2214);
       pl.intensity = (l.gain ? l.gain * 6.5 : 5.4) * fl;
-      pl.distance = 22;
+      pl.distance = l.dist || 22;
       pl.decay = 1.38;
     } else if (l.green) {
       pl.color.setHex(l.hex || 0x6effa8);
       pl.intensity = (l.gain ? l.gain * 7.2 : 9.2) * fl;
-      pl.distance = 26;
+      pl.distance = l.dist || 26;
       pl.decay = 1.25;
     } else if (l.purple) {
       pl.color.setHex(l.hex || 0xd46eff);
-      pl.intensity = 7.4 * fl;
-      pl.distance = 24;
+      pl.intensity = (l.intensity ?? 7.4) * fl;
+      pl.distance = l.dist || 24;
       pl.decay = 1.32;
     } else {
       const lg = l.gain ?? (l.bright ? 1.16 : 0.62);
       const lgSoft = lg > 0.80 ? 0.80 + (lg - 0.80) * 0.45 : lg;
-      pl.color.setHex(l.hex || (lg >= 0.9 ? 0xfff5c6 : lg >= 0.5 ? 0xffe696 : 0xffdb76));
-      pl.intensity = (2.0 + lgSoft * 5.8) * fl; // Keeps bright halls clear while preserving wall/floor detail
+      pl.color.setHex(l.colorHex ?? l.hex ?? (lg >= 0.9 ? 0xfff5c6 : lg >= 0.5 ? 0xffe696 : 0xffdb76));
+      pl.intensity = (l.intensity ?? (2.0 + lgSoft * 5.8)) * fl; // Supports Poolrooms colored indirect intensity
       pl.distance = l.dist ?? (17 + lgSoft * 11);
-      pl.decay = Math.max(1.24, 1.58 - lgSoft * 0.28);
+      pl.decay = l.decay ?? Math.max(1.24, 1.58 - lgSoft * 0.28);
     }
   }
 

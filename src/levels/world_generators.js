@@ -284,11 +284,13 @@ export function genSubLevelMap(levelId, seed = 2026) {
   let PUMPS = null;
   let POOL_ZONES = null;
   let POOL_ARCH = null;
+  let LIGHT_VOLUMES = [];
+  let SPIRAL_SLIDES = [];
   let hEdges = null, vEdges = null, cellSolid = null;
   let waterCells = null;
 
   // =========================================================================
-  // ARCHETYPE A: POOLROOMS (Level 37) - 10-Zone Liminal Aquatic Labyrinth
+  // ARCHETYPE A: POOLROOMS (Level 37) - 40-Zone Liminal Aquatic Labyrinth
   // =========================================================================
   if (arch === 'poolrooms') {
     const poolRes = buildPoolroomsWorld({
@@ -299,6 +301,8 @@ export function genSubLevelMap(levelId, seed = 2026) {
     PUMPS = poolRes.PUMPS;
     POOL_ZONES = poolRes.POOL_ZONES;
     POOL_ARCH = poolRes.POOL_ARCH || [];
+    LIGHT_VOLUMES = poolRes.LIGHT_VOLUMES || [];
+    SPIRAL_SLIDES = poolRes.SPIRAL_SLIDES || [];
     TASK_POS = poolRes.TASK_POS;
     POOL_K_SPAWN = poolRes.K_SPAWN;
     SPAWN = poolRes.SPAWN;
@@ -859,8 +863,8 @@ export function genSubLevelMap(levelId, seed = 2026) {
     waterOnlyAI: cfg.entity?.behavior === 'water_only',
     waterCells,
     RECTS, WALLS, wallGrid, hEdges, vEdges, cellSolid,
-    WATER_RECTS, PLATFORMS, RAMPS, SLIDES,
-    POOL_ZONES, POOL_ARCH, PUMPS,
+    WATER_RECTS, PLATFORMS, RAMPS, SLIDES, SPIRAL_SLIDES,
+    POOL_ZONES, POOL_ARCH, LIGHT_VOLUMES, PUMPS,
     HOUSES, TOWERS, FURNITURE, TREES, WHEAT, PIPES, DECO_BLOCKS, PROPS, ANIM_PROPS,
     LIGHTS, TASKS, PORTALS,
     HOOKS: [], EXITS: [], TRAPS: [], ENTRANCES: [],

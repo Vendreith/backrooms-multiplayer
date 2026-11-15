@@ -483,6 +483,7 @@ export function getLevelMaterials(levelCfg) {
       bumpScale: 0.042,
       roughness: 0.44,
       metalness: 0.03,
+      vertexColors: true,
       emissive: 0x6ecac0,
       emissiveIntensity: 0.08
     });
@@ -492,6 +493,7 @@ export function getLevelMaterials(levelCfg) {
       bumpScale: 0.036,
       roughness: 0.36,
       metalness: 0.03,
+      vertexColors: true,
       emissive: 0x269e98,
       emissiveIntensity: 0.16
     });
@@ -522,6 +524,7 @@ export function getLevelMaterials(levelCfg) {
       bumpScale: isPoolrooms ? 0.052 : isTile ? 0.045 : 0.075,
       roughness: isPoolrooms ? 0.48 : isTile ? 0.24 : 0.82,
       metalness: pal.wallPattern === 'dark_metal' ? 0.45 : isPoolrooms ? 0.02 : 0.04,
+      vertexColors: isPoolrooms,
       emissive: isPoolrooms ? 0xd6ded8 : 0x000000,
       emissiveIntensity: isPoolrooms ? 0.07 : 0
     }),
@@ -531,6 +534,7 @@ export function getLevelMaterials(levelCfg) {
       bumpScale: isPoolrooms ? 0.048 : pal.floorPattern === 'pool_tile' ? 0.04 : 0.07,
       roughness: isPoolrooms ? 0.44 : pal.floorPattern === 'pool_tile' ? 0.26 : 0.88,
       metalness: pal.floorPattern === 'grate_concrete' ? 0.22 : 0.02,
+      vertexColors: isPoolrooms,
       emissive: isPoolrooms ? 0xcadcd6 : 0x000000,
       emissiveIntensity: isPoolrooms ? 0.05 : 0
     }),
@@ -538,6 +542,7 @@ export function getLevelMaterials(levelCfg) {
       map: ceilTex,
       roughness: isPoolrooms ? 0.45 : isTile ? 0.35 : 0.90,
       metalness: 0.03,
+      vertexColors: isPoolrooms,
       emissive: isPoolrooms ? 0xe6eae0 : 0x000000,
       emissiveIntensity: isPoolrooms ? 0.28 : 0
     }),
