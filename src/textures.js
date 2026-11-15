@@ -919,19 +919,31 @@ export function buildSymbolPlateTexture(code, sym, col) {
  * cast by every overhead ceiling fixture + deep crevice AO along wall bases.
  */
 function bakeLightmap(map, forCeiling = false) {
+  if (map?.isOutdoor || map?.noLightmap) {
+    const res = 128;
+    const [c, ctx] = makeCanvas(res, res);
+    const hex = map?.levelCfg?.hemiSky ?? 0xd8e0e8;
+    const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
+    ctx.fillStyle = `rgb(${Math.round(r * 0.85)}, ${Math.round(g * 0.85)}, ${Math.round(b * 0.85)})`;
+    ctx.fillRect(0, 0, res, res);
+    return c;
+  }
   const res = forCeiling ? 512 : 1536;
   const [c, ctx] = makeCanvas(res, res);
   ctx.fillStyle = forCeiling ? '#2f2916' : '#141106';
   ctx.fillRect(0, 0, res, res);
 
-  const worldSpan = N * C;
+  const gN = map?.gridN ?? N;
+  const gC = map?.cellSize ?? C;
+  const worldSpan = map?.worldSpan ?? (gN * gC);
+  const scaleC = gC;
 
   if (forCeiling) {
-    for (const l of map.LIGHTS) {
+    for (const l of map.LIGHTS || []) {
       if (l.dead) continue;
       const lx = (l.x / worldSpan) * res;
       const lz = (l.z / worldSpan) * res;
-      const rad = Math.max(2.5, (C * 1.55 / worldSpan) * res);
+      const rad = Math.max(2.5, (scaleC * 1.55 / worldSpan) * res);
       const g = ctx.createRadialGradient(lx, lz, 0.5, lx, lz, rad);
       if (l.red) {
         g.addColorStop(0, 'rgba(245, 58, 44, 0.88)');
@@ -954,15 +966,15 @@ function bakeLightmap(map, forCeiling = false) {
     const pSize = 144;
     const pHalf = pSize * 0.5;
     const [pc, pctx] = makeCanvas(pSize, pSize);
-    const lightReach = C * 3.1;
+    const lightReach = scaleC * 3.1;
     const pScale = (pHalf - 2) / lightReach;
     const drawWorldSpan = ((lightReach * 2) / worldSpan) * res;
 
-    for (const l of map.LIGHTS) {
+    for (const l of map.LIGHTS || []) {
       if (l.dead) continue;
 
       const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
-      const curReach = C * (2.6 + lg * 1.15);
+      const curReach = scaleC * (2.6 + lg * 1.15);
       const drawSpanCur = ((curReach * 2) / worldSpan) * res;
       const curScale = (pHalf - 2) / curReach;
 

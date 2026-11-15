@@ -390,20 +390,22 @@
       gap: 2px;
     }
     #hud.mobile-ui .hud-top-center {
-      top: 6px;
+      top: 4px;
+      left: 53%;
     }
     #hud.mobile-ui .obj-pill {
-      padding: 4px 10px;
-      font-size: 11px;
+      padding: 3px 8px;
+      font-size: 10px;
+      white-space: nowrap;
     }
     #hud.mobile-ui .speed-readout {
       margin-top: 2px;
-      font-size: 10px;
+      font-size: 9.5px;
     }
     #hud.mobile-ui .mission-box {
       top: 40px;
       left: 10px;
-      width: 204px;
+      width: 192px;
       padding: 5px 7px;
       font-size: 9.5px;
       line-height: 1.3;
@@ -435,15 +437,15 @@
       height: 6px;
     }
     #hud.mobile-ui .hud-inv {
-      left: 46%;
+      left: 45%;
       bottom: 8px;
-      gap: 4px;
+      gap: 3px;
       transform: translateX(-50%);
     }
     #hud.mobile-ui .inv-slot {
-      width: 56px;
+      width: 46px;
       padding: 4px 2px;
-      font-size: 9px;
+      font-size: 8.5px;
     }
     #hud.mobile-ui .inv-slot .cnt {
       font-size: 12px;
@@ -465,6 +467,78 @@
     }
     #hud.mobile-ui .hud-light-btn {
       pointer-events: auto;
+    }
+    .join-level-bar {
+      position: fixed;
+      top: 66px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(10, 26, 32, 0.92);
+      border: 1px solid #48d0f5;
+      box-shadow: 0 0 18px rgba(72, 208, 245, 0.35);
+      padding: 6px 12px;
+      border-radius: 6px;
+      z-index: 25;
+      pointer-events: auto;
+      font-size: 12px;
+      color: #dff8ff;
+    }
+    #hud.mobile-ui .join-level-bar {
+      display: none !important;
+    }
+    #mobJoinBtn {
+      border-color: rgba(72, 208, 245, 0.85) !important;
+      background: rgba(12, 54, 72, 0.90) !important;
+      color: #dff8ff !important;
+      box-shadow: 0 0 14px rgba(72, 208, 245, 0.35);
+    }
+    .join-level-bar button {
+      background: #20b8d8;
+      color: #061820;
+      font-weight: 700;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .join-level-bar button:hover { background: #4ce0ff; }
+    .noclip-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 95;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      background: radial-gradient(circle, rgba(8,14,18,0.88), rgba(2,4,6,0.97));
+      color: #fff;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+    .noclip-code {
+      font-size: 13px;
+      letter-spacing: 3px;
+      color: #56e892;
+      margin-bottom: 6px;
+    }
+    .noclip-name {
+      font-size: 26px;
+      font-weight: 800;
+      color: #ffe878;
+      margin-bottom: 8px;
+      text-shadow: 0 0 14px rgba(255, 232, 120, 0.45);
+    }
+    .noclip-desc {
+      max-width: 520px;
+      font-size: 13px;
+      color: #cfe4ec;
+      line-height: 1.5;
     }
     #mobTopBtns {
       position: absolute;
@@ -881,6 +955,17 @@
       <div id="speedText" class="speed-readout">SPD: 0.0 m/s</div>
     </div>
 
+    <div id="joinLevelBar" class="join-level-bar hidden">
+      <span id="joinLevelText">Đồng đội vừa mở cổng Backrooms!</span>
+      <button id="joinLevelBtn" type="button">THAM GIA [G]</button>
+    </div>
+
+    <div id="noclipOverlay" class="noclip-overlay hidden">
+      <div id="noclipCode" class="noclip-code">LEVEL 37</div>
+      <div id="noclipName" class="noclip-name">HỒ BƠI VÔ TẬN</div>
+      <div id="noclipDesc" class="noclip-desc"></div>
+    </div>
+
     <div id="teamList" class="hud-team"></div>
 
     <div class="crosshair"></div>
@@ -920,6 +1005,7 @@
         <button id="mobSwingBtn" type="button" class="mob-btn danger hidden">ĐÁNH<small>Chuột trái</small></button>
         <button id="mobRevealBtn" type="button" class="mob-btn danger hidden">SOI VỊ TRÍ<small>Q</small></button>
         <button id="mobTrapBtn" type="button" class="mob-btn danger hidden">ĐẶT BẪY<small>R</small></button>
+        <button id="mobJoinBtn" type="button" class="mob-btn primary hidden">THAM GIA<small>Tầng</small></button>
         <button id="mobUseBtn" type="button" class="mob-btn primary">TƯƠNG TÁC<small>E</small></button>
         <button id="mobJumpBtn" type="button" class="mob-btn">NHẢY<small>Bhop</small></button>
         <button id="mobSprintBtn" type="button" class="mob-btn">CHẠY<small>Shift</small></button>

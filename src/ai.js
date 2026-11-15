@@ -1,110 +1,12 @@
 import { N, C, SPEED, ENTITY_ARCHETYPES } from './constants.js';
 import { blocked, collide } from './map.js';
+import { findDynamicGridPath, getTerrainAt } from './levels/terrain.js';
 
 /**
- * Fast Grid A* pathfinder respecting hEdges, vEdges, and pillar cells in genMap().
+ * Fast Grid A* pathfinder supporting dynamic map dimensions & outdoor plains.
  */
 export function findGridPath(map, sx, sz, tx, tz) {
-  const clampCell = (v) => Math.max(0, Math.min(N - 1, Math.floor(v / C)));
-  const sr = clampCell(sz), sc = clampCell(sx);
-  const tr = clampCell(tz), tc = clampCell(tx);
-  if (sr === tr && sc === tc) return [[tx, tz]];
-
-  const total = N * N;
-  const gScore = new Float32Array(total).fill(1e9);
-  const fScore = new Float32Array(total).fill(1e9);
-  const parent = new Int32Array(total).fill(-1);
-  const closed = new Uint8Array(total);
-
-  const idx = (r, c) => r * N + c;
-  const startId = idx(sr, sc);
-  const goalId = idx(tr, tc);
-
-  gScore[startId] = 0;
-  fScore[startId] = Math.abs(tr - sr) + Math.abs(tc - sc);
-
-  // Fast binary min-heap so pathfinding across 94x94 (8836 nodes) completes in <0.4ms
-  const heap = [];
-  const pushHeap = (node) => {
-    heap.push(node);
-    let i = heap.length - 1;
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (fScore[heap[p]] <= fScore[heap[i]]) break;
-      const tmp = heap[p]; heap[p] = heap[i]; heap[i] = tmp;
-      i = p;
-    }
-  };
-  const popHeap = () => {
-    const top = heap[0];
-    const last = heap.pop();
-    if (heap.length > 0) {
-      heap[0] = last;
-      let i = 0;
-      const len = heap.length;
-      while (true) {
-        let s = i;
-        const l = (i << 1) + 1;
-        const r = l + 1;
-        if (l < len && fScore[heap[l]] < fScore[heap[s]]) s = l;
-        if (r < len && fScore[heap[r]] < fScore[heap[s]]) s = r;
-        if (s === i) break;
-        const tmp = heap[i]; heap[i] = heap[s]; heap[s] = tmp;
-        i = s;
-      }
-    }
-    return top;
-  };
-  pushHeap(startId);
-
-  const { hEdges, vEdges, cellSolid } = map;
-  let reached = startId;
-  let bestH = 1e9;
-  let expanded = 0;
-
-  while (heap.length > 0 && expanded++ < 8500) {
-    const cid = popHeap();
-    if (closed[cid]) continue;
-    closed[cid] = 1;
-
-    const r = (cid / N) | 0;
-    const c = cid % N;
-    const h = Math.abs(tr - r) + Math.abs(tc - c);
-    if (h < bestH) { bestH = h; reached = cid; }
-    if (cid === goalId) break;
-
-    const tryNeighbor = (nr, nc) => {
-      if (nr < 0 || nr >= N || nc < 0 || nc >= N) return;
-      if (cellSolid[nr][nc]) return;
-      const nid = idx(nr, nc);
-      if (closed[nid]) return;
-      const ng = gScore[cid] + 1;
-      if (ng < gScore[nid]) {
-        gScore[nid] = ng;
-        fScore[nid] = ng + Math.abs(tr - nr) + Math.abs(tc - nc);
-        parent[nid] = cid;
-        pushHeap(nid);
-      }
-    };
-
-    const passable = (v) => v === 0 || v === 3;
-    if (r > 0 && passable(hEdges[r][c])) tryNeighbor(r - 1, c);
-    if (r < N - 1 && passable(hEdges[r + 1][c])) tryNeighbor(r + 1, c);
-    if (c > 0 && passable(vEdges[r][c])) tryNeighbor(r, c - 1);
-    if (c < N - 1 && passable(vEdges[r][c + 1])) tryNeighbor(r, c + 1);
-  }
-
-  const path = [];
-  let p = closed[goalId] ? goalId : reached;
-  while (p !== -1 && p !== startId) {
-    const r = (p / N) | 0;
-    const c = p % N;
-    path.push([(c + 0.5) * C, (r + 0.5) * C]);
-    p = parent[p];
-  }
-  path.reverse();
-  if (path.length && closed[goalId]) path[path.length - 1] = [tx, tz];
-  return path;
+  return findDynamicGridPath(map, sx, sz, tx, tz);
 }
 
 /**
@@ -174,9 +76,12 @@ export class EntityAIController {
     aiPlayer.swingT = this.swingT;
     aiPlayer.reveal = false;
 
+    const aiLevelId = aiPlayer.levelId || 'level0';
+    const behavior = this.archetype.behavior || 'normal';
+    const waterOnly = behavior === 'water_only';
     const aliveSurvs = [];
     for (const p of Object.values(players)) {
-      if (p.role === 's' && (p.state === 'ok' || p.state === 'down')) {
+      if (p.role === 's' && (p.levelId || 'level0') === aiLevelId && (p.state === 'ok' || p.state === 'down')) {
         aliveSurvs.push(p);
       }
     }
@@ -216,13 +121,18 @@ export class EntityAIController {
       const baseHear = (this.archetype.hearRange || 12) * stealthScale;
 
       for (const s of aliveSurvs) {
+        if (waterOnly) {
+          const tSurf = getTerrainAt(s.x, s.z, map, s.y);
+          if (!tSurf.inWater) continue; // Poolrooms / Ocean Stalker STRICTLY ignores Survivors out of water!
+        }
         const d = Math.hypot(s.x - aiPlayer.x, s.z - aiPlayer.z);
-        const stealthFactor = s.crouch && !s.fl ? 0.62 : s.fl ? 1.12 : 1.0;
+        const darkMod = behavior === 'stalk_dark' ? (s.fl ? 1.45 : 0.72) : 1.0;
+        const stealthFactor = (s.crouch && !s.fl ? 0.62 : s.fl ? 1.12 : 1.0) * darkMod;
         const effSight = baseSight * stealthFactor;
-        const effHear = s.crouch ? 0 : (s.spd > 5.8 ? baseHear : baseHear * 0.48);
+        const effHear = (s.crouch && behavior !== 'stalk_dark') ? 0 : (s.spd > 5.8 ? baseHear : baseHear * 0.48);
         if (d > Math.max(effSight, effHear)) continue;
 
-        const los = d <= effSight && !blocked(aiPlayer.x, aiPlayer.z, s.x, s.z, map);
+        const los = d <= effSight && (waterOnly || !blocked(aiPlayer.x, aiPlayer.z, s.x, s.z, map));
         const audible = !s.crouch && d <= effHear;
         const nearDown = s.state === 'down' && d <= baseSight;
         if (los || audible || nearDown) {
@@ -238,8 +148,8 @@ export class EntityAIController {
         this.targetId = bestTarget.id;
         this.targetPos = { x: bestTarget.x, z: bestTarget.z };
       } else if (this.state === 'CHASE' && this.targetPos) {
-        this.lostT += dt;
-        const maxLose = this.archetype.loseTime || 4.5;
+        this.lostT += dt * (waterOnly ? 2.8 : 1.0);
+        const maxLose = waterOnly ? 1.9 : (this.archetype.loseTime || 4.5);
         if (this.lostT >= maxLose || Math.hypot(this.targetPos.x - aiPlayer.x, this.targetPos.z - aiPlayer.z) < 2.2) {
           this.state = 'PATROL';
           this.targetPos = null;
@@ -255,7 +165,7 @@ export class EntityAIController {
     let goal = null;
     if (this.state === 'CARRY_TO_HOOK') {
       let bestHook = null, bestD = Infinity;
-      for (const h of map.HOOKS) {
+      for (const h of (map.HOOKS || [])) {
         if (h.occ) continue;
         const d = Math.hypot(h.x - aiPlayer.x, h.z - aiPlayer.z);
         if (d < bestD) { bestD = d; bestHook = h; }
@@ -266,6 +176,12 @@ export class EntityAIController {
           callbacks.onHook(aiPlayer, players[aiPlayer.carrying], bestHook);
           this.path = [];
         }
+      } else {
+        // Sub-level without meat-hooks: drop carried survivor safely so AI resumes patrolling
+        const carried = players[aiPlayer.carrying];
+        if (carried) carried.state = 'down';
+        aiPlayer.carrying = null;
+        this.state = 'PATROL';
       }
     } else if (this.state === 'CHASE' && this.targetPos) {
       goal = this.targetPos;

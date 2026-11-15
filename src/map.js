@@ -1,4 +1,6 @@
 import { SpatialGrid2D } from './engine.js';
+import { LEVEL_LIST } from './levels/catalog.js';
+import { getTerrainAt } from './levels/terrain.js';
 import {
   C, WALL_HALF_T, WH, N, S, MID, NTASK, NHOOK, NWATER, NSCAN, NJELLY, NRATION, NFLARE, CRAWL_H,
   TASK_SYMBOLS, GUIDE_TYPES, ENTITY_ARCHETYPES
@@ -73,6 +75,15 @@ export const ZONE_TYPES = [
  */
 export function getSurfaceAt(x, z, map) {
   if (!map) return 'carpet';
+  if (map.levelId && map.levelId !== 'level0') {
+    const tr = getTerrainAt(x, z, map, 0);
+    if (tr.inWater) return 'water';
+    if (tr.surfaceKind === 'slide' || tr.surfaceKind === 'tile') return 'tile';
+    if (tr.surfaceKind === 'metal') return 'metal';
+    if (tr.surfaceKind === 'grass' || tr.surfaceKind === 'sand' || tr.surfaceKind === 'carpet') return 'carpet';
+    if (tr.surfaceKind === 'concrete' || tr.surfaceKind === 'stone' || tr.surfaceKind === 'asphalt' || tr.surfaceKind === 'wood') return 'concrete';
+    return 'tile';
+  }
   if (map.CATWALKS) {
     for (const cw of map.CATWALKS) {
       if (x >= cw.x0 && x <= cw.x1 && z >= cw.z0 && z <= cw.z1) return 'metal';
@@ -95,7 +106,17 @@ export function getSurfaceAt(x, z, map) {
  * Returns regional atmospheric fog & ambient color mood at world coordinates (x, z).
  */
 export function getZoneAtmosphereAt(x, z, map) {
-  const c = Math.floor(x / C), r = Math.floor(z / C);
+  if (map?.levelCfg && map.levelId !== 'level0') {
+    const cfg = map.levelCfg;
+    return {
+      fogHex: cfg.fogColor ?? 0x161205,
+      hemiSky: cfg.hemiSky ?? 0xd8e0e8,
+      hemiGnd: cfg.hemiGround ?? 0x26200d,
+      exposure: cfg.isOutdoor ? 1.05 : 1.02
+    };
+  }
+  const gC = map?.cellSize || C;
+  const c = Math.floor(x / gC), r = Math.floor(z / gC);
   const zt = map?.ZONES?.find(zn => c >= zn.c0 && c <= zn.c1 && r >= zn.r0 && r <= zn.r1)?.type || 'monolith_maze';
   if (zt === 'redrooms' || zt === 'red_city' || zt === 'mb_red_skybridge') {
     return { fogHex: 0x260605, hemiSky: 0xff7e6e, hemiGnd: 0x3b0c09, exposure: 1.06 };
@@ -126,6 +147,10 @@ export function getZoneAtmosphereAt(x, z, map) {
  * between pitch-dark pockets and overexposed bright vintage-film areas.
  */
 export function getZoneLuminanceAt(x, z, map) {
+  if (map?.levelCfg && map.levelId !== 'level0') {
+    if (map.levelCfg.id === 'level6') return 0.04;
+    if (map.levelCfg.isOutdoor || map.levelCfg.hasSkylights) return 0.85;
+  }
   if (!map || !map.LIGHTS) return 0.5;
   const R = 15.0;
   const R2 = R * R;
@@ -1474,12 +1499,89 @@ export function genMap(seed = 1337) {
     if (sp) cords.push({ x: sp.x + (rnd() - 0.5) * 1.5, z: sp.z + (rnd() - 0.5) * 1.5, len: 1.1 + rnd() * 1.4 });
   }
 
+  // Inject 20 canonical Backrooms Sub-Level Entrances distributed cleanly across Level 0:
+  // - Shaped Portals / Doors (Poolrooms, Red City, Terror Hotel, Endless City, Paradise, Sunset Beach, Courtyard)
+  // - Flat-Floor False Noclip Spots on common walkways (look totally flat, drop player straight down!)
+  // - Anomalous Pickups (Office CRT monitor, Wheat Sheaf, Attic Key, Pink Plushie, 64-Bit Overflow Cube)
+  // - Low Crawl Hatches (Pipe Dreams steam vent, Electrical conduit, Cave crack)
+  const ENTRANCES = [];
+  {
+    const usedCoords = [
+      { x: ELEVATOR.x, z: ELEVATOR.z },
+      ...TASKS.map(t => ({ x: t.x, z: t.z })),
+      ...HOOKS.map(h => ({ x: h.x, z: h.z }))
+    ];
+    const foyerX = ELEVATOR.x;
+    const foyerZ = ELEVATOR.z - 12;
+    const nearSorted = [...SPOTS].sort((a, b) => {
+      const da = Math.hypot(a.x - foyerX, a.z - foyerZ);
+      const db = Math.hypot(b.x - foyerX, b.z - foyerZ);
+      return da - db;
+    });
+
+    const isSafeSpot = (sp, minGap = 15) => {
+      if (inElevatorZone(sp.x, sp.z, 3.2) || !isFree(sp.x, sp.z, 1.35)) return false;
+      for (const h of hugeChasms || []) {
+        if (sp.x >= h.x0 - 2.5 && sp.x <= h.x1 + 2.5 && sp.z >= h.z0 - 2.5 && sp.z <= h.z1 + 2.5) return false;
+      }
+      for (const u of usedCoords) {
+        if (Math.hypot(sp.x - u.x, sp.z - u.z) < minGap) return false;
+      }
+      return true;
+    };
+
+    for (let idx = 0; idx < LEVEL_LIST.length; idx++) {
+      const lvl = LEVEL_LIST[idx];
+      let chosen = null;
+      const targetMinDist = idx < 4 ? 14 + idx * 9 : 36 + idx * 7;
+      for (const sp of nearSorted) {
+        const fd = Math.hypot(sp.x - foyerX, sp.z - foyerZ);
+        if (fd < targetMinDist) continue;
+        if (!isSafeSpot(sp, idx < 4 ? 12 : 18)) continue;
+        chosen = sp;
+        break;
+      }
+      if (!chosen) {
+        for (const sp of nearSorted) {
+          if (isSafeSpot(sp, 10)) { chosen = sp; break; }
+        }
+      }
+      if (!chosen && SPOTS.length) {
+        chosen = SPOTS[(idx * 97) % SPOTS.length];
+      }
+      if (chosen) {
+        usedCoords.push({ x: chosen.x, z: chosen.z });
+        ENTRANCES.push({
+          id: `ent_${lvl.id}`,
+          levelId: lvl.id,
+          code: lvl.code,
+          name: lvl.vnName,
+          entryType: lvl.entryType,
+          label: lvl.entryLabel,
+          desc: lvl.entryDesc,
+          accent: lvl.palette?.accent ?? 0x48d0f5,
+          x: chosen.x,
+          z: chosen.z,
+          rot: ((idx * 1.17) % (Math.PI * 2)),
+          radius: lvl.entryType === 'noclip_floor' ? 1.5 : lvl.entryType === 'pickup' ? 1.9 : 2.1,
+          needCrouch: lvl.entryType === 'crawl_hatch',
+          discovered: false
+        });
+      }
+    }
+  }
+
   return {
+    levelId: 'level0',
+    gridN: N,
+    cellSize: C,
+    worldSpan: N * C,
+    ceilH: WH,
     RECTS, wallGrid, hEdges, vEdges, cellSolid, ZONES, FLOOR_PATCHES, hugeChasms, CATWALKS,
     REDZ, TASKS, HOOKS, EXITS, LIGHTS, TRAPS: [],
     WATERS, SCANS, JELLIES, RATIONS, FLARES, RELICS,
     GUIDE_SEGMENTS, EXIT_GUIDE_SEGMENTS, GUIDE_MARKERS, ENTITY_ROUTES,
-    SPOTS, SPAWN, ELEVATOR, K_SPAWN, PILLARS, WALLS, ARCHES,
+    SPOTS, SPAWN, ELEVATOR, K_SPAWN, PILLARS, WALLS, ARCHES, ENTRANCES,
     PROPS: { vents, pipes, puddles, posters, wallDecals, pitfalls, furniture, curiosities, anomalies, signs, cords },
     exitsOpen: false,
     elevatorState: 'closed',
@@ -1490,8 +1592,11 @@ export function genMap(seed = 1337) {
 
 export function collide(x, z, r, map, crouch = false, y = 0) {
   const { wallGrid, exitsOpen } = map;
-  const maxX = N * C - r;
-  const maxZ = N * C - r;
+  const gN = map.gridN ?? N;
+  const gC = map.cellSize ?? C;
+  const span = map.worldSpan ?? (gN * gC);
+  const maxX = span - r;
+  const maxZ = span - r;
   if (x < r) x = r;
   if (x > maxX) x = maxX;
 
@@ -1499,7 +1604,7 @@ export function collide(x, z, r, map, crouch = false, y = 0) {
     if (z < r) z = r;
     if (z > maxZ) z = maxZ;
   } else {
-    const midX = (N / 2) * C;
+    const midX = span * 0.5;
     const inExit = Math.abs(x - midX) < 1.45;
     if (!inExit) {
       if (z < r) z = r;
@@ -1507,9 +1612,11 @@ export function collide(x, z, r, map, crouch = false, y = 0) {
     }
   }
 
-  const near = wallGrid.queryNear(x, z, r + 1.2);
+  const near = wallGrid.queryNear(x, z, r + 1.4);
   for (const b of near) {
-    if (b.crawl && crouch && y < 0.25) continue;
+    if (b.crawl && crouch && (y - (b.crawlBaseY || 0)) < 0.35) continue;
+    if (b.maxY != null && y >= b.maxY - 0.15) continue;
+    if (b.minY != null && y + 1.55 <= b.minY) continue;
     if (b.elevatorDoor && (map.elevatorOpenProgress || 0) >= 0.72) continue;
 
     const cx = Math.max(b.x0, Math.min(x, b.x1));

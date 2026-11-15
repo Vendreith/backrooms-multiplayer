@@ -1,6 +1,7 @@
 import { THREE, GLTFLoader, SkeletonUtils, BufferGeometryUtils, PreloaderSystem } from './engine.js';
 import { C, WH, N, SURV_COLORS, GFX_PRESETS, TASK_SYMBOLS } from './constants.js';
 import { buildSymbolPlateTexture } from './textures.js';
+import { buildSubLevelWorld, buildLevel0EntrancesGroup } from './levels/world_mesh.js';
 
 let cachedSoldierGLTF = null;
 
@@ -56,6 +57,9 @@ function assignWorldLightMapUV1(geom, worldSpan, offsetX = 0, offsetZ = 0) {
  * - Reactive HDR lighting where ceiling lights dynamically shift red around The Entity
  */
 export function buildWorld(scene, map, texStore, gfxKey = 'high') {
+  if (map?.levelId && map.levelId !== 'level0') {
+    return buildSubLevelWorld(scene, map, gfxKey);
+  }
   const preset = GFX_PRESETS[gfxKey] || GFX_PRESETS.high;
   const root = new THREE.Group();
   scene.add(root);
@@ -2077,6 +2081,9 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     flareLightPool.push(fpl);
   }
 
+  const entrRes = buildLevel0EntrancesGroup(map.ENTRANCES, disposables, animItems);
+  root.add(entrRes.group);
+
   return {
     root,
     skirtInst,
@@ -2090,6 +2097,8 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     hookMeshes,
     exitMeshes,
     itemMeshes,
+    entranceMeshes: entrRes.entranceMeshes,
+    portalMeshes: [],
     elevator,
     exitGuideMat,
     chaserLedTex,
@@ -2154,9 +2163,11 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
     }
   }
 
+  if (world.updateExtra) world.updateExtra(elapsed, camPos, map);
+
   // 1. Dynamically shift ceiling troffers blood-red inside tight localized bubbles around ANY Entity!
   if (killers.length && world.fixInst && world.baseLightColors) {
-    for (let i = 0; i < map.LIGHTS.length; i++) {
+    for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
       const l = map.LIGHTS[i];
       if (l.dead) continue;
       let near = false;
@@ -2165,35 +2176,36 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
       }
       if (near) {
         newRedSet.add(i);
-        const pulse = 0.72 + 0.32 * Math.sin(elapsed * 14 + l.phase);
+        const pulse = 0.72 + 0.32 * Math.sin(elapsed * 14 + (l.phase || 0));
         _tmpLightCol.setRGB(3.3 * pulse, 0.16 * pulse, 0.12 * pulse);
         world.fixInst.setColorAt(i, _tmpLightCol);
-        world.haloInst.setColorAt(i, _tmpLightCol);
+        if (world.haloInst) world.haloInst.setColorAt(i, _tmpLightCol);
         colorsDirty = true;
       }
     }
   }
 
   // Restore lights that exited Entity's tight crimson aura back to baseline yellow/red
-  for (const prevIdx of world.dynamicRedSet) {
-    if (!newRedSet.has(prevIdx) && world.baseLightColors[prevIdx]) {
-      const [br, bg, bb] = world.baseLightColors[prevIdx];
-      _tmpLightCol.setRGB(br, bg, bb);
-      world.fixInst.setColorAt(prevIdx, _tmpLightCol);
-      world.haloInst.setColorAt(prevIdx, _tmpLightCol);
-      colorsDirty = true;
+  if (world.fixInst && world.baseLightColors) {
+    for (const prevIdx of world.dynamicRedSet) {
+      if (!newRedSet.has(prevIdx) && world.baseLightColors[prevIdx]) {
+        const [br, bg, bb] = world.baseLightColors[prevIdx];
+        _tmpLightCol.setRGB(br, bg, bb);
+        world.fixInst.setColorAt(prevIdx, _tmpLightCol);
+        if (world.haloInst) world.haloInst.setColorAt(prevIdx, _tmpLightCol);
+        colorsDirty = true;
+      }
+    }
+    if (colorsDirty) {
+      if (world.fixInst.instanceColor) world.fixInst.instanceColor.needsUpdate = true;
+      if (world.haloInst?.instanceColor) world.haloInst.instanceColor.needsUpdate = true;
     }
   }
   world.dynamicRedSet = newRedSet;
 
-  if (colorsDirty) {
-    if (world.fixInst.instanceColor) world.fixInst.instanceColor.needsUpdate = true;
-    if (world.haloInst.instanceColor) world.haloInst.instanceColor.needsUpdate = true;
-  }
-
   // 2. Pool PointLights across 58m range (prioritizing brighter multi-tier zones visible down corridors!)
   const cands = [];
-  for (let i = 0; i < map.LIGHTS.length; i++) {
+  for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
     const l = map.LIGHTS[i];
     if (l.dead) continue;
     const d2 = (l.x - camPos.x) ** 2 + (l.z - camPos.z) ** 2;
@@ -2208,10 +2220,11 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
     if (!c) { pl.intensity = 0; continue; }
     const l = c.l;
     const isRed = l.red || newRedSet.has(c.idx);
-    pl.position.set(l.x, WH - 0.4, l.z);
+    pl.position.set(l.x, l.y ?? (WH - 0.4), l.z);
     let fl = 1.0;
+    const ph = l.phase || 0;
     if (l.flicker || isRed) {
-      const s = Math.sin(elapsed * 24 + l.phase) * Math.sin(elapsed * 7.3 + l.phase * 2);
+      const s = Math.sin(elapsed * 24 + ph) * Math.sin(elapsed * 7.3 + ph * 2);
       fl = s > (isRed ? -0.45 : -0.25) ? 1.0 : 0.16;
     }
     if (isRed) {

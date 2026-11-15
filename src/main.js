@@ -17,6 +17,9 @@ import { GraphicsManager } from './postfx.js';
 import { audio, MUSIC_TRACKS, AMBIENT_TRACK_KEYS, HORROR_SFX_TRACKS, CREEPY_RANDOM_KEYS } from './audio.js';
 import { EntityAIController, findGridPath } from './ai.js';
 import { NetworkManager } from './network.js';
+import { LEVEL_CATALOG, LEVEL_LIST, getLevelMeta } from './levels/catalog.js';
+import { getTerrainAt } from './levels/terrain.js';
+import { genSubLevelMap } from './levels/world_generators.js';
 
 // ---------- DOM Elements ----------
 const $ = (id) => document.getElementById(id);
@@ -273,6 +276,104 @@ let scState = null; // Skill check state
 let feeds = [];
 let snapAccum = 0;
 
+// ---------- Multi-Level Backrooms State & World Switcher ----------
+const levelMaps = new Map();
+let activeLocalLevelId = 'level0';
+let activeJoinTarget = null;
+const levelDiscoveredSet = new Set();
+const levelsClearedSet = new Set();
+let noclipDropLockUntil = 0;
+
+function getOrCreateLevelMap(levelId) {
+  const id = levelId || 'level0';
+  if (levelMaps.has(id)) return levelMaps.get(id);
+  const m = id === 'level0' ? genMap(seed) : genSubLevelMap(id, seed);
+  if (m) levelMaps.set(id, m);
+  return m || map;
+}
+
+function showNoclipOverlay(levelId, via) {
+  const ov = $('noclipOverlay');
+  if (!ov) return;
+  const meta = getLevelMeta(levelId);
+  const viaTag = via === 'noclip_floor' ? 'NOCLIP XUYÊN SÀN // '
+    : via === 'pickup' ? 'VẬT PHẨM DỊ THƯỜNG // '
+    : via === 'crawl_hatch' ? 'CHUI ĐƯỜNG ỐNG // '
+    : via === 'join' ? 'DỊCH CHUYỂN ĐỒNG ĐỘI // '
+    : via === 'return' ? 'TRỞ VỀ KHỞI ĐIỂM // ' : '';
+  $('noclipCode').textContent = `${viaTag}${meta.code}`;
+  $('noclipName').textContent = meta.vnName || meta.name;
+  $('noclipDesc').textContent = meta.entity?.hint || meta.tagline || '';
+  ov.classList.remove('hidden');
+  ov.style.opacity = '1';
+  clearTimeout(showNoclipOverlay._timer);
+  showNoclipOverlay._timer = setTimeout(() => {
+    ov.style.opacity = '0';
+    setTimeout(() => ov.classList.add('hidden'), 360);
+  }, 1500);
+}
+
+function switchLocalWorld(targetLevelId, via = 'portal') {
+  const nextId = targetLevelId || 'level0';
+  const nextMap = getOrCreateLevelMap(nextId);
+  if (!nextMap) return;
+
+  activeLocalLevelId = nextId;
+  map = nextMap;
+  busyAct = null;
+  scState = null;
+  hVelX = 0;
+  hVelZ = 0;
+
+  if (world) {
+    for (const tm of (world.trapMeshes || [])) scene.remove(tm);
+    for (const fm of (world.flareMeshes || [])) scene.remove(fm.group);
+    world.dispose();
+    world = null;
+  }
+
+  if (!map.noLightmap) {
+    createMapLightmaps(map, texStore);
+  }
+  world = buildWorld(scene, map, texStore, currentGfx);
+  if (world.dustPoints) world.dustPoints.visible = !!fxSettings.dust;
+  if (world.skirtInst) world.skirtInst.visible = !(fxSettings.postFX && Number(fxSettings.rtShadow || 0) > 0.05);
+
+  const me = players[myId];
+  if (me) {
+    me.levelId = nextId;
+    camYaw = me.yaw || 0;
+    camPitch = 0;
+  }
+
+  const meta = getLevelMeta(nextId);
+  const amK = me?.role === 'k';
+  if (nextId === 'level0') {
+    scene.fog.density = amK ? FOG_KILLER : FOG_SURV;
+    camera.far = amK ? FAR_KILLER : FAR_SURV;
+    scene.background.setHex(0x161207);
+    scene.fog.color.setHex(0x161207);
+  } else {
+    scene.fog.density = amK ? FOG_KILLER : (meta.fogDensity ?? 0.008);
+    camera.far = amK ? FAR_KILLER : (meta.farDist ?? 220);
+    scene.background.setHex(meta.fogColor ?? 0x161207);
+    scene.fog.color.setHex(meta.fogColor ?? 0x161207);
+    hemiLight.color.setHex(meta.hemiSky ?? 0xd8e0e8);
+    hemiLight.groundColor.setHex(meta.hemiGround ?? 0x26200d);
+  }
+  camera.updateProjectionMatrix();
+  gfx.resetMotionHistory();
+  showNoclipOverlay(nextId, via);
+  audio.playAlertBeep?.();
+}
+
+function triggerJoinActiveLevel() {
+  const me = players[myId];
+  if (!me || me.role !== 's' || me.state !== 'ok' || activeLocalLevelId !== 'level0' || !activeJoinTarget) return;
+  noclipDropLockUntil = performance.now() + 1800;
+  sendAction({ act: 'enterLevel', levelId: activeJoinTarget.levelId, via: 'join' });
+}
+
 // ---------- Feed Notifications ----------
 function pushFeed(text, color = '#ffe7a0') {
   feeds.push({ text, color, t: 4.5 });
@@ -469,7 +570,7 @@ const net = new NetworkManager({
 
     const listEl = $('rosterList');
     listEl.innerHTML = roster.map(r => {
-      const col = r.role === 'k' ? '#d92820' : `#${SURV_COLORS[r.colorIdx % SURV_COLORS.length].hex.toString(16).padStart(6, '0')}`;
+      const col = r.role === 'k' ? '#d92820' : `#${SURV_COLORS[(r.colorIdx || 0) % SURV_COLORS.length].hex.toString(16).padStart(6, '0')}`;
       const roleLabel = r.role === 'k' ? 'QUÁI VẬT (ENTITY)' : 'SURVIVOR';
       const switchBtn = nMgr.isHost && !r.isAI
         ? `<button class="sm role-btn" data-id="${esc(r.id)}">${r.role === 'k' ? 'Đổi làm Người' : 'Chọn làm Quái'}</button>`
@@ -502,6 +603,7 @@ const net = new NetworkManager({
   onClientInput(peerId, inp) {
     const p = players[peerId];
     if (!p || p.state === 'dead' || p.state === 'escaped') return;
+    if (p.warpGuardUntil && performance.now() < p.warpGuardUntil) return;
     p.x = inp.x; p.y = inp.y; p.z = inp.z;
     p.yaw = inp.yaw; p.pitch = inp.pitch;
     p.spd = inp.spd; p.crouch = inp.crouch; p.fl = inp.fl;
@@ -530,6 +632,8 @@ const net = new NetworkManager({
 // ---------- Match Setup & Teardown ----------
 function clearMatchObjects() {
   resetMobileInputs();
+  $('joinLevelBar')?.classList.add('hidden');
+  $('noclipOverlay')?.classList.add('hidden');
   for (const id of Object.keys(avatars)) {
     scene.remove(avatars[id].group);
   }
@@ -699,7 +803,14 @@ async function beginMatch(matchSeed, roster, localId) {
   scState = null;
   feeds = [];
 
+  levelMaps.clear();
+  activeLocalLevelId = 'level0';
+  activeJoinTarget = null;
+  levelDiscoveredSet.clear();
+  levelsClearedSet.clear();
+
   map = genMap(seed);
+  levelMaps.set('level0', map);
   createMapLightmaps(map, texStore);
   world = buildWorld(scene, map, texStore, currentGfx);
   if (world.dustPoints) world.dustPoints.visible = !!fxSettings.dust;
@@ -739,6 +850,7 @@ async function beginMatch(matchSeed, roster, localId) {
       name: r.name,
       role: r.role,
       aiKind: r.aiKind || 'bacteria',
+      levelId: 'level0',
       colorIdx: r.colorIdx ?? sIdx,
       isAI: !!r.isAI,
       x: ox, y: 0, z: oz, vy: 0,
@@ -928,13 +1040,98 @@ function processPlayerActionHost(actorId, msg) {
   const p = players[actorId];
   if (!p) return;
 
+  const pCurLevel = p.levelId || 'level0';
+  const pMap = getOrCreateLevelMap(pCurLevel);
+
   if (msg.act === 'openElevator') {
-    if (!map?.ELEVATOR || map.elevatorState !== 'closed') return;
-    const distEl = Math.hypot(p.x - map.ELEVATOR.x, p.z - map.ELEVATOR.z);
+    const lvl0 = getOrCreateLevelMap('level0');
+    if (!lvl0?.ELEVATOR || lvl0.elevatorState !== 'closed' || pCurLevel !== 'level0') return;
+    const distEl = Math.hypot(p.x - lvl0.ELEVATOR.x, p.z - lvl0.ELEVATOR.z);
     if (distEl < 3.8) {
-      map.elevatorState = 'opening';
+      lvl0.elevatorState = 'opening';
       broadcastEvent({ ev: 'elevOpen', byId: p.id, byName: p.name });
     }
+    return;
+  }
+
+  if (msg.act === 'enterLevel') {
+    if (p.role !== 's' || p.state !== 'ok') return;
+    const targetLevel = msg.levelId || 'level0';
+    if (targetLevel === pCurLevel) return;
+    const dstMap = getOrCreateLevelMap(targetLevel);
+    if (!dstMap) return;
+
+    if (pCurLevel === 'level0' && targetLevel !== 'level0') {
+      p.lastLevel0Pos = { x: p.x, z: p.z, yaw: p.yaw };
+    }
+    if (targetLevel === 'level0') {
+      if (!pMap.TASKS?.every(t => t.done)) return;
+      const lvl0 = getOrCreateLevelMap('level0');
+      const safeX = lvl0.ELEVATOR ? lvl0.ELEVATOR.x : lvl0.SPAWN.x;
+      const safeZ = lvl0.ELEVATOR ? lvl0.ELEVATOR.z - 8.5 : lvl0.SPAWN.z;
+      p.x = p.lastLevel0Pos?.x ?? safeX;
+      p.z = p.lastLevel0Pos?.z ?? safeZ;
+      p.y = 0;
+      p.yaw = 0;
+    } else {
+      p.x = dstMap.SPAWN.x;
+      p.z = dstMap.SPAWN.z;
+      p.y = dstMap.SPAWN.y || 0;
+      p.yaw = dstMap.SPAWN.yaw || 0;
+    }
+    p.levelId = targetLevel;
+    p.warpGuardUntil = performance.now() + 550;
+
+    let subEntInfo = null;
+    if (targetLevel !== 'level0') {
+      levelDiscoveredSet.add(targetLevel);
+      const subId = `AI_SUB_${targetLevel}`;
+      if (!players[subId] && dstMap.levelCfg?.entity) {
+        const ec = dstMap.levelCfg.entity;
+        const archObj = {
+          id: subId,
+          kind: ec.archKey || 'bacteria',
+          name: ec.name || 'Entity',
+          behavior: ec.behavior || 'patrol',
+          patrolSpd: ec.patrolSpd || 4.4,
+          chaseSpd: ec.chaseSpd || 5.7,
+          sightRange: ec.sightRange || 20,
+          hearRange: ec.hearRange || 16,
+          loseTime: ec.behavior === 'water_only' ? 1.8 : 4.8
+        };
+        const ex = dstMap.K_SPAWN?.x ?? (dstMap.worldSpan * 0.5);
+        const ez = dstMap.K_SPAWN?.z ?? (dstMap.worldSpan * 0.5);
+        players[subId] = {
+          id: subId,
+          name: archObj.name,
+          role: 'k',
+          aiKind: archObj.kind,
+          levelId: targetLevel,
+          colorIdx: 0,
+          isAI: true,
+          x: ex, y: 0, z: ez, vy: 0,
+          yaw: 0, pitch: 0, spd: 0,
+          crouch: false, fl: false,
+          hp: 99, state: 'ok',
+          carrying: null, swingT: 0, reveal: false,
+          inv: {}
+        };
+        const ctrl = new EntityAIController(subId, archObj);
+        ctrl.reset(ex, ez, dstMap.ENTITY_ROUTES?.[0] || []);
+        aiControllers.push(ctrl);
+        subEntInfo = { id: subId, name: archObj.name, aiKind: archObj.kind, levelId: targetLevel, x: ex, z: ez };
+      }
+    }
+
+    broadcastEvent({
+      ev: 'levelShift',
+      playerId: p.id,
+      byName: p.name,
+      levelId: targetLevel,
+      via: msg.via || 'portal',
+      x: p.x, y: p.y, z: p.z, yaw: p.yaw,
+      subEnt: subEntInfo
+    });
     return;
   }
 
@@ -970,16 +1167,16 @@ function processPlayerActionHost(actorId, msg) {
       }
       return;
     }
-    const pool = msg.kind === 'water' ? map.WATERS
-      : msg.kind === 'scan' ? map.SCANS
-      : msg.kind === 'jelly' ? map.JELLIES
-      : msg.kind === 'ration' ? map.RATIONS
-      : map.FLARES;
-    const item = pool.find(i => i.id === msg.id && !i.gone);
+    const pool = msg.kind === 'water' ? pMap.WATERS
+      : msg.kind === 'scan' ? pMap.SCANS
+      : msg.kind === 'jelly' ? pMap.JELLIES
+      : msg.kind === 'ration' ? pMap.RATIONS
+      : pMap.FLARES;
+    const item = pool?.find(i => i.id === msg.id && !i.gone);
     if (item && Math.hypot(item.x - p.x, item.z - p.z) < 3.0) {
       item.gone = true;
       p.inv[msg.kind] = (p.inv[msg.kind] || 0) + 1;
-      broadcastEvent({ ev: 'itemGone', kind: msg.kind, id: item.id, by: actorId });
+      broadcastEvent({ ev: 'itemGone', levelId: pCurLevel, kind: msg.kind, id: item.id, by: actorId });
     }
   } else if (msg.act === 'useItem') {
     const k = msg.kind;
@@ -1003,18 +1200,24 @@ function processPlayerActionHost(actorId, msg) {
       broadcastEvent({ ev: 'flare', x: fx, z: fz });
     }
   } else if (msg.act === 'taskProg') {
-    const t = map.TASKS[msg.idx];
+    const t = pMap.TASKS[msg.idx];
     if (!t || t.done) return;
     t.p = Math.max(t.p, Math.min(1, t.p + msg.delta));
     if (t.p >= 1 && !t.done) {
       t.done = true;
       t.p = 1;
-      const doneCount = map.TASKS.filter(x => x.done).length;
-      if (doneCount >= NEED) map.exitsOpen = true;
-      broadcastEvent({ ev: 'taskDone', idx: t.id, doneCount, exitsOpen: map.exitsOpen });
+      const doneCount = pMap.TASKS.filter(x => x.done).length;
+      if (pCurLevel === 'level0') {
+        if (doneCount >= NEED) pMap.exitsOpen = true;
+        broadcastEvent({ ev: 'taskDone', levelId: pCurLevel, idx: t.id, doneCount, exitsOpen: pMap.exitsOpen });
+      } else {
+        pMap.exitsOpen = true;
+        levelsClearedSet.add(pCurLevel);
+        broadcastEvent({ ev: 'subTaskDone', levelId: pCurLevel, idx: t.id, clearedCount: levelsClearedSet.size });
+      }
     }
   } else if (msg.act === 'taskFail') {
-    const t = map.TASKS[msg.idx];
+    const t = pMap.TASKS[msg.idx];
     if (t && !t.done) {
       t.p = Math.max(0, t.p - 0.04);
       broadcastEvent({ ev: 'sfx', kind: 'spark', x: t.x, z: t.z });
@@ -1045,13 +1248,13 @@ function processPlayerActionHost(actorId, msg) {
           ctrl.path = [];
         }
       }
-      const [ux, uz] = collide(p.x, p.z, 0.36, map, false, 0);
+      const [ux, uz] = collide(p.x, p.z, 0.36, pMap, false, 0);
       p.x = ux; p.z = uz;
     } else if (fromState === 'hooked') {
-      const h = map.HOOKS[p.hookIdx];
+      const h = pMap?.HOOKS?.[p.hookIdx];
       if (h) {
         h.occ = null;
-        const [ux, uz] = collide(h.x + 0.65, h.z + 0.45, 0.36, map, false, 0);
+        const [ux, uz] = collide(h.x + 0.65, h.z + 0.45, 0.36, pMap, false, 0);
         p.x = ux; p.z = uz;
       }
       p.hookIdx = -1;
@@ -1071,10 +1274,10 @@ function processPlayerActionHost(actorId, msg) {
   } else if (msg.act === 'selfUnhook') {
     const othersAlive = Object.values(players).filter(x => x.id !== p.id && x.role === 's' && x.state !== 'dead' && x.state !== 'escaped').length;
     if (othersAlive === 0 && p.state === 'hooked' && p.hookIdx >= 0) {
-      const h = map.HOOKS[p.hookIdx];
+      const h = pMap?.HOOKS?.[p.hookIdx];
       if (h) {
         h.occ = null;
-        const [ux, uz] = collide(h.x + 0.65, h.z + 0.45, 0.36, map, false, 0);
+        const [ux, uz] = collide(h.x + 0.65, h.z + 0.45, 0.36, pMap, false, 0);
         p.x = ux; p.z = uz;
       }
       p.state = 'ok';
@@ -1085,16 +1288,16 @@ function processPlayerActionHost(actorId, msg) {
     }
   } else if (msg.act === 'unhook') {
     if (p.role !== 's' || p.state !== 'ok') return;
-    let h = map.HOOKS.find(hk => hk.id === msg.hookIdx) || map.HOOKS[msg.hookIdx];
+    let h = pMap?.HOOKS?.find(hk => hk.id === msg.hookIdx) || pMap?.HOOKS?.[msg.hookIdx];
     let victim = h && h.occ ? players[h.occ] : null;
     if (!victim) {
-      victim = Object.values(players).find(s => s.id !== p.id && s.role === 's' && s.state === 'hooked' && Math.hypot(s.x - p.x, s.z - p.z) < 3.4);
-      if (victim && victim.hookIdx >= 0) h = map.HOOKS[victim.hookIdx];
+      victim = Object.values(players).find(s => s.id !== p.id && s.role === 's' && s.state === 'hooked' && (s.levelId || 'level0') === pCurLevel && Math.hypot(s.x - p.x, s.z - p.z) < 3.4);
+      if (victim && victim.hookIdx >= 0) h = pMap?.HOOKS?.[victim.hookIdx];
     }
     const anchorX = h ? h.x : victim?.x;
     const anchorZ = h ? h.z : victim?.z;
     if (victim && victim.state === 'hooked' && Math.hypot(p.x - anchorX, p.z - anchorZ) < 3.4) {
-      const [ux, uz] = collide(anchorX + 0.65, anchorZ + 0.45, 0.36, map, false, 0);
+      const [ux, uz] = collide(anchorX + 0.65, anchorZ + 0.45, 0.36, pMap, false, 0);
       victim.state = 'ok';
       victim.hp = 1;
       victim.hookIdx = -1;
@@ -1106,7 +1309,7 @@ function processPlayerActionHost(actorId, msg) {
     }
   } else if (msg.act === 'revive') {
     const t = players[msg.targetId];
-    if (t && t.state === 'down') {
+    if (t && t.state === 'down' && (t.levelId || 'level0') === pCurLevel) {
       t.state = 'ok';
       t.hp = 1;
       broadcastEvent({ ev: 'sfx', kind: 'consume', item: 'water', x: t.x, z: t.z });
@@ -1116,7 +1319,7 @@ function processPlayerActionHost(actorId, msg) {
     broadcastEvent({ ev: 'escaped', id: p.id });
     checkMatchEnd();
   } else if (msg.act === 'trapDisarm') {
-    const tr = map.TRAPS[msg.idx];
+    const tr = pMap?.TRAPS?.[msg.idx];
     if (tr && !tr.sprung) {
       tr.sprung = true;
       broadcastEvent({ ev: 'trapSprung', idx: msg.idx, x: tr.x, z: tr.z });
@@ -1125,11 +1328,11 @@ function processPlayerActionHost(actorId, msg) {
     if (p.role !== 'k') return;
     p.swingT = 1.0;
     broadcastEvent({ ev: 'sfx', kind: 'swing', x: p.x, z: p.z });
-    // Check Survivor hit in forward cone
+    // Check Survivor hit in forward cone in the same level
     for (const s of Object.values(players)) {
-      if (s.role !== 's' || s.state !== 'ok') continue;
+      if (s.role !== 's' || s.state !== 'ok' || (s.levelId || 'level0') !== pCurLevel) continue;
       const d = Math.hypot(s.x - p.x, s.z - p.z);
-      if (d < 2.25 && !blocked(p.x, p.z, s.x, s.z, map)) {
+      if (d < 2.25 && !blocked(p.x, p.z, s.x, s.z, pMap)) {
         const toAngle = Math.atan2(-(s.x - p.x), -(s.z - p.z));
         const diff = Math.abs(Math.atan2(Math.sin(toAngle - p.yaw), Math.cos(toAngle - p.yaw)));
         if (diff < 1.15) {
@@ -1141,7 +1344,7 @@ function processPlayerActionHost(actorId, msg) {
   } else if (msg.act === 'kGrab') {
     if (p.role !== 'k' || p.carrying) return;
     for (const s of Object.values(players)) {
-      if (s.role === 's' && s.state === 'down' && Math.hypot(s.x - p.x, s.z - p.z) < 2.1) {
+      if (s.role === 's' && s.state === 'down' && (s.levelId || 'level0') === pCurLevel && Math.hypot(s.x - p.x, s.z - p.z) < 2.1) {
         s.state = 'carried';
         p.carrying = s.id;
         break;
@@ -1149,7 +1352,7 @@ function processPlayerActionHost(actorId, msg) {
     }
   } else if (msg.act === 'kHook') {
     if (p.role !== 'k' || !p.carrying) return;
-    const h = map.HOOKS[msg.hookIdx];
+    const h = pMap?.HOOKS?.[msg.hookIdx];
     const v = players[p.carrying];
     if (h && !h.occ && v) {
       hookSurvivorHost(p, v, h);
@@ -1160,8 +1363,8 @@ function processPlayerActionHost(actorId, msg) {
     broadcastEvent({ ev: 'reveal', x: p.x, z: p.z, dur: REVEAL_T });
     setTimeout(() => { if (players[p.id]) players[p.id].reveal = false; }, REVEAL_T * 1000);
   } else if (msg.act === 'kTrap') {
-    if (p.role !== 'k' || map.TRAPS.length >= TRAP_MAX) return;
-    map.TRAPS.push({ x: p.x, z: p.z, sprung: false });
+    if (p.role !== 'k' || !pMap?.TRAPS || pMap.TRAPS.length >= TRAP_MAX) return;
+    pMap.TRAPS.push({ x: p.x, z: p.z, sprung: false });
     broadcastEvent({ ev: 'trapPlaced', x: p.x, z: p.z });
   }
 }
@@ -1216,16 +1419,64 @@ let revealGlobalT = 0;
 function handleNetEvent(ev) {
   if (!inMatch) return;
   if (ev.ev === 'itemGone') {
-    const pool = ev.kind === 'water' ? map.WATERS
-      : ev.kind === 'scan' ? map.SCANS
-      : ev.kind === 'jelly' ? map.JELLIES
-      : ev.kind === 'ration' ? map.RATIONS
-      : map.FLARES;
-    const item = pool.find(i => i.id === ev.id);
+    const tMap = getOrCreateLevelMap(ev.levelId || activeLocalLevelId);
+    const pool = ev.kind === 'water' ? tMap?.WATERS
+      : ev.kind === 'scan' ? tMap?.SCANS
+      : ev.kind === 'jelly' ? tMap?.JELLIES
+      : ev.kind === 'ration' ? tMap?.RATIONS
+      : tMap?.FLARES;
+    const item = pool?.find(i => i.id === ev.id);
     if (item) {
       item.gone = true;
-      const mesh = world?.itemMeshes.get(item.id);
-      if (mesh) mesh.visible = false;
+      if ((ev.levelId || 'level0') === activeLocalLevelId) {
+        const mesh = world?.itemMeshes?.get?.(item.id);
+        if (mesh) mesh.visible = false;
+      }
+    }
+  } else if (ev.ev === 'levelShift') {
+    if (ev.subEnt && !players[ev.subEnt.id]) {
+      const se = ev.subEnt;
+      players[se.id] = {
+        id: se.id, name: se.name, role: 'k', aiKind: se.aiKind,
+        levelId: se.levelId, colorIdx: 0, isAI: true,
+        x: se.x, y: 0, z: se.z, vy: 0, yaw: 0, pitch: 0, spd: 0,
+        crouch: false, fl: false, hp: 99, state: 'ok', carrying: null, swingT: 0, reveal: false, inv: {}
+      };
+      const av = buildEntityAvatar(se.aiKind || 'bacteria');
+      av.group.position.set(se.x, 0, se.z);
+      av.group.visible = activeLocalLevelId === se.levelId;
+      scene.add(av.group);
+      avatars[se.id] = av;
+    }
+    const p = players[ev.playerId];
+    if (p) {
+      p.levelId = ev.levelId;
+      p.x = ev.x; p.y = ev.y || 0; p.z = ev.z; p.yaw = ev.yaw || 0;
+    }
+    if (ev.levelId !== 'level0') {
+      levelDiscoveredSet.add(ev.levelId);
+      const meta = getLevelMeta(ev.levelId);
+      activeJoinTarget = { levelId: ev.levelId, code: meta.code, name: meta.vnName, byName: ev.byName };
+      if (ev.playerId !== myId) {
+        pushFeed(`${ev.byName || 'Đồng đội'} vừa bước vào ${meta.code}: ${meta.vnName}! Ấn [G] để Tham Gia!`, '#48d0f5');
+      }
+    }
+    if (ev.playerId === myId) {
+      switchLocalWorld(ev.levelId, ev.via);
+    }
+  } else if (ev.ev === 'subTaskDone') {
+    const sMap = getOrCreateLevelMap(ev.levelId);
+    if (sMap?.TASKS?.[ev.idx]) {
+      sMap.TASKS[ev.idx].done = true;
+      sMap.TASKS[ev.idx].p = 1;
+      sMap.exitsOpen = true;
+    }
+    levelsClearedSet.add(ev.levelId);
+    if (ev.levelId === activeLocalLevelId) {
+      audio.playAlertBeep();
+      const tm = world?.taskMeshes?.[ev.idx];
+      if (tm?.ledMat) tm.ledMat.color.setHex(0x4ed884);
+      pushFeed('MÁY THOÁT TẦNG ĐÃ CHẠY! Cổng Trở Về Level 0 đã mở!', '#4ed884');
     }
   } else if (ev.ev === 'relicGone') {
     const rel = map.RELICS?.find(r => r.id === ev.id);
@@ -1393,35 +1644,46 @@ function applyHostSnapshot(snap) {
         p.x = sp.x; p.z = sp.z;
       }
     }
+    p.levelId = sp.levelId || 'level0';
     p.crouch = sp.crouch;
     p.fl = sp.fl;
     p.swingT = sp.swingT;
     p.reveal = sp.reveal;
   }
-  if (map?.HOOKS) {
-    for (const h of map.HOOKS) h.occ = null;
-    for (const pl of Object.values(players)) {
-      if (pl.state === 'hooked' && pl.hookIdx >= 0 && map.HOOKS[pl.hookIdx]) {
-        map.HOOKS[pl.hookIdx].occ = pl.id;
-      }
-    }
+  if (Array.isArray(snap.discovered)) {
+    for (const dl of snap.discovered) levelDiscoveredSet.add(dl);
   }
-  if (snap.elevState && map) {
-    const wasClosed = map.elevatorState === 'closed';
-    map.elevatorState = snap.elevState;
+  if (Array.isArray(snap.cleared)) {
+    for (const cl of snap.cleared) levelsClearedSet.add(cl);
+  }
+  if ('activeJoin' in snap) {
+    activeJoinTarget = snap.activeJoin || null;
+  }
+  const lvl0Map = getOrCreateLevelMap('level0');
+  if (snap.elevState && lvl0Map) {
+    const wasClosed = lvl0Map.elevatorState === 'closed';
+    lvl0Map.elevatorState = snap.elevState;
     if (typeof snap.elevOpenP === 'number') {
-      map.elevatorOpenProgress = Math.max(map.elevatorOpenProgress || 0, snap.elevOpenP);
+      lvl0Map.elevatorOpenProgress = Math.max(lvl0Map.elevatorOpenProgress || 0, snap.elevOpenP);
     }
-    if (wasClosed && snap.elevState !== 'closed') {
-      audio.playElevatorSequence(map.ELEVATOR);
+    if (wasClosed && snap.elevState !== 'closed' && activeLocalLevelId === 'level0') {
+      audio.playElevatorSequence(lvl0Map.ELEVATOR);
     }
   }
-  if (snap.tasks) {
+  if (snap.tasks && lvl0Map) {
     snap.tasks.forEach((p, idx) => {
-      if (map.TASKS[idx] && !map.TASKS[idx].done) {
-        map.TASKS[idx].p = Math.max(map.TASKS[idx].p, p);
+      if (lvl0Map.TASKS[idx] && !lvl0Map.TASKS[idx].done) {
+        lvl0Map.TASKS[idx].p = Math.max(lvl0Map.TASKS[idx].p, p);
       }
     });
+  }
+  if (snap.subTasks) {
+    for (const [lid, prog] of Object.entries(snap.subTasks)) {
+      const sm = getOrCreateLevelMap(lid);
+      if (sm?.TASKS?.[0] && !sm.TASKS[0].done) {
+        sm.TASKS[0].p = Math.max(sm.TASKS[0].p, prog);
+      }
+    }
   }
 }
 
@@ -1446,25 +1708,27 @@ function updateHostSimulation(dt) {
   if (!net.isHost) return;
 
   // Animate A-Sync Elevator Doors smoothly (plus auto-open if all Survivors are AI bots)
-  if (map?.ELEVATOR) {
-    if (map.elevatorState === 'closed') {
+  const lvl0Map = getOrCreateLevelMap('level0');
+  if (lvl0Map?.ELEVATOR) {
+    if (lvl0Map.elevatorState === 'closed') {
       const hasHumanSurv = Object.values(players).some(p => p.role === 's' && !p.isAI);
       if (!hasHumanSurv && matchTime >= 1.6) {
-        map.elevatorState = 'opening';
+        lvl0Map.elevatorState = 'opening';
         broadcastEvent({ ev: 'elevOpen', byId: 'BOT', byName: 'Đội thám hiểm' });
       }
     }
-    if (map.elevatorState === 'opening') {
-      map.elevatorOpenProgress = Math.min(1, (map.elevatorOpenProgress || 0) + dt / 1.45);
-      if (map.elevatorOpenProgress >= 1) map.elevatorState = 'open';
+    if (lvl0Map.elevatorState === 'opening') {
+      lvl0Map.elevatorOpenProgress = Math.min(1, (lvl0Map.elevatorOpenProgress || 0) + dt / 1.45);
+      if (lvl0Map.elevatorOpenProgress >= 1) lvl0Map.elevatorState = 'open';
     }
   }
 
-  // Drive ALL patrolling quadrant AI Entities
+  // Drive ALL patrolling quadrant & sub-level AI Entities in their own isolated dimension
   for (const ctrl of aiControllers) {
     const aiP = players[ctrl.id];
     if (!aiP) continue;
-    ctrl.update(dt, aiP, players, map, {
+    const aiMap = getOrCreateLevelMap(aiP.levelId || 'level0');
+    ctrl.update(dt, aiP, players, aiMap, {
       onAggro(killer, targ, arch) {
         if (targ.id === myId) {
           pushFeed(`${arch?.name || killer.name} vừa phát hiện bạn ở cự ly gần!`, '#ff7456');
@@ -1487,10 +1751,11 @@ function updateHostSimulation(dt) {
   // Simple wandering AI bots for Solo Entity practice
   for (const p of Object.values(players)) {
     if (!p.isAI || p.role !== 's' || p.state !== 'ok') continue;
+    const botMap = getOrCreateLevelMap(p.levelId || 'level0');
     let bp = botPaths.get(p.id);
     if (!bp || !bp.path.length) {
-      const tgt = map.TASKS[(Math.random() * map.TASKS.length) | 0] || map.SPAWN;
-      bp = { path: findGridPath(map, p.x, p.z, tgt.x, tgt.z) };
+      const tgt = botMap.TASKS[(Math.random() * botMap.TASKS.length) | 0] || botMap.SPAWN;
+      bp = { path: findGridPath(botMap, p.x, p.z, tgt.x, tgt.z) };
       botPaths.set(p.id, bp);
     }
     const wp = bp.path[0];
@@ -1501,7 +1766,7 @@ function updateHostSimulation(dt) {
       else {
         const vx = (dx / d) * SPEED.SURV_WALK * 0.92;
         const vz = (dz / d) * SPEED.SURV_WALK * 0.92;
-        const [nx, nz] = collide(p.x + vx * dt, p.z + vz * dt, 0.36, map, false, 0);
+        const [nx, nz] = collide(p.x + vx * dt, p.z + vz * dt, 0.36, botMap, false, 0);
         p.x = nx; p.z = nz; p.yaw = Math.atan2(-vx, -vz); p.spd = SPEED.SURV_WALK * 0.92;
       }
     }
@@ -1524,14 +1789,16 @@ function updateHostSimulation(dt) {
       p.hookT -= dt;
       if (p.hookT <= 0) {
         p.state = 'dead';
-        if (map.HOOKS[p.hookIdx]) map.HOOKS[p.hookIdx].occ = null;
+        const pMap = getOrCreateLevelMap(p.levelId || 'level0');
+        if (pMap?.HOOKS?.[p.hookIdx]) pMap.HOOKS[p.hookIdx].occ = null;
         broadcastEvent({ ev: 'hookDeath', id: p.id, x: p.x, z: p.z });
         checkMatchEnd();
       }
     } else if (p.state === 'ok') {
       // Check active Bear Traps
-      for (let i = 0; i < map.TRAPS.length; i++) {
-        const tr = map.TRAPS[i];
+      const pMap = getOrCreateLevelMap(p.levelId || 'level0');
+      for (let i = 0; i < (pMap?.TRAPS?.length || 0); i++) {
+        const tr = pMap.TRAPS[i];
         if (!tr.sprung && p.y < 0.3 && Math.hypot(p.x - tr.x, p.z - tr.z) < TRAP_R) {
           tr.sprung = true;
           p.hp = Math.min(p.hp, 1);
@@ -1550,16 +1817,35 @@ function updateHostSimulation(dt) {
     }
   }
 
+  // Track active teammate sub-level target for Co-op Join HUD button
+  const activeSubTeammate = Object.values(players).find(
+    pl => pl.role === 's' && pl.state !== 'dead' && pl.state !== 'escaped' && (pl.levelId || 'level0') !== 'level0'
+  );
+  if (activeSubTeammate) {
+    const m = getLevelMeta(activeSubTeammate.levelId);
+    activeJoinTarget = { levelId: activeSubTeammate.levelId, code: m.code, name: m.vnName, byName: activeSubTeammate.name };
+  } else {
+    activeJoinTarget = null;
+  }
+
   // Broadcast world snapshot (~20 Hz)
   snapAccum += dt;
   if (!net.isSolo && snapAccum >= 0.05) {
     snapAccum = 0;
+    const subTasks = {};
+    for (const [lid, lMap] of levelMaps.entries()) {
+      if (lid !== 'level0' && lMap?.TASKS?.[0]) subTasks[lid] = lMap.TASKS[0].p;
+    }
     net.broadcast({
       t: 'snap',
       players,
-      tasks: map.TASKS.map(t => t.p),
-      elevState: map.elevatorState,
-      elevOpenP: map.elevatorOpenProgress
+      tasks: getOrCreateLevelMap('level0').TASKS.map(t => t.p),
+      subTasks,
+      discovered: [...levelDiscoveredSet],
+      cleared: [...levelsClearedSet],
+      activeJoin: activeJoinTarget,
+      elevState: lvl0Map.elevatorState,
+      elevOpenP: lvl0Map.elevatorOpenProgress
     });
   }
 }
@@ -1686,11 +1972,17 @@ function updateLocalPlayer(dt, elapsed) {
     if (jumpBuffer <= 0) jumpBuffer = 0.08;
   }
 
+  const terrain = getTerrainAt(me.x, me.z, map, me.y);
+  const floorBaseY = terrain.floorY;
+  if (terrain.inWater && !isK) {
+    groundSpd *= 0.80;
+  }
+
   const dynBhopCap = SPEED.BHOP_MAX + chaseProx * 1.2;
-  const grounded = me.y <= 0.001;
+  const grounded = me.y <= floorBaseY + 0.045 && me.vy <= 0.45;
   if (grounded && jumpBuffer > 0 && me.state === 'ok' && !me.crouch && !me.carrying) {
     me.vy = SPEED.JUMP_VEL;
-    me.y = 0.002;
+    me.y = floorBaseY + 0.01;
     jumpBuffer = 0;
 
     // Grant smooth bhop momentum boost when chaining jumps!
@@ -1720,8 +2012,8 @@ function updateLocalPlayer(dt, elapsed) {
     }
     me.vy -= SPEED.GRAVITY * dt;
     me.y += me.vy * dt;
-    if (me.y <= 0) {
-      me.y = 0;
+    if (me.y <= floorBaseY) {
+      me.y = floorBaseY;
       const impact = Math.abs(me.vy) / SPEED.JUMP_VEL;
       landTrauma = Math.min(1.0, landTrauma + impact * 0.45);
       stepSpringVel -= impact * 1.15;
@@ -1731,7 +2023,9 @@ function updateLocalPlayer(dt, elapsed) {
       audio.playLand(me, impact);
     }
   } else {
-    // Ground friction & responsive acceleration
+    // Smooth step/ramp elevation follow + Poolrooms water-slide momentum!
+    me.y += (floorBaseY - me.y) * Math.min(1, 22 * dt);
+    if (Math.abs(me.y - floorBaseY) < 0.01) me.y = floorBaseY;
     const curSpd = Math.hypot(hVelX, hVelZ);
     const preserveBhop = wasAirborneT > 0 && curSpd > groundSpd;
     const targetSpd = wishLen > 0 ? (preserveBhop ? curSpd : groundSpd) : 0;
@@ -1740,7 +2034,30 @@ function updateLocalPlayer(dt, elapsed) {
     const tz = wishZ * targetSpd;
     hVelX += (tx - hVelX) * accelK;
     hVelZ += (tz - hVelZ) * accelK;
-    if (wasAirborneT <= 0 && wishLen === 0) bhopChain = 0;
+    if (terrain.onSlide) {
+      const sLerp = 1 - Math.exp(-7.5 * dt);
+      hVelX += (terrain.slideVelX - hVelX) * sLerp;
+      hVelZ += (terrain.slideVelZ - hVelZ) * sLerp;
+    }
+    if (wasAirborneT <= 0 && wishLen === 0 && !terrain.onSlide) bhopChain = 0;
+  }
+
+  // Flat-Floor False Noclip Drop & Crouch Hatch Walk-Through triggers in Level 0
+  if (activeLocalLevelId === 'level0' && !isK && me.state === 'ok' && performance.now() > noclipDropLockUntil && map.ENTRANCES) {
+    for (const ent of map.ENTRANCES) {
+      const distEnt = Math.hypot(me.x - ent.x, me.z - ent.z);
+      if (ent.entryType === 'noclip_floor' && distEnt < ent.radius) {
+        noclipDropLockUntil = performance.now() + 2600;
+        me.vy = -8.5;
+        sendAction({ act: 'enterLevel', levelId: ent.levelId, via: 'noclip_floor' });
+        return;
+      }
+      if (ent.entryType === 'crawl_hatch' && me.crouch && distEnt < 1.32) {
+        noclipDropLockUntil = performance.now() + 2600;
+        sendAction({ act: 'enterLevel', levelId: ent.levelId, via: 'crawl_hatch' });
+        return;
+      }
+    }
   }
 
   const prevX = me.x, prevZ = me.z;
@@ -1780,9 +2097,10 @@ function updateLocalPlayer(dt, elapsed) {
   const footPlantCurve = stepPulseT > 0 ? Math.pow(Math.sin(pulseU * Math.PI), 2.0) * stepPulseAmp : 0;
 
   // Exit threshold check for Survivors
-  if (!isK && map.exitsOpen) {
+  if (!isK && map.exitsOpen && activeLocalLevelId === 'level0') {
+    const span = map.worldSpan ?? (N * C);
     for (const e of map.EXITS) {
-      if (Math.hypot(me.x - e.x, 0) < 2.2 && ((e.dirZ < 0 && me.z < -0.5) || (e.dirZ > 0 && me.z > N * C + 0.5))) {
+      if (Math.hypot(me.x - e.x, 0) < 2.2 && ((e.dirZ < 0 && me.z < -0.5) || (e.dirZ > 0 && me.z > span + 0.5))) {
         sendAction({ act: 'escape' });
         return;
       }
@@ -1904,7 +2222,7 @@ function updateLocalPlayer(dt, elapsed) {
 function findBestPrompt(me) {
   if (me.role === 'k') {
     if (me.carrying) {
-      for (const h of map.HOOKS) {
+      for (const h of (map.HOOKS || [])) {
         if (!h.occ && Math.hypot(me.x - h.x, me.z - h.z) < 2.6) {
           return { text: '[E] Treo nạn nhân lên móc', act: () => sendAction({ act: 'kHook', hookIdx: h.id }) };
         }
@@ -1912,7 +2230,7 @@ function findBestPrompt(me) {
       return null;
     }
     for (const s of Object.values(players)) {
-      if (s.role === 's' && s.state === 'down' && Math.hypot(me.x - s.x, me.z - s.z) < 2.2) {
+      if (s.role === 's' && s.state === 'down' && (s.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - s.x, me.z - s.z) < 2.2) {
         return { text: '[E] Nhặt nạn nhân bị gục', act: () => sendAction({ act: 'kGrab' }) };
       }
     }
@@ -1959,9 +2277,9 @@ function findBestPrompt(me) {
     };
   }
 
-  // 1. Rescue Hooked teammate (checks both hook slot and live teammate coords)
-  for (const h of map.HOOKS) {
-    if (h.occ && players[h.occ]?.state === 'hooked' && Math.hypot(me.x - h.x, me.z - h.z) < 2.75) {
+  // 1. Rescue Hooked teammate (checks both hook slot and live teammate coords in current level)
+  for (const h of (map.HOOKS || [])) {
+    if (h.occ && players[h.occ]?.state === 'hooked' && (players[h.occ]?.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - h.x, me.z - h.z) < 2.75) {
       const vicName = players[h.occ]?.name || 'đồng đội';
       return {
         critical: true,
@@ -1971,7 +2289,7 @@ function findBestPrompt(me) {
     }
   }
   for (const s of Object.values(players)) {
-    if (s.id !== myId && s.role === 's' && s.state === 'hooked' && Math.hypot(me.x - s.x, me.z - s.z) < 2.75) {
+    if (s.id !== myId && s.role === 's' && s.state === 'hooked' && (s.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - s.x, me.z - s.z) < 2.75) {
       const hkIdx = s.hookIdx >= 0 ? s.hookIdx : 0;
       return {
         critical: true,
@@ -1982,7 +2300,7 @@ function findBestPrompt(me) {
   }
   // 2. Revive Downed teammate
   for (const s of Object.values(players)) {
-    if (s.id !== myId && s.state === 'down' && Math.hypot(me.x - s.x, me.z - s.z) < 2.45) {
+    if (s.id !== myId && s.state === 'down' && (s.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - s.x, me.z - s.z) < 2.45) {
       return {
         critical: true,
         text: `[Giữ E] Sơ cứu ${s.name}`,
@@ -2012,16 +2330,54 @@ function findBestPrompt(me) {
   }
   // 4. Breaker Box Tasks (displays unique Machine Code, Symbol & Saved %!)
   for (const t of map.TASKS) {
-    if (!t.done && Math.hypot(me.x - t.x, me.z - t.z) < 2.55) {
+    if (!t.done && Math.hypot(me.x - t.x, me.z - t.z) < 2.8) {
       const pct = Math.round(t.p * 100);
       return {
         text: `[Giữ E] ${pct > 0 ? 'Tiếp tục sửa' : 'Sửa'} Máy ${t.code || ''} ${t.symbol || ''} (${pct}%${pct > 0 ? ' đã lưu' : ''})`,
-        hold: { kind: 'task', targetId: t.id, duration: TASK_TIME, taskIdx: t.id }
+        hold: { kind: 'task', targetId: t.id, duration: activeLocalLevelId === 'level0' ? TASK_TIME : 10, taskIdx: t.id }
       };
     }
   }
+  // 4b. Sub-Level Return Portal to Level 0
+  if (activeLocalLevelId !== 'level0' && map.PORTALS) {
+    for (const pt of map.PORTALS) {
+      if (Math.hypot(me.x - pt.x, me.z - pt.z) < 3.0) {
+        const ready = map.TASKS.every(t => t.done);
+        if (ready) {
+          return {
+            critical: true,
+            text: `[E] ${pt.label || 'Bước vào Cổng Trở Về Level 0'}`,
+            act: () => {
+              noclipDropLockUntil = performance.now() + 1800;
+              sendAction({ act: 'enterLevel', levelId: 'level0', via: 'return' });
+            }
+          };
+        }
+        return { text: 'Cần sửa Máy Thoát Tầng trước khi mở cổng về Level 0!' };
+      }
+    }
+  }
+  // 4c. Level 0 Sub-Level Entrances (Portals, Pickups, Crawl Hatches)
+  if (activeLocalLevelId === 'level0' && map.ENTRANCES) {
+    for (const ent of map.ENTRANCES) {
+      if (ent.entryType === 'noclip_floor') continue; // Stealth false-floor noclip drop!
+      if (Math.hypot(me.x - ent.x, me.z - ent.z) < ent.radius + 0.65) {
+        if (ent.needCrouch && !me.crouch) {
+          return { text: `Cúi người [C] để chui vào ${ent.label}` };
+        }
+        return {
+          critical: true,
+          text: `[E] ${ent.entryType === 'pickup' ? 'Nhặt' : 'Bước vào'}: ${ent.label}`,
+          act: () => {
+            noclipDropLockUntil = performance.now() + 1800;
+            sendAction({ act: 'enterLevel', levelId: ent.levelId, via: ent.entryType });
+          }
+        };
+      }
+    }
+  }
   // 5. Disarm Trap
-  for (let i = 0; i < map.TRAPS.length; i++) {
+  for (let i = 0; i < (map.TRAPS?.length || 0); i++) {
     const tr = map.TRAPS[i];
     if (!tr.sprung && Math.hypot(me.x - tr.x, me.z - tr.z) < 2.0) {
       return {
@@ -2082,7 +2438,8 @@ function updateInteractions(dt, me) {
     aWrap.classList.toggle('force-show', !!busyAct.critical);
     if (busyAct.kind === 'task') {
       const t = map.TASKS[busyAct.taskIdx];
-      const inc = dt / TASK_TIME;
+      const dur = busyAct.duration || TASK_TIME;
+      const inc = dt / dur;
       busyAct.prog = Math.min(1, Math.max(t?.p || 0, busyAct.prog) + inc);
       if (t) t.p = busyAct.prog;
       sendAction({ act: 'taskProg', idx: busyAct.taskIdx, delta: inc });
@@ -2185,7 +2542,9 @@ function updateHUD(elapsed, fpsVal) {
   const cs = Math.floor((matchTime * 100) % 100).toString().padStart(2, '0');
   $('tapeTime').textContent = `00:${mins}:${secs}.${cs}`;
   $('fpsCounter').textContent = `${Math.round(fpsVal)} FPS`;
-  $('roleBadge').textContent = isK ? 'ENTITY POV // SIGHT 50%' : 'CAM-04 // LEVEL 0';
+  const meta = getLevelMeta(activeLocalLevelId);
+  const compactCode = meta.code.length > 14 ? `${meta.code.slice(0, 11)}..` : meta.code;
+  $('roleBadge').textContent = isK ? `ENTITY // ${compactCode}` : `CAM-04 // ${compactCode}`;
 
   const camBat = Math.max(8, Math.round(98 - matchTime * 0.085 - (me.fl ? matchTime * 0.035 : 0)));
   const batPctEl = $('batPct');
@@ -2203,9 +2562,34 @@ function updateHUD(elapsed, fpsVal) {
   if (camLightSpec) camLightSpec.textContent = `TORCH: ${me.fl ? 'ON' : 'OFF'}`;
 
   const doneCount = map.TASKS.filter(t => t.done).length;
-  $('objText').textContent = map.exitsOpen
-    ? 'CỔNG THOÁT HIỂM ĐÃ MỞ! (BẮC / NAM)'
-    : `TỦ ĐIỆN: ${doneCount} / ${NEED}`;
+  const targetNeed = activeLocalLevelId === 'level0' ? NEED : 1;
+  if (activeLocalLevelId === 'level0') {
+    $('objText').textContent = map.exitsOpen
+      ? `CỔNG THOÁT HIỂM ĐÃ MỞ! • TẦNG PHỤ: ${levelsClearedSet.size}/20`
+      : `TỦ ĐIỆN: ${doneCount}/${NEED} • TẦNG PHỤ: ${levelsClearedSet.size}/20`;
+  } else {
+    $('objText').textContent = map.exitsOpen
+      ? `${compactCode}: CỔNG VỀ LEVEL 0 ĐÃ MỞ!`
+      : `${compactCode}: MÁY THOÁT ${doneCount}/1`;
+  }
+
+  // Co-op Join Teammates Sub-Level Button ("Tham gia" when a teammate entered a sub-level while local player is in Level 0)
+  const canShowJoin = !isK && me.state === 'ok' && activeLocalLevelId === 'level0' && !!activeJoinTarget;
+  const joinBar = $('joinLevelBar');
+  if (joinBar) {
+    joinBar.classList.toggle('hidden', !canShowJoin);
+    if (canShowJoin) {
+      $('joinLevelText').textContent = `${activeJoinTarget.byName || 'Đồng đội'} đang ở ${activeJoinTarget.code} (${activeJoinTarget.name})`;
+    }
+  }
+  const mobJoinEl = $('mobJoinBtn');
+  if (mobJoinEl) {
+    mobJoinEl.classList.toggle('hidden', !canShowJoin);
+    if (canShowJoin && activeJoinTarget) {
+      const sc = activeJoinTarget.code.length > 10 ? `${activeJoinTarget.code.slice(0, 9)}..` : activeJoinTarget.code;
+      mobJoinEl.innerHTML = `THAM GIA<small>${esc(sc)}</small>`;
+    }
+  }
 
   $('speedText').textContent = `SPD: ${me.spd.toFixed(1)} m/s${bhopChain > 0 ? `  [BHOP x${bhopChain}]` : ''}`;
 
@@ -2248,6 +2632,18 @@ function updateHUD(elapsed, fpsVal) {
       <div class="mission-step ${aliveS === 0 ? 'done' : 'active'}">▸ Săn gục toàn bộ Survivor (Còn: ${aliveS})</div>
       <div class="mission-step">▸ Nhấn [E] bắt nạn nhân gục & treo lên Móc</div>
       <div class="mission-hint">Bấm [Q] soi vị trí (${revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'SẴN'}) • [R] đặt bẫy</div>`;
+  } else if (activeLocalLevelId !== 'level0') {
+    const repairDone = doneCount >= 1;
+    const tgt = repairDone ? (map.PORTALS?.[0] || map.TASKS[0]) : map.TASKS[0];
+    const dist = tgt ? Math.hypot(tgt.x - me.x, tgt.z - me.z) : 0;
+    const ang = tgt ? Math.atan2(-(tgt.x - me.x), -(tgt.z - me.z)) : 0;
+    const rel = Math.atan2(Math.sin(ang - me.yaw), Math.cos(ang - me.yaw));
+    const arrow = Math.abs(rel) < 0.55 ? '↑ THẲNG' : rel > 0.55 && rel < 2.4 ? '← TRÁI' : rel < -0.55 && rel > -2.4 ? '→ PHẢI' : '↓ SAU';
+    $('missionBox').innerHTML = `
+      <div class="mission-title"><span style="white-space:nowrap">${compactCode}</span><span style="text-align:right;font-size:10px">${meta.vnName}</span></div>
+      <div class="mission-step ${repairDone ? 'done' : 'active'}">${repairDone ? '✓' : '1.'} Sửa Máy Thoát Tầng (${doneCount}/1) — Giữ [E]</div>
+      <div class="mission-step ${repairDone ? 'active' : ''}">2. Bước qua Cổng Trở Về Level 0 ([E])</div>
+      <div class="mission-hint">${repairDone ? 'CỔNG VỀ LEVEL 0' : 'MÁY THOÁT'}: ${Math.round(dist)}m (${arrow}) • ${meta.entity?.hint || ''}</div>`;
   } else {
     const repairDone = doneCount >= NEED;
     // Find nearest incomplete breaker box or nearest exit when unlocked
@@ -2280,7 +2676,7 @@ function updateHUD(elapsed, fpsVal) {
 
   // Team list with distinct survivor colors ONLY (hide all Entity / Killer rows from POV HUD!)
   const teamHtml = Object.values(players).filter(p => p.role !== 'k').map(p => {
-    const col = `#${SURV_COLORS[p.colorIdx % SURV_COLORS.length].hex.toString(16).padStart(6, '0')}`;
+    const col = `#${SURV_COLORS[(p.colorIdx || 0) % SURV_COLORS.length].hex.toString(16).padStart(6, '0')}`;
     const st = p.state === 'escaped' ? 'THOÁT'
       : p.state === 'dead' ? 'CHẾT'
       : p.state === 'hooked' ? 'BỊ MÓC'
@@ -2405,9 +2801,9 @@ function updateRevealMarkers(elapsed) {
   const targets = [];
 
   if (me.role === 's') {
-    // Always highlight hooked / carried / downed teammates through walls across the ENTIRE map
+    // Always highlight hooked / carried / downed teammates through walls in current dimension
     for (const p of Object.values(players)) {
-      if (p.role !== 's' || p.id === myId) continue;
+      if (p.role !== 's' || p.id === myId || (p.levelId || 'level0') !== activeLocalLevelId) continue;
       if (p.state === 'hooked') {
         targets.push({ x: p.x, y: 1.55, z: p.z, color: 0xff8c28, silhouette: true, pulse: true });
       } else if (p.state === 'carried') {
@@ -2418,7 +2814,7 @@ function updateRevealMarkers(elapsed) {
     }
     // Show Entity outline during EMF Scanner OR if any Entity steps near an active UV Flare!
     for (const k of Object.values(players)) {
-      if (k.role !== 'k') continue;
+      if (k.role !== 'k' || (k.levelId || 'level0') !== activeLocalLevelId) continue;
       let illuminatedByFlare = false;
       if (world) {
         for (const f of world.flareMeshes) {
@@ -2430,14 +2826,14 @@ function updateRevealMarkers(elapsed) {
       if (scanT > 0 || illuminatedByFlare) targets.push({ x: k.x, y: 1.4, z: k.z, color: 0x48d0f5, silhouette: false, pulse: false });
     }
     if (vhsRevealT > 0) {
-      for (const tg of (map.exitsOpen ? map.EXITS : map.TASKS.filter(t => !t.done))) {
+      for (const tg of (map.exitsOpen ? (map.EXITS || map.PORTALS || []) : map.TASKS.filter(t => !t.done))) {
         targets.push({ x: tg.x, y: 1.4, z: tg.z, color: map.exitsOpen ? 0x38f288 : 0xffe066, silhouette: false, pulse: false });
       }
     }
   } else if (me.reveal || revealGlobalT > 0) {
-    // Killer sees Survivor outlines during Reveal [Q]
+    // Killer sees Survivor outlines during Reveal [Q] in current level
     for (const p of Object.values(players)) {
-      if (p.role === 's' && p.state !== 'dead' && p.state !== 'escaped') {
+      if (p.role === 's' && p.state !== 'dead' && p.state !== 'escaped' && (p.levelId || 'level0') === activeLocalLevelId) {
         targets.push({ x: p.x, y: 1.4, z: p.z, color: 0xff3628, silhouette: true, pulse: false });
       }
     }
@@ -2522,6 +2918,8 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyM') {
     const lbl = audio.nextTrack();
     pushFeed(`♪ Băng nhạc: ${lbl}`);
+  } else if (e.code === 'KeyG') {
+    triggerJoinActiveLevel();
   }
 });
 
@@ -2865,6 +3263,11 @@ function bindMobileControls() {
     $('mobSprintBtn')?.classList.toggle('active', mobSprintToggle);
   });
   bindBtn($('mobFlashBtn'), () => toggleFlashlight());
+  bindBtn($('mobJoinBtn'), () => triggerJoinActiveLevel());
+  $('joinLevelBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    triggerJoinActiveLevel();
+  });
   bindBtn($('mobSwingBtn'), () => triggerKillerSwing());
   bindBtn($('mobRevealBtn'), () => triggerKillerReveal());
   bindBtn($('mobTrapBtn'), () => triggerKillerTrap());
@@ -2953,11 +3356,11 @@ function animate(now) {
     const me = players[myId];
     const isK = me?.role === 'k';
 
-    // Update remote characters & lighting
+    // Update remote characters & lighting (isolated strictly to current visible level!)
     for (const [id, av] of Object.entries(avatars)) {
       const p = players[id];
       if (!p) continue;
-      av.group.visible = p.state !== 'dead' && p.state !== 'escaped';
+      av.group.visible = p.state !== 'dead' && p.state !== 'escaped' && (p.levelId || 'level0') === activeLocalLevelId;
       if (!av.group.visible) continue;
       av.group.position.set(p.x, p.y || 0, p.z);
       av.group.rotation.y = p.yaw || 0;
@@ -2965,7 +3368,7 @@ function animate(now) {
       else animateSurvivor(av, dt, p, elapsed);
     }
 
-    const killers = Object.values(players).filter(p => p.role === 'k');
+    const killers = Object.values(players).filter(p => p.role === 'k' && (p.levelId || 'level0') === activeLocalLevelId);
     updateWorldLighting(world, map, camera.position, elapsed, killers.map(k => ({ x: k.x, z: k.z })));
 
     // Update active thrown UV Flares
@@ -3070,22 +3473,36 @@ function animate(now) {
 
     // Dynamic Zone Light & Scene Atmosphere Adaptation (per-scene colors, shadow intensity, fog tint & depth!)
     if (me && !isK) {
-      const targetZL = getZoneLuminanceAt(me.x, me.z, map);
-      zoneLightSmooth += (targetZL - zoneLightSmooth) * (1 - Math.exp(-2.8 * dt));
-      const zl = zoneLightSmooth;
-      const atmo = getZoneAtmosphereAt(me.x, me.z, map);
-      const atmLerp = 1 - Math.exp(-3.4 * dt);
-      _atmoFogCol.setHex(atmo.fogHex ?? 0x161207);
-      _atmoHemiSky.setHex(atmo.hemiSky ?? 0xf6df82);
-      _atmoHemiGnd.setHex(atmo.hemiGnd ?? 0x26200d);
-      scene.fog.color.lerp(_atmoFogCol, atmLerp);
-      hemiLight.color.lerp(_atmoHemiSky, atmLerp);
-      hemiLight.groundColor.lerp(_atmoHemiGnd, atmLerp);
-      scene.fog.density = THREE.MathUtils.lerp(0.0165, 0.0088, zl);
-      const br = Number(fxSettings.brightness) || 1.0;
-      hemiLight.intensity = THREE.MathUtils.lerp(0.20, 0.44, zl);
-      ambLight.intensity = THREE.MathUtils.lerp(0.08, 0.15, zl);
-      renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 1.03, zl) * br * ((atmo.exposure || 1.06) / 1.06);
+      if (activeLocalLevelId !== 'level0' && map?.levelCfg) {
+        const lc = map.levelCfg;
+        scene.fog.color.setHex(lc.fogColor ?? 0x161207);
+        scene.background.setHex(lc.fogColor ?? 0x161207);
+        scene.fog.density = lc.fogDensity ?? 0.008;
+        hemiLight.color.setHex(lc.hemiSky ?? 0xd8e0e8);
+        hemiLight.groundColor.setHex(lc.hemiGround ?? 0x26200d);
+        hemiLight.intensity = lc.hemiInt ?? 0.85;
+        ambLight.color.setHex(lc.ambColor ?? 0x88929a);
+        ambLight.intensity = lc.ambInt ?? 0.50;
+        const br = Number(fxSettings.brightness) || 1.0;
+        renderer.toneMappingExposure = (lc.isOutdoor ? 1.02 : 0.98) * br;
+      } else {
+        const targetZL = getZoneLuminanceAt(me.x, me.z, map);
+        zoneLightSmooth += (targetZL - zoneLightSmooth) * (1 - Math.exp(-2.8 * dt));
+        const zl = zoneLightSmooth;
+        const atmo = getZoneAtmosphereAt(me.x, me.z, map);
+        const atmLerp = 1 - Math.exp(-3.4 * dt);
+        _atmoFogCol.setHex(atmo.fogHex ?? 0x161207);
+        _atmoHemiSky.setHex(atmo.hemiSky ?? 0xf6df82);
+        _atmoHemiGnd.setHex(atmo.hemiGnd ?? 0x26200d);
+        scene.fog.color.lerp(_atmoFogCol, atmLerp);
+        hemiLight.color.lerp(_atmoHemiSky, atmLerp);
+        hemiLight.groundColor.lerp(_atmoHemiGnd, atmLerp);
+        scene.fog.density = THREE.MathUtils.lerp(0.0165, 0.0088, zl);
+        const br = Number(fxSettings.brightness) || 1.0;
+        hemiLight.intensity = THREE.MathUtils.lerp(0.20, 0.44, zl);
+        ambLight.intensity = THREE.MathUtils.lerp(0.08, 0.15, zl);
+        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 1.03, zl) * br * ((atmo.exposure || 1.06) / 1.06);
+      }
     } else if (isK) {
       scene.fog.density = FOG_KILLER;
       scene.fog.color.setHex(0x120b05);
@@ -3878,6 +4295,164 @@ async function runSelfTests() {
     updateWorldLighting(world, map, camera.position, 0.2, []);
   }
 
+  // 20 Backrooms Levels: Level 0 Entrances, Vast Worlds, Poolrooms Water-Only AI, Co-op Join & Return Loop
+  {
+    assert(LEVEL_LIST.length === 20, 'catalog_has_20_backrooms_levels');
+    const entIds = new Set((tMap.ENTRANCES || []).map(e => e.levelId));
+    const entTypes = new Set((tMap.ENTRANCES || []).map(e => e.entryType));
+    assert(
+      (tMap.ENTRANCES || []).length === 20 &&
+      LEVEL_LIST.every(l => entIds.has(l.id)) &&
+      ['portal', 'pickup', 'crawl_hatch', 'noclip_floor'].every(k => entTypes.has(k)),
+      'level0_20_distinct_entrances'
+    );
+
+    // Validate all 20 procedural sub-levels build cleanly, have vast span, terrain, task & return portal
+    const subDiag = [];
+    for (const lvl of LEVEL_LIST) {
+      const sm = getOrCreateLevelMap(lvl.id);
+      const spTerr = getTerrainAt(sm.SPAWN.x, sm.SPAWN.z, sm, sm.SPAWN.y || 0);
+      const tTerr = sm.TASKS?.[0] ? getTerrainAt(sm.TASKS[0].x, sm.TASKS[0].z, sm, sm.TASKS[0].y || 0) : null;
+      const pTerr = sm.PORTALS?.[0] ? getTerrainAt(sm.PORTALS[0].x, sm.PORTALS[0].z, sm, sm.PORTALS[0].y || 0) : null;
+      const [sx, sz] = collide(sm.SPAWN.x, sm.SPAWN.z, 0.36, sm, false, spTerr.floorY);
+      const ok = (
+        sm.worldSpan >= 500 &&
+        sm.TASKS?.length === 1 &&
+        sm.PORTALS?.length === 1 &&
+        Number.isFinite(sx) && Number.isFinite(sz) &&
+        Number.isFinite(spTerr.floorY) &&
+        tTerr && Number.isFinite(tTerr.floorY) &&
+        pTerr && Number.isFinite(pTerr.floorY)
+      );
+      if (!ok) subDiag.push({ id: lvl.id, span: sm.worldSpan, tasks: sm.TASKS?.length, portals: sm.PORTALS?.length, spTerr, sx, sz });
+    }
+    if (subDiag.length > 0) console.error('SUBLEVEL VERIFY FAIL:', subDiag);
+    assert(subDiag.length === 0, 'all_20_sublevels_vast_architecture_and_loops');
+
+    // Poolrooms: underwater basin depth, downhill water slides & water_only Entity behavior
+    const poolMap = getOrCreateLevelMap('level37');
+    const basin = poolMap.WATER_RECTS?.[0];
+    const slide = poolMap.SLIDES?.[0];
+    const wetX = basin ? basin.x0 + 4.5 : 0;
+    const wetZ = basin ? basin.z0 + 4.5 : 0;
+    const bridgeX = basin ? (basin.x0 + basin.x1) * 0.5 : 0;
+    const bridgeZ = basin ? (basin.z0 + basin.z1) * 0.5 : 0;
+    const basinTerr = basin ? getTerrainAt(wetX, wetZ, poolMap, 0) : null;
+    const bridgeTerr = basin ? getTerrainAt(bridgeX, bridgeZ, poolMap, 0) : null;
+    const slideTerr = slide ? getTerrainAt((slide.x0 + slide.x1) * 0.5, (slide.z0 + slide.z1) * 0.5, poolMap, 5) : null;
+    const dryTerr = getTerrainAt(poolMap.SPAWN.x, poolMap.SPAWN.z, poolMap, 0);
+    const poolEntAI = new EntityAIController('test_pool_stalker', {
+      id: 'test_pool_stalker',
+      kind: 'crawler',
+      behavior: 'water_only',
+      speedMult: 1.0,
+      sightRange: 26,
+      hearRange: 18
+    });
+    const fakeEnt = {
+      id: 'test_pool_stalker',
+      role: 'k',
+      levelId: 'level37',
+      x: wetX + 3,
+      y: basinTerr?.floorY || -0.68,
+      z: wetZ,
+      yaw: 0, spd: 0, carrying: null, stunT: 0, blindT: 0
+    };
+    const fakeDrySurv = {
+      s1: { id: 's1', role: 's', state: 'ok', levelId: 'level37', x: bridgeX, y: bridgeTerr?.floorY || 0.08, z: bridgeZ, crouch: false, fl: false, spd: 6 }
+    };
+    poolEntAI.update(0.1, fakeEnt, fakeDrySurv, poolMap, {});
+    const ignoredDry = poolEntAI.state === 'PATROL';
+    const fakeWetSurv = {
+      s1: { id: 's1', role: 's', state: 'ok', levelId: 'level37', x: wetX, y: basinTerr?.floorY || -0.68, z: wetZ, crouch: false, fl: false, spd: 5 }
+    };
+    poolEntAI.update(0.1, fakeEnt, fakeWetSurv, poolMap, {});
+    const chasedWet = poolEntAI.state === 'CHASE' && poolEntAI.targetId === 's1';
+    const poolDiag = {
+      waters: poolMap.WATER_RECTS?.length || 0,
+      slides: poolMap.SLIDES?.length || 0,
+      basin,
+      slide,
+      basinTerr,
+      bridgeTerr,
+      slideTerr,
+      dryTerr,
+      ignoredDry,
+      chasedWet,
+      aiStateAfterWet: poolEntAI.state,
+      aiTargetAfterWet: poolEntAI.targetId
+    };
+    const poolPass = (
+      poolDiag.waters >= 3 &&
+      poolDiag.slides >= 4 &&
+      basinTerr?.inWater === true && basinTerr.floorY < -0.5 &&
+      bridgeTerr?.inWater === false &&
+      slideTerr?.onSlide === true && Math.hypot(slideTerr.slideVelX, slideTerr.slideVelZ) > 0.5 &&
+      dryTerr?.inWater === false &&
+      ignoredDry && chasedWet
+    );
+    if (!poolPass) console.error('POOL TEST DIAG:', JSON.stringify(poolDiag));
+    assert(poolPass, 'poolrooms_water_slides_and_water_only_monster');
+
+    // Interactive enter -> Co-op Join -> Repair 1 Machine -> Return to Level 0 loop
+    players['ally_coop'] = {
+      id: 'ally_coop', name: 'Teammate', role: 's', colorIdx: 1, isAI: false, levelId: 'level0',
+      x: tMap.SPAWN.x, y: 0, z: tMap.SPAWN.z, yaw: 0, pitch: 0,
+      hp: 2, state: 'ok', hooks: 0, hookIdx: -1, inv: { water: 1, scan: 0, jelly: 0, ration: 0, flare: 0 }
+    };
+    sendAction({ act: 'enterLevel', levelId: 'level37', via: 'noclip_floor' });
+    const enteredPool = activeLocalLevelId === 'level37' && players[myId].levelId === 'level37' && world?.isSubLevel === true;
+    updateHostSimulation(0.05);
+    const joinOffered = activeJoinTarget?.levelId === 'level37';
+    processPlayerActionHost('ally_coop', { act: 'enterLevel', levelId: 'level37', via: 'join' });
+    const allyJoined = players['ally_coop'].levelId === 'level37';
+    processPlayerActionHost(myId, { act: 'taskProg', idx: 0, delta: 1.1 });
+    const taskCleared = map.TASKS[0].done === true && levelsClearedSet.has('level37');
+    const portalPt = map.PORTALS[0];
+    players[myId].x = portalPt.x; players[myId].z = portalPt.z;
+    const portalPrompt = findBestPrompt(players[myId]);
+    sendAction({ act: 'enterLevel', levelId: 'level0', via: 'return' });
+    const returnedToLvl0 = activeLocalLevelId === 'level0' && players[myId].levelId === 'level0' && !!world?.elevator;
+    // Also verify mobile/desktop Join banner appears for Survivor in Level 0 when ally is in a sub-level
+    updateHostSimulation(0.05);
+    updateHUD(0.2, 60);
+    const joinBtnVisibleInLvl0 = !$('joinLevelBar').classList.contains('hidden');
+    delete players['ally_coop'];
+    updateHostSimulation(0.05);
+    updateHUD(0.3, 60);
+
+    const subFlowDiag = {
+      enteredPool,
+      activeLocalLevelId,
+      myLevel: players[myId]?.levelId,
+      worldIsSub: world?.isSubLevel,
+      joinOffered,
+      allyJoined,
+      allyLevel: players['ally_coop']?.levelId,
+      taskCleared,
+      portalPrompt: portalPrompt?.text || null,
+      returnedToLvl0,
+      joinBtnVisibleInLvl0,
+      activeJoinTarget
+    };
+    const subFlowPass = (
+      enteredPool && joinOffered && allyJoined && taskCleared &&
+      !!portalPrompt?.text && returnedToLvl0 && joinBtnVisibleInLvl0
+    );
+    if (!subFlowPass) console.error('SUBFLOW TEST DIAG:', JSON.stringify(subFlowDiag));
+    assert(subFlowPass, 'sublevel_enter_coop_join_repair_and_return_level0');
+    // Clean up test artifacts so Playwright visual exploration starts fresh
+    levelsClearedSet.delete('level37');
+    levelDiscoveredSet.delete('level37');
+    levelMaps.delete('level37');
+    for (let i = aiControllers.length - 1; i >= 0; i--) {
+      if (aiControllers[i].id.startsWith('AI_SUB_')) {
+        delete players[aiControllers[i].id];
+        aiControllers.splice(i, 1);
+      }
+    }
+  }
+
   gfx.render(0.016);
 
   // Expose live debug handle for automated Playtest/Playwright verification
@@ -3886,12 +4461,35 @@ async function runSelfTests() {
     gfx,
     audio,
     scene,
+    LEVEL_LIST,
+    getTerrainAt,
     getMe: () => players[myId],
     getMap: () => map,
     getWorld: () => world,
     getPlayers: () => players,
     getAvatars: () => avatars,
     getAI: () => aiControllers,
+    getLevelState: () => ({
+      activeLocalLevelId,
+      activeJoinTarget,
+      levelsCleared: [...levelsClearedSet],
+      discovered: [...levelDiscoveredSet]
+    }),
+    enterLevel: (levelId, via = 'portal') => {
+      noclipDropLockUntil = performance.now() + 1500;
+      sendAction({ act: 'enterLevel', levelId, via });
+    },
+    forceReturnLevel0: () => {
+      const m = getOrCreateLevelMap(activeLocalLevelId);
+      if (m?.TASKS?.[0]) { m.TASKS[0].done = true; m.TASKS[0].p = 1; m.exitsOpen = true; }
+      noclipDropLockUntil = performance.now() + 1500;
+      sendAction({ act: 'enterLevel', levelId: 'level0', via: 'return' });
+    },
+    dismissOverlay: () => {
+      const ov = $('noclipOverlay');
+      if (ov) { ov.style.opacity = '0'; ov.classList.add('hidden'); }
+    },
+    triggerJoinActiveLevel,
     openElevator: () => sendAction({ act: 'openElevator' }),
     buildEntityAvatar,
     animateEntity,
