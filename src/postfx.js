@@ -26,6 +26,8 @@ uniform float uShakeMix;
 uniform float uTemporalMix;
 uniform float uSoftDefocus;
 uniform float uTaaMix;
+uniform float uEdgeAa;
+uniform float uLensSoftness;
 uniform float uHasHistory;
 uniform vec2 uTexelSize;
 uniform float uEnabled;
@@ -85,8 +87,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float mag = length(totalTrail);
   if (mag > 0.28) totalTrail = totalTrail * (0.28 / mag);
 
-  // Early exit when motion blur, distant DoF, soft optical defocus, and TAA softness are all off
-  if (mag < 0.0014 && dofCurve < 0.0015 && uSoftDefocus < 0.001 && uTaaMix < 0.001) {
+  // Early exit when motion blur, distant DoF, soft optical defocus, TAA softness, edge AA, and lens softness are all off
+  if (mag < 0.0014 && dofCurve < 0.0015 && uSoftDefocus < 0.001 && uTaaMix < 0.001 && uEdgeAa < 0.001 && uLensSoftness < 0.001) {
     outputColor = inputColor;
     return;
   }
@@ -130,24 +132,93 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     blurred = accum.rgb / max(totalWeight, 0.0001);
   }
 
-  // Slight global lens optical defocus (subtle 10-20% softness keeping silhouettes readable)
-  if (uSoftDefocus > 0.001) {
-    vec2 px = max(uTexelSize, vec2(0.0005)) * (1.05 + uSoftDefocus * 1.95);
-    vec2 dPx = px * 0.7071;
-    vec3 defCol = blurred * 1.40;
-    defCol += texture2D(inputBuffer, clamp(uv + vec2(px.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
-    defCol += texture2D(inputBuffer, clamp(uv - vec2(px.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
-    defCol += texture2D(inputBuffer, clamp(uv + vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
-    defCol += texture2D(inputBuffer, clamp(uv - vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
-    defCol += texture2D(inputBuffer, clamp(uv + dPx, vec2(0.002), vec2(0.998))).rgb * 0.75;
-    defCol += texture2D(inputBuffer, clamp(uv - dPx, vec2(0.002), vec2(0.998))).rgb * 0.75;
-    defCol += texture2D(inputBuffer, clamp(uv + vec2(dPx.x, -dPx.y), vec2(0.002), vec2(0.998))).rgb * 0.75;
-    defCol += texture2D(inputBuffer, clamp(uv + vec2(-dPx.x, dPx.y), vec2(0.002), vec2(0.998))).rgb * 0.75;
-    defCol /= 8.40;
-    blurred = mix(blurred, defCol, clamp(uSoftDefocus, 0.0, 0.68));
+  // Stage A: Subpixel Directional Edge Anti-Aliasing (smooths diagonal geometry & stair-stepping without ringing)
+  if (uEdgeAa > 0.001) {
+    vec2 pxAa = max(uTexelSize, vec2(0.0005));
+    vec3 cN = texture2D(inputBuffer, clamp(uv + vec2(0.0, pxAa.y), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cS = texture2D(inputBuffer, clamp(uv - vec2(0.0, pxAa.y), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cE = texture2D(inputBuffer, clamp(uv + vec2(pxAa.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cW = texture2D(inputBuffer, clamp(uv - vec2(pxAa.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cNE = texture2D(inputBuffer, clamp(uv + pxAa, vec2(0.002), vec2(0.998))).rgb;
+    vec3 cNW = texture2D(inputBuffer, clamp(uv + vec2(-pxAa.x, pxAa.y), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cSE = texture2D(inputBuffer, clamp(uv + vec2(pxAa.x, -pxAa.y), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cSW = texture2D(inputBuffer, clamp(uv - pxAa, vec2(0.002), vec2(0.998))).rgb;
+    const vec3 kLuma = vec3(0.299, 0.587, 0.114);
+    float lC = dot(blurred, kLuma);
+    float lN = dot(cN, kLuma);
+    float lS = dot(cS, kLuma);
+    float lE = dot(cE, kLuma);
+    float lW = dot(cW, kLuma);
+    float lNE = dot(cNE, kLuma);
+    float lNW = dot(cNW, kLuma);
+    float lSE = dot(cSE, kLuma);
+    float lSW = dot(cSW, kLuma);
+    float lMin = min(lC, min(min(lN, lS), min(lE, lW)));
+    float lMax = max(lC, max(max(lN, lS), max(lE, lW)));
+    float lRange = lMax - lMin;
+    vec2 grad = vec2(
+      (lE - lW) + 0.5 * ((lNE - lNW) + (lSE - lSW)),
+      (lN - lS) + 0.5 * ((lNE - lSE) + (lNW - lSW))
+    );
+    float gradLen = length(grad);
+    if (lRange > 0.022 && gradLen > 0.001) {
+      vec2 tangent = vec2(-grad.y, grad.x) / gradLen;
+      vec2 uv1 = clamp(uv + tangent * pxAa * 0.55, vec2(0.002), vec2(0.998));
+      vec2 uv2 = clamp(uv - tangent * pxAa * 0.55, vec2(0.002), vec2(0.998));
+      vec2 uv3 = clamp(uv + tangent * pxAa * 1.25, vec2(0.002), vec2(0.998));
+      vec2 uv4 = clamp(uv - tangent * pxAa * 1.25, vec2(0.002), vec2(0.998));
+      float d1 = exp(-abs(min(readDepth(uv1), 0.9994) - depth) * 160.0);
+      float d2 = exp(-abs(min(readDepth(uv2), 0.9994) - depth) * 160.0);
+      float d3 = exp(-abs(min(readDepth(uv3), 0.9994) - depth) * 160.0) * 0.65;
+      float d4 = exp(-abs(min(readDepth(uv4), 0.9994) - depth) * 160.0) * 0.65;
+      vec3 aaSum = blurred * 0.8 + texture2D(inputBuffer, uv1).rgb * d1 + texture2D(inputBuffer, uv2).rgb * d2 + texture2D(inputBuffer, uv3).rgb * d3 + texture2D(inputBuffer, uv4).rgb * d4;
+      float aaW = 0.8 + d1 + d2 + d3 + d4;
+      vec3 aaCol = aaSum / max(aaW, 0.001);
+      vec3 boxMin = min(blurred, min(min(cN, cS), min(cE, cW)));
+      vec3 boxMax = max(blurred, max(max(cN, cS), max(cE, cW)));
+      aaCol = clamp(aaCol, boxMin, boxMax);
+      float edgeWeight = smoothstep(0.022, 0.24, lRange) * clamp(uEdgeAa, 0.0, 1.0) * 0.78;
+      blurred = mix(blurred, aaCol, edgeWeight);
+    }
   }
 
-  // Soft TAA / Temporal accumulation smear & subtle camera-motion ghosting
+  // Stage B: Combined Subpixel Optical Lens Softness (0.4 - 1.0 texel spread) & Footage Defocus
+  if (uLensSoftness > 0.001 || uSoftDefocus > 0.001) {
+    bool isDream = uLensSoftness > 0.001;
+    vec2 pxL = max(uTexelSize, vec2(0.0005)) * (isDream
+      ? (0.42 + min(uLensSoftness, 1.5) * 0.42 + uSoftDefocus * 0.35)
+      : (1.05 + uSoftDefocus * 1.95));
+    vec2 dL = pxL * 0.7071;
+    vec2 luv0 = clamp(uv + vec2(pxL.x, 0.0), vec2(0.002), vec2(0.998));
+    vec2 luv1 = clamp(uv - vec2(pxL.x, 0.0), vec2(0.002), vec2(0.998));
+    vec2 luv2 = clamp(uv + vec2(0.0, pxL.y), vec2(0.002), vec2(0.998));
+    vec2 luv3 = clamp(uv - vec2(0.0, pxL.y), vec2(0.002), vec2(0.998));
+    vec2 luv4 = clamp(uv + dL, vec2(0.002), vec2(0.998));
+    vec2 luv5 = clamp(uv - dL, vec2(0.002), vec2(0.998));
+    vec2 luv6 = clamp(uv + vec2(dL.x, -dL.y), vec2(0.002), vec2(0.998));
+    vec2 luv7 = clamp(uv + vec2(-dL.x, dL.y), vec2(0.002), vec2(0.998));
+    float dGate = isDream ? 130.0 : 0.0;
+    float w0 = isDream ? exp(-abs(min(readDepth(luv0), 0.9994) - depth) * dGate) : 1.0;
+    float w1 = isDream ? exp(-abs(min(readDepth(luv1), 0.9994) - depth) * dGate) : 1.0;
+    float w2 = isDream ? exp(-abs(min(readDepth(luv2), 0.9994) - depth) * dGate) : 1.0;
+    float w3 = isDream ? exp(-abs(min(readDepth(luv3), 0.9994) - depth) * dGate) : 1.0;
+    float w4 = (isDream ? exp(-abs(min(readDepth(luv4), 0.9994) - depth) * dGate) : 1.0) * 0.75;
+    float w5 = (isDream ? exp(-abs(min(readDepth(luv5), 0.9994) - depth) * dGate) : 1.0) * 0.75;
+    float w6 = (isDream ? exp(-abs(min(readDepth(luv6), 0.9994) - depth) * dGate) : 1.0) * 0.75;
+    float w7 = (isDream ? exp(-abs(min(readDepth(luv7), 0.9994) - depth) * dGate) : 1.0) * 0.75;
+    vec3 lensCol = blurred * 1.40
+      + texture2D(inputBuffer, luv0).rgb * w0 + texture2D(inputBuffer, luv1).rgb * w1
+      + texture2D(inputBuffer, luv2).rgb * w2 + texture2D(inputBuffer, luv3).rgb * w3
+      + texture2D(inputBuffer, luv4).rgb * w4 + texture2D(inputBuffer, luv5).rgb * w5
+      + texture2D(inputBuffer, luv6).rgb * w6 + texture2D(inputBuffer, luv7).rgb * w7;
+    float lensW = 1.40 + w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7;
+    float blendAmt = isDream
+      ? clamp(uLensSoftness * 0.34 + uSoftDefocus * 0.16, 0.0, 0.54)
+      : clamp(uSoftDefocus, 0.0, 0.68);
+    blurred = mix(blurred, lensCol / max(lensW, 0.001), blendAmt);
+  }
+
+  // Soft TAA / Temporal accumulation smear & ghost-free Dreamcam subpixel stabilization
   if (uTaaMix > 0.001 && uHasHistory > 0.5 && hasPrevReproj &&
       reprojPrevUV.x >= 0.0 && reprojPrevUV.x <= 1.0 &&
       reprojPrevUV.y >= 0.0 && reprojPrevUV.y <= 1.0) {
@@ -160,10 +231,11 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     vec3 n3 = texture2D(inputBuffer, clamp(uv - vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
     vec3 cMin = min(blurred, min(min(n0, n1), min(n2, n3)));
     vec3 cMax = max(blurred, max(max(n0, n1), max(n2, n3)));
-    // Mild margin creates natural TAA ghosting/smear rather than crisp modern anti-aliasing
-    vec3 margin = (cMax - cMin) * 0.38 + vec3(0.032);
+    float cleanTaa = clamp(uEdgeAa, 0.0, 1.0) * (1.0 - step(0.01, uTemporalMix));
+    vec3 margin = (cMax - cMin) * mix(0.38, 0.12, cleanTaa) + vec3(mix(0.032, 0.010, cleanTaa));
     histCol = clamp(histCol, max(cMin - margin, vec3(0.0)), cMax + margin);
-    blurred = mix(blurred, histCol, clamp(uTaaMix, 0.0, 0.56));
+    float motionReject = mix(1.0, 1.0 - smoothstep(0.0025, 0.016, length(reprojPrevUV - uv)), cleanTaa);
+    blurred = mix(blurred, histCol, clamp(uTaaMix * motionReject, 0.0, 0.56));
   }
 
   float tMix = uTemporalMix * turnMask * smoothstep(0.015, 0.055, mag);
@@ -205,6 +277,10 @@ uniform float uHue;
 uniform float uSaturation;
 uniform float uScanlineMask;
 uniform float uCoolGrade;
+uniform float uBicubicMode;
+uniform float uLensSoftness;
+uniform float uHalationAmt;
+uniform float uChromaSoftness;
 
 float crtLinearizeDist(float d, float zn, float zf) {
   float zNdc = clamp(d, 0.0, 0.99995) * 2.0 - 1.0;
@@ -223,8 +299,40 @@ vec3 hash32(vec2 p) {
   return fract((p3.xxy + p3.yzz) * p3.zyx);
 }
 
+// True 4x4 Cubic B-Spline hardware-bilinear upscaling (zero negative-lobe ringing/overshoot) + optical subpixel softness
+vec3 sampleBicubicSoft(sampler2D buf, vec2 suv, vec2 subDims, float softness) {
+  vec2 res = max(subDims, vec2(160.0));
+  vec2 invRes = 1.0 / res;
+  vec2 tc = suv * res - 0.5;
+  vec2 iTc = floor(tc);
+  vec2 f = tc - iTc;
+  vec2 f2 = f * f;
+  vec2 f3 = f2 * f;
+
+  vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) * (1.0 / 6.0);
+  vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) * (1.0 / 6.0);
+  vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) * (1.0 / 6.0);
+  vec2 w3 = f3 * (1.0 / 6.0);
+
+  vec2 g0 = w0 + w1;
+  vec2 g1 = w2 + w3;
+  vec2 h0 = ((iTc - 0.5 + w1 / max(g0, vec2(1e-5))) + 0.5) * invRes;
+  vec2 h1 = ((iTc + 1.5 + w3 / max(g1, vec2(1e-5))) + 0.5) * invRes;
+
+  vec3 s00 = texture2D(buf, clamp(vec2(h0.x, h0.y), vec2(0.004), vec2(0.996))).rgb;
+  vec3 s10 = texture2D(buf, clamp(vec2(h1.x, h0.y), vec2(0.004), vec2(0.996))).rgb;
+  vec3 s01 = texture2D(buf, clamp(vec2(h0.x, h1.y), vec2(0.004), vec2(0.996))).rgb;
+  vec3 s11 = texture2D(buf, clamp(vec2(h1.x, h1.y), vec2(0.004), vec2(0.996))).rgb;
+  vec3 row0 = mix(s10, s00, g0.x);
+  vec3 row1 = mix(s11, s01, g0.x);
+  return max(mix(row1, row0, g0.y), vec3(0.0));
+}
+
 // Smooth virtual low-resolution bilinear/bicubic-tent reconstruction without post-sharpening
 vec3 sampleSoftRes(sampler2D buf, vec2 suv, vec2 subDims, float softAmt) {
+  if (uBicubicMode > 0.5) {
+    return sampleBicubicSoft(buf, suv, subDims, clamp(uLensSoftness, 0.0, 1.5) * softAmt);
+  }
   vec2 uvQ = mix(suv, (floor(suv * subDims) + 0.5) / subDims, 0.24 * softAmt);
   vec2 px = (0.58 / max(subDims, vec2(160.0))) * (0.65 + 0.55 * softAmt);
   vec3 c0 = texture2D(buf, clamp(uvQ + vec2(px.x, px.y), vec2(0.006), vec2(0.994))).rgb;
@@ -307,9 +415,15 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   vec3 col = vec3(0.0);
   if (softAmt > 0.01) {
     vec3 cCenter = sampleSoftRes(inputBuffer, clampedCuv, subDims, softAmt);
-    float cR = sampleSoftRes(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994)), subDims, softAmt * 0.65).r;
-    float cB = sampleSoftRes(inputBuffer, clamp(clampedCuv - vec2(shift, 0.0), vec2(0.006), vec2(0.994)), subDims, softAmt * 0.65).b;
-    col = max(vec3(cR, cCenter.g, cB), vec3(0.0));
+    if (uBicubicMode > 0.5) {
+      float cR = shift > 0.00025 ? max(0.0, texture2D(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994))).r) : cCenter.r;
+      float cB = shift > 0.00025 ? max(0.0, texture2D(inputBuffer, clamp(clampedCuv - vec2(shift, 0.0), vec2(0.006), vec2(0.994))).b) : cCenter.b;
+      col = max(vec3(cR, cCenter.g, cB), vec3(0.0));
+    } else {
+      float cR = sampleSoftRes(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994)), subDims, softAmt * 0.65).r;
+      float cB = sampleSoftRes(inputBuffer, clamp(clampedCuv - vec2(shift, 0.0), vec2(0.006), vec2(0.994)), subDims, softAmt * 0.65).b;
+      col = max(vec3(cR, cCenter.g, cB), vec3(0.0));
+    }
   } else {
     float colR = max(0.0, texture2D(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994))).r);
     float colG = max(0.0, texture2D(inputBuffer, clampedCuv).g);
@@ -317,17 +431,44 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     col = vec3(colR, colG, colB);
   }
 
-  // Subtle Analog Camcorder Halation (warm amber-red bloom rim around bright fluorescent tubes)
-  vec2 halStep = vec2(0.0032, 0.0022);
-  vec3 halSample = 0.25 * (
-    texture2D(inputBuffer, clamp(clampedCuv + halStep, vec2(0.006), vec2(0.994))).rgb +
-    texture2D(inputBuffer, clamp(clampedCuv - halStep, vec2(0.006), vec2(0.994))).rgb +
-    texture2D(inputBuffer, clamp(clampedCuv + vec2(halStep.x, -halStep.y), vec2(0.006), vec2(0.994))).rgb +
-    texture2D(inputBuffer, clamp(clampedCuv + vec2(-halStep.x, halStep.y), vec2(0.006), vec2(0.994))).rgb
-  );
-  float halLuma = dot(halSample, vec3(0.299, 0.587, 0.114));
-  vec3 halTint = mix(vec3(1.0, 0.48, 0.16), vec3(0.75, 0.96, 1.0), clamp(uCoolGrade, 0.0, 1.0));
-  col += halTint * smoothstep(0.72, 1.85, halLuma) * 0.14 * clamp(uCrtAmount, 0.0, 1.0);
+  // Selective Optical Highlight Halation (2-ring small-radius optical scatter around bright lights/doorways)
+  if (uHalationAmt > 0.001) {
+    vec2 outPx = 1.0 / resPx;
+    vec2 r1 = outPx * 1.35;
+    vec2 r2h = outPx * 2.75;
+    const vec3 kHalLuma = vec3(0.2126, 0.7152, 0.0722);
+    vec3 hAccum = vec3(0.0);
+    vec3 hs0 = texture2D(inputBuffer, clamp(clampedCuv + vec2(r1.x, 0.0), vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs1 = texture2D(inputBuffer, clamp(clampedCuv - vec2(r1.x, 0.0), vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs2 = texture2D(inputBuffer, clamp(clampedCuv + vec2(0.0, r1.y), vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs3 = texture2D(inputBuffer, clamp(clampedCuv - vec2(0.0, r1.y), vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs4 = texture2D(inputBuffer, clamp(clampedCuv + r2h * 0.7071, vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs5 = texture2D(inputBuffer, clamp(clampedCuv - r2h * 0.7071, vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs6 = texture2D(inputBuffer, clamp(clampedCuv + vec2(r2h.x, -r2h.y) * 0.7071, vec2(0.006), vec2(0.994))).rgb;
+    vec3 hs7 = texture2D(inputBuffer, clamp(clampedCuv + vec2(-r2h.x, r2h.y) * 0.7071, vec2(0.006), vec2(0.994))).rgb;
+    hAccum += hs0 * smoothstep(0.56, 1.38, dot(hs0, kHalLuma)) * 0.15;
+    hAccum += hs1 * smoothstep(0.56, 1.38, dot(hs1, kHalLuma)) * 0.15;
+    hAccum += hs2 * smoothstep(0.56, 1.38, dot(hs2, kHalLuma)) * 0.15;
+    hAccum += hs3 * smoothstep(0.56, 1.38, dot(hs3, kHalLuma)) * 0.15;
+    hAccum += hs4 * smoothstep(0.56, 1.38, dot(hs4, kHalLuma)) * 0.10;
+    hAccum += hs5 * smoothstep(0.56, 1.38, dot(hs5, kHalLuma)) * 0.10;
+    hAccum += hs6 * smoothstep(0.56, 1.38, dot(hs6, kHalLuma)) * 0.10;
+    hAccum += hs7 * smoothstep(0.56, 1.38, dot(hs7, kHalLuma)) * 0.10;
+    vec3 optHalTint = mix(vec3(1.0, 0.92, 0.80), vec3(0.88, 0.97, 1.0), clamp(uCoolGrade, 0.0, 1.0));
+    col += hAccum * optHalTint * (0.42 * clamp(uHalationAmt, 0.0, 1.0));
+  } else {
+    // Subtle Analog Camcorder Halation (warm amber-red bloom rim around bright fluorescent tubes)
+    vec2 halStep = vec2(0.0032, 0.0022);
+    vec3 halSample = 0.25 * (
+      texture2D(inputBuffer, clamp(clampedCuv + halStep, vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(clampedCuv - halStep, vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(clampedCuv + vec2(halStep.x, -halStep.y), vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(clampedCuv + vec2(-halStep.x, halStep.y), vec2(0.006), vec2(0.994))).rgb
+    );
+    float halLuma = dot(halSample, vec3(0.299, 0.587, 0.114));
+    vec3 halTint = mix(vec3(1.0, 0.48, 0.16), vec3(0.75, 0.96, 1.0), clamp(uCoolGrade, 0.0, 1.0));
+    col += halTint * smoothstep(0.72, 1.85, halLuma) * 0.14 * clamp(uCrtAmount, 0.0, 1.0);
+  }
 
   // Bypass close-up sharpening whenever low-res Footage / Stream filter is active (sharpen near zero)
   if (nearFocus > 0.01 && uDisableSharpen < 0.5) {
@@ -413,8 +554,38 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     col *= mix(1.0, mix(0.84, 1.0, toeCrush), min(hazeAmt * 0.7, 0.85));
   }
 
-  // 4B. Final H.264 / Stream / VOD Low-Bitrate Compression Simulation (Macroblocks, 4:2:0 Chroma Smear, Banding)
-  if (uCompressAmt > 0.005) {
+  // 4B. Analog YCbCr Chroma Softness (softens color bleed while keeping luma edges intact)
+  if (uChromaSoftness > 0.005) {
+    vec2 cOff = 2.0 / max(subDims, vec2(240.0));
+    vec3 cWide = 0.25 * (
+      texture2D(inputBuffer, clamp(clampedCuv + vec2(cOff.x, cOff.y), vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(clampedCuv + vec2(-cOff.x, cOff.y), vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(clampedCuv + vec2(cOff.x, -cOff.y), vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(clampedCuv + vec2(-cOff.x, -cOff.y), vec2(0.006), vec2(0.994))).rgb
+    );
+    vec3 kScale = uIsKiller > 0.5 ? vec3(1.10, 0.92, 0.80) : vec3(1.0);
+    vec3 widePow = pow(max(cWide * uneasyBreathe, vec3(0.0)), vec3(1.04 + clamp(uGradeHaze, 0.0, 1.2) * 0.05));
+    vec3 widePre = widePow * grade * kScale * 0.84 * (1.0 + 0.04 * hazeAmt);
+    vec3 wideTone = clamp((widePre * (2.51 * widePre + 0.03)) / (widePre * (2.43 * widePre + 0.59) + 0.14), vec3(0.0), vec3(1.0));
+    wideTone = mix(wideTone, wideTone * wideTone * (3.0 - 2.0 * wideTone), sCurveWeight);
+    float cY = dot(col, vec3(0.299, 0.587, 0.114));
+    float cCb = (col.b - cY) * 0.564;
+    float cCr = (col.r - cY) * 0.713;
+    float wY = dot(wideTone, vec3(0.299, 0.587, 0.114));
+    float wCb = (wideTone.b - wY) * 0.564;
+    float wCr = (wideTone.r - wY) * 0.713;
+    float chMix = clamp(uChromaSoftness, 0.0, 0.65);
+    float cbOut = mix(cCb, wCb, chMix);
+    float crOut = mix(cCr, wCr, chMix);
+    col = clamp(vec3(
+      cY + 1.402 * crOut,
+      cY - 0.344136 * cbOut - 0.714136 * crOut,
+      cY + 1.772 * cbOut
+    ), vec3(0.0), vec3(1.0));
+  }
+
+  // 4C. Final H.264 / Stream / VOD Low-Bitrate Compression Simulation (Macroblocks only on non-Dreamcam presets)
+  if (uCompressAmt > 0.005 && uBicubicMode < 0.5) {
     vec2 encRes = max(mix(resPx * 0.65, subDims * 1.15, 0.60), vec2(426.0, 240.0));
     vec2 mbStep = 8.0 / encRes;
     vec2 mbCoord = clampedCuv * encRes / 8.0;
@@ -473,6 +644,10 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
       yOut - 0.344136 * cbOut - 0.714136 * crOut,
       yOut + 1.772 * cbOut
     ), vec3(0.0), vec3(1.0));
+  } else if (uCompressAmt > 0.005) {
+    // Dreamcam subtle highlight-knee smoothness without 8x8 macroblocks or dark shadow banding
+    float softCmp = clamp(uCompressAmt * 0.65, 0.0, 0.18);
+    col = mix(col, col / (vec3(1.0) + max(col - vec3(0.72), vec3(0.0)) * 0.28), softCmp);
   }
 
   // 5. Pronounced CRT Scanlines & Aperture Grille (eased smoothly up close so small text stays crisp)
@@ -702,6 +877,8 @@ export class BackroomsMotionBlurEffect extends Effect {
         ['uTemporalMix', new THREE.Uniform(0)],
         ['uSoftDefocus', new THREE.Uniform(0)],
         ['uTaaMix', new THREE.Uniform(0)],
+        ['uEdgeAa', new THREE.Uniform(0)],
+        ['uLensSoftness', new THREE.Uniform(0)],
         ['uHasHistory', new THREE.Uniform(0)],
         ['uTexelSize', new THREE.Uniform(new THREE.Vector2(1 / 1280, 1 / 720))],
         ['uEnabled', new THREE.Uniform(1)],
@@ -784,7 +961,11 @@ export class BackroomsCRTGradeEffect extends Effect {
         ['uHue', new THREE.Uniform(0.0)],
         ['uSaturation', new THREE.Uniform(1.0)],
         ['uScanlineMask', new THREE.Uniform(1.0)],
-        ['uCoolGrade', new THREE.Uniform(0.0)]
+        ['uCoolGrade', new THREE.Uniform(0.0)],
+        ['uBicubicMode', new THREE.Uniform(0.0)],
+        ['uLensSoftness', new THREE.Uniform(0.0)],
+        ['uHalationAmt', new THREE.Uniform(0.0)],
+        ['uChromaSoftness', new THREE.Uniform(0.0)]
       ])
     });
   }
@@ -899,8 +1080,11 @@ export class GraphicsManager {
     this._footageStr = fStr;
 
     const baseScale = Number(this.fx.renderScale) || 1.0;
+    const isDreamcam = (fPreset.bicubicMode || 0) > 0.5;
+    const dreamTargetScale = baseScale >= 1.25 ? 0.78 : (baseScale >= 0.85 ? 0.70 : 0.60);
+    const targetInternalScale = isDreamcam ? dreamTargetScale : fPreset.internalScale;
     const effScale = fMix01 > 0.001
-      ? Math.min(baseScale, THREE.MathUtils.lerp(baseScale, fPreset.internalScale, fMix01))
+      ? Math.min(baseScale, THREE.MathUtils.lerp(baseScale, targetInternalScale, fMix01))
       : baseScale;
     const dpr = Math.min(window.devicePixelRatio || 1, effScale);
     this.renderer.setPixelRatio(Math.max(0.4, dpr));
@@ -922,6 +1106,16 @@ export class GraphicsManager {
       const hasTaa = fStr > 0.01 && fPreset.taaMix > 0.005;
       const hasSoftDefocus = fStr > 0.01 && fPreset.softDefocus > 0.005;
       const hasFootageMotion = fStr > 0.01 && fPreset.motionBoost > 0.01;
+      const hasEdgeAa = fStr > 0.01 && (fPreset.edgeAa || 0) > 0.01;
+      const userSoftness = THREE.MathUtils.clamp(Number(this.fx.upscaleSoftness ?? 0.65), 0, 1.5);
+      const effLensSoftness = (fStr > 0.01 && (fPreset.lensSoftness || 0) > 0.01)
+        ? THREE.MathUtils.clamp((fPreset.lensSoftness || 0) * (userSoftness / 0.65) * fStr, 0, 1.5)
+        : 0.0;
+      const hasLensSoftness = effLensSoftness > 0.005;
+      const userHalation = THREE.MathUtils.clamp(Number(this.fx.halation ?? 0.25), 0, 1.0);
+      const effHalation = (fStr > 0.01 && (fPreset.halation || 0) > 0.01)
+        ? THREE.MathUtils.clamp((fPreset.halation || 0) * (userHalation / 0.25) * fStr, 0, 1.0)
+        : 0.0;
       const hasBloom = this.fx.bloom > 0.01 || (fStr > 0.01 && fPreset.bloomBoost > 0.01);
 
       const userLens = Math.max(0, this.fx.lensCurve);
@@ -950,9 +1144,13 @@ export class GraphicsManager {
         this.bloom.luminanceMaterial.threshold = fMix01 > 0.01
           ? THREE.MathUtils.lerp(0.56, fPreset.bloomThreshold, fMix01)
           : 0.56;
+        this.bloom.luminanceMaterial.smoothing = (fMix01 > 0.01 && isDreamcam)
+          ? THREE.MathUtils.lerp(0.26, 0.58, fMix01)
+          : 0.26;
       }
       if (this.bloom.mipmapBlurPass) {
-        const baseRad = fMix01 > 0.01 ? THREE.MathUtils.lerp(0.78, 0.88, fMix01) : 0.78;
+        const targetRad = isDreamcam ? 0.82 : 0.88;
+        const baseRad = fMix01 > 0.01 ? THREE.MathUtils.lerp(0.78, targetRad, fMix01) : 0.78;
         const extraRad = Math.max(0, (Number(this.fx.bloom) || 0) - 1.6) * 0.055;
         this.bloom.mipmapBlurPass.radius = Math.min(0.95, baseRad + extraRad);
       }
@@ -962,6 +1160,8 @@ export class GraphicsManager {
       mbU.get('uDofAmount').value = Math.max(0, this.fx.dofBlur);
       mbU.get('uSoftDefocus').value = hasSoftDefocus ? THREE.MathUtils.clamp(fPreset.softDefocus * fStr, 0, 0.65) : 0.0;
       mbU.get('uTaaMix').value = hasTaa ? THREE.MathUtils.clamp(fPreset.taaMix * fStr, 0, 0.55) : 0.0;
+      mbU.get('uEdgeAa').value = hasEdgeAa ? THREE.MathUtils.clamp((fPreset.edgeAa || 0) * fMix01, 0, 1.0) : 0.0;
+      mbU.get('uLensSoftness').value = effLensSoftness;
 
       const crtU = this.crtGrade.uniforms;
       crtU.get('uCrtAmount').value = effLens > 0.01 || effScan > 0.01 || fStr > 0.01 ? 1.0 : 0.0;
@@ -971,16 +1171,22 @@ export class GraphicsManager {
       crtU.get('uVignetteAmount').value = effVig;
       crtU.get('uIs43').value = this.aspectMode === '4:3' ? 1.0 : 0.0;
 
-      // Multi-layer low-quality found-footage / stream / VOD pipeline uniforms
+      // Multi-layer low-quality found-footage / stream / VOD / Dreamcam pipeline uniforms
       crtU.get('uStreamMix').value = fMix01;
       crtU.get('uSoftUpscale').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.softUpscale * (0.55 + 0.45 * fStr), 0, 1.0) : 0.0;
-      crtU.get('uSubResH').value = fMix01 > 0.01 ? THREE.MathUtils.lerp(1080, fPreset.subResH / Math.max(0.75, Math.min(1.4, fStr > 1 ? 0.85 + 0.15 * fStr : 1.0)), fMix01) : 1080.0;
+      const dreamSubH = Math.round(Math.max(360, Math.min(864, (this._viewH || 720) * effScale)));
+      const presetSubH = isDreamcam ? dreamSubH : fPreset.subResH;
+      crtU.get('uSubResH').value = fMix01 > 0.01 ? THREE.MathUtils.lerp(1080, presetSubH / Math.max(0.75, Math.min(1.4, fStr > 1 ? 0.85 + 0.15 * fStr : 1.0)), fMix01) : 1080.0;
       crtU.get('uCaBoost').value = fStr > 0.01 ? fPreset.caBoost * fStr : 0.0;
       crtU.get('uCompressAmt').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.compressAmt * fStr, 0, 1.8) : 0.0;
       crtU.get('uAutoExpAmt').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.autoExpAmt * fStr, 0, 1.2) : 0.0;
       crtU.get('uGradeHaze').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.gradeHaze * fStr, 0, 1.6) : 0.0;
       crtU.get('uSensorNoise').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.sensorNoise * fStr, 0, 1.6) : 0.0;
       crtU.get('uDisableSharpen').value = (fStr > 0.01 && fPreset.disableSharpen) ? 1.0 : 0.0;
+      crtU.get('uBicubicMode').value = (fStr > 0.01 && isDreamcam) ? fMix01 : 0.0;
+      crtU.get('uLensSoftness').value = effLensSoftness;
+      crtU.get('uHalationAmt').value = effHalation;
+      crtU.get('uChromaSoftness').value = fStr > 0.01 ? THREE.MathUtils.clamp((fPreset.chromaSoftness || 0) * fStr, 0, 0.65) : 0.0;
       crtU.get('uScanlineMask').value = this.fx.crtScanlines === false ? 0.0 : 1.0;
       crtU.get('uContrast').value = THREE.MathUtils.clamp(Number(this.fx.contrast ?? 1.0), 0.80, 1.25);
       crtU.get('uGamma').value = THREE.MathUtils.clamp(Number(this.fx.gamma ?? 1.0), 0.80, 1.25);
@@ -988,7 +1194,7 @@ export class GraphicsManager {
       crtU.get('uSaturation').value = THREE.MathUtils.clamp(Number(this.fx.saturation ?? 1.0), 0.65, 1.30);
 
       // TRUE SEPARATE MULTI-PASS PIPELINE:
-      // RenderPass -> RTShadowPass -> Bloom -> MotionBlur/DoF/SoftTAA/Defocus -> SavePass -> CRT/FootageGrade/Compression
+      // RenderPass -> RTShadowPass -> Bloom -> MotionBlur/DoF/SoftTAA/EdgeAA/Defocus -> SavePass -> CRT/DreamcamBicubic/Halation
       if (hasRtShadow) {
         this.rtShadowPass = new EffectPass(this.camera, this.rtShadow);
         this.composer.addPass(this.rtShadowPass);
@@ -997,7 +1203,7 @@ export class GraphicsManager {
         this.bloomPass = new EffectPass(this.camera, this.bloom);
         this.composer.addPass(this.bloomPass);
       }
-      if (hasMBlur || hasDof || hasTaa || hasSoftDefocus || hasFootageMotion) {
+      if (hasMBlur || hasDof || hasTaa || hasSoftDefocus || hasFootageMotion || hasEdgeAa || hasLensSoftness) {
         this.savePass = new SavePass();
         this.motionBlur.uniforms.get('uPrevFrame').value = this.savePass.renderTarget.texture;
         this.mblurPass = new EffectPass(this.camera, this.motionBlur);

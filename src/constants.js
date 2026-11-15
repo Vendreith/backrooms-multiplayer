@@ -416,6 +416,33 @@ export const FOOTAGE_FILTER_PRESETS = {
     sensorNoise: 0.58,
     compressAmt: 0.95,
     disableSharpen: true
+  },
+  soft_dreamcam: {
+    id: 5,
+    label: 'Preset 5: Soft Upscale / Dreamcam',
+    internalScale: 0.70,
+    subResH: 648,
+    softUpscale: 0.90,
+    bicubicMode: 1.0,
+    edgeAa: 0.85,
+    lensSoftness: 0.65,
+    halation: 0.25,
+    chromaSoftness: 0.30,
+    taaMix: 0.18,
+    softDefocus: 0.36,
+    bloomBoost: 0.28,
+    bloomThreshold: 0.42,
+    motionBoost: 0.0,
+    caBoost: 0.08,
+    minLensCurve: 0.22,
+    vignetteTarget: null,
+    scanTarget: 0.04,
+    grainTarget: 0.22,
+    autoExpAmt: 0.08,
+    gradeHaze: 0.24,
+    sensorNoise: 0.06,
+    compressAmt: 0.05,
+    disableSharpen: true
   }
 };
 
@@ -431,10 +458,13 @@ export const FX_CONTROLS = [
       { value: 'clean_low', label: 'Preset 1: Clean Low' },
       { value: 'found_vhs', label: 'Preset 2: Found / VHS' },
       { value: 'vod_stream', label: 'Preset 3: Stream / VOD' },
-      { value: 'hybrid_all', label: 'Preset 4: Tổng hợp 1+2+3' }
+      { value: 'hybrid_all', label: 'Preset 4: Tổng hợp 1+2+3' },
+      { value: 'soft_dreamcam', label: 'Preset 5: Soft Upscale / Dreamcam' }
     ]
   },
   { key: 'footageFilterStrength', label: 'Cường độ lọc Footage', hint: '0% - 200% (100% chuẩn preset)', type: 'range', min: 0, max: 2.0, step: 0.05 },
+  { key: 'upscaleSoftness', label: 'Độ mềm Tái tạo (Softness)', hint: '0% sắc - 150% mềm mịn Dreamcam', type: 'range', min: 0, max: 1.5, step: 0.05 },
+  { key: 'halation', label: 'Quầng sáng quang học (Halation)', hint: '0% - 100% lem sáng viền đèn', type: 'range', min: 0, max: 1.0, step: 0.05 },
   { key: 'shadows', label: 'Bóng đổ đèn điểm', hint: 'Đèn pin & đèn trần', type: 'toggle' },
   { key: 'rtShadow', label: 'Shader bóng thời gian thực', hint: 'Cao & Max: bóng chân tường + SSAO', type: 'range', min: 0, max: 1.6, step: 0.05 },
   { key: 'postFX', label: 'Hậu kỳ Post-Processing', hint: 'Tắt hết để tăng FPS', type: 'toggle' },
@@ -474,6 +504,8 @@ export function getPresetDefaultFx(key = 'ultra') {
     renderScale: p.pixelRatio,
     footageFilterMode: isUltra ? 'found_vhs' : 'off',
     footageFilterStrength: isUltra ? 0.35 : 1.0,
+    upscaleSoftness: 0.65,
+    halation: 0.25,
     shadows: !!p.shadows,
     rtShadow: p.rtShadow ?? 0.0,
     postFX: !!p.postFX,

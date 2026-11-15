@@ -1003,6 +1003,7 @@ function applyFxSettings() {
   gfx.applyFx(fxSettings, hemiLight, ambLight);
   hud?.classList.toggle('clean-cam', !!fxSettings.cleanCamHud);
   hud?.classList.toggle('no-scanlines', fxSettings.crtScanlines === false || Number(fxSettings.scanlines) <= 0.01);
+  hud?.classList.toggle('dreamcam-clean', fxSettings.footageFilterMode === 'soft_dreamcam' && Number(fxSettings.footageFilterStrength ?? 1.0) >= 0.4);
   syncMobileUiVisibility();
   const preset = GFX_PRESETS[currentGfx] || GFX_PRESETS.ultra;
   localFlash.castShadow = !!fxSettings.shadows;
@@ -4659,13 +4660,17 @@ async function runSelfTests() {
   const savedFilterMode = fxSettings.footageFilterMode;
   const savedFilterStrength = fxSettings.footageFilterStrength;
   const modeSelects = document.querySelectorAll('select[data-fx-key="footageFilterMode"]');
+  const softnessSliders = document.querySelectorAll('input[data-fx-key="upscaleSoftness"]');
+  const halationSliders = document.querySelectorAll('input[data-fx-key="halation"]');
   assert(
     modeSelects.length === 2 &&
+    softnessSliders.length === 2 &&
+    halationSliders.length === 2 &&
     savedFilterMode === 'found_vhs' && Math.abs(savedFilterStrength - 0.35) < 0.01 &&
-    Array.from(modeSelects).every(el => !!el.querySelector('option[value="hybrid_all"]')),
+    Array.from(modeSelects).every(el => !!el.querySelector('option[value="hybrid_all"]') && !!el.querySelector('option[value="soft_dreamcam"]')),
     'footage_filter_defaults_and_ui_mounted'
   );
-  for (const mode of ['clean_low', 'found_vhs', 'vod_stream', 'hybrid_all']) {
+  for (const mode of ['clean_low', 'found_vhs', 'vod_stream', 'hybrid_all', 'soft_dreamcam']) {
     fxSettings.footageFilterMode = mode;
     fxSettings.footageFilterStrength = 1.0;
     applyFxSettings();
@@ -4703,6 +4708,19 @@ async function runSelfTests() {
         gfx.bloom.luminanceMaterial.threshold <= 0.35 &&
         Array.from(modeSelects).every(el => el.value === 'hybrid_all'),
         'footage_preset_4_hybrid_combines_123'
+      );
+    }
+    if (mode === 'soft_dreamcam') {
+      assert(
+        gfx.crtGrade.uniforms.get('uBicubicMode').value > 0.9 &&
+        gfx.crtGrade.uniforms.get('uHalationAmt').value > 0.1 &&
+        gfx.crtGrade.uniforms.get('uChromaSoftness').value > 0.1 &&
+        gfx.crtGrade.uniforms.get('uCompressAmt').value < 0.2 &&
+        gfx.motionBlur.uniforms.get('uEdgeAa').value > 0.5 &&
+        gfx.motionBlur.uniforms.get('uLensSoftness').value > 0.4 &&
+        gfx.motionBlur.uniforms.get('uTemporalMix').value === 0 &&
+        Array.from(modeSelects).every(el => el.value === 'soft_dreamcam'),
+        'footage_preset_5_soft_dreamcam_active'
       );
     }
   }
