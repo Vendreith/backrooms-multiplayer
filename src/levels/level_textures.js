@@ -64,45 +64,43 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 512, seed = 101) {
   ctx.fillStyle = rgba(rgb, 1, 1);
   ctx.fillRect(0, 0, size, size);
 
-  if (pattern === 'pool_tile') {
-    const step = size / 8;
-    for (let y = 0; y < 8; y++) {
-      for (let x = 0; x < 8; x++) {
-        const tint = 0.94 + (rnd() - 0.5) * 0.09;
+  if (pattern === 'pool_tile' || pattern === 'pool_tile_mint' || pattern === 'pool_tile_submerged') {
+    const gridN = 16;
+    const step = size / gridN;
+    const isMint = pattern === 'pool_tile_mint';
+    const isSub = pattern === 'pool_tile_submerged';
+    ctx.fillStyle = isSub ? 'rgba(20, 92, 92, 0.94)' : isMint ? 'rgba(46, 122, 116, 0.90)' : 'rgba(78, 118, 114, 0.84)';
+    ctx.fillRect(0, 0, size, size);
+    for (let y = 0; y < gridN; y++) {
+      for (let x = 0; x < gridN; x++) {
+        const tint = 0.96 + (rnd() - 0.5) * 0.11;
         const tx = x * step;
         const ty = y * step;
-        ctx.fillStyle = rgba(rgb, 1, tint);
-        ctx.fillRect(tx + 1.5, ty + 1.5, step - 3, step - 3);
-        // Subtle porcelain bevel top/left highlight & bottom/right shadow
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
-        ctx.fillRect(tx + 2.5, ty + 2.5, step - 6, 3.5);
-        ctx.fillRect(tx + 2.5, ty + 2.5, 3, step - 6);
-        ctx.fillStyle = 'rgba(65, 118, 132, 0.12)';
-        ctx.fillRect(tx + 3, ty + step - 5, step - 5, 2.5);
-        ctx.fillRect(tx + step - 5, ty + 3, 2.5, step - 5);
-        // Occasional subtle ceramic glaze sheen speck
-        if (rnd() > 0.72) {
-          ctx.fillStyle = 'rgba(225, 252, 255, 0.06)';
-          ctx.fillRect(tx + 6, ty + 6, step - 12, step - 12);
+        if (rnd() > 0.90 && !isSub) {
+          ctx.fillStyle = isMint ? 'rgba(208, 240, 232, 0.98)' : 'rgba(237, 239, 226, 0.98)';
+        } else if (rnd() > 0.85 && !isMint && !isSub) {
+          ctx.fillStyle = 'rgba(212, 230, 222, 0.96)';
+        } else {
+          ctx.fillStyle = rgba(rgb, 1, tint);
         }
+        ctx.fillRect(tx + 1.4, ty + 1.4, step - 2.8, step - 2.8);
+        // Subtle porcelain glaze top/left highlight & crisp bottom/right edge
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.fillRect(tx + 1.6, ty + 1.6, step - 3.6, 1.8);
+        ctx.fillRect(tx + 1.6, ty + 1.6, 1.8, step - 3.6);
+        ctx.fillStyle = 'rgba(42, 86, 84, 0.18)';
+        ctx.fillRect(tx + 1.8, ty + step - 3.2, step - 3.4, 1.6);
+        ctx.fillRect(tx + step - 3.2, ty + 1.8, 1.6, step - 3.4);
       }
     }
-    // Primary ceramic grout grid + delicate inset seam
-    ctx.strokeStyle = 'rgba(84, 144, 158, 0.68)';
-    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = isSub ? 'rgba(18, 86, 86, 0.86)' : isMint ? 'rgba(42, 116, 110, 0.82)' : 'rgba(72, 114, 112, 0.78)';
+    ctx.lineWidth = 2.1;
     ctx.beginPath();
-    for (let i = 0; i <= 8; i++) {
+    for (let i = 0; i <= gridN; i++) {
       ctx.moveTo(i * step, 0); ctx.lineTo(i * step, size);
       ctx.moveTo(0, i * step); ctx.lineTo(size, i * step);
     }
     ctx.stroke();
-    // Subtle mineral waterline staining & damp gradient
-    const g = ctx.createLinearGradient(0, size * 0.68, 0, size);
-    g.addColorStop(0, 'rgba(60, 195, 210, 0)');
-    g.addColorStop(0.55, 'rgba(55, 178, 196, 0.09)');
-    g.addColorStop(1, 'rgba(32, 132, 152, 0.22)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, size * 0.68, size, size * 0.32);
   } else if (pattern === 'red_concrete' || pattern === 'red_asphalt') {
     if (pattern === 'red_concrete') {
       // Clinical crimson hospital corridor dado + painted panel seams + scuffing
@@ -388,18 +386,22 @@ function buildCeilingCanvas(levelCfg, size = 256) {
   const rnd = seededRng(levelCfg.order * 131 + 17);
 
   if (arch === 'poolrooms') {
-    ctx.fillStyle = '#b4d2d9';
+    ctx.fillStyle = '#efefe6';
     ctx.fillRect(0, 0, size, size);
-    const step = size / 4;
-    ctx.strokeStyle = 'rgba(110, 155, 165, 0.55)';
-    ctx.lineWidth = 4;
-    for (let y = 0; y < 4; y++) {
-      for (let x = 0; x < 4; x++) {
-        ctx.fillStyle = (x + y) & 1 ? '#abcad2' : '#bad7de';
-        ctx.fillRect(x * step + 4, y * step + 4, step - 8, step - 8);
-        ctx.strokeRect(x * step + 4, y * step + 4, step - 8, step - 8);
+    const step = size / 8;
+    ctx.strokeStyle = 'rgba(130, 162, 156, 0.42)';
+    ctx.lineWidth = 2;
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const isCoffer = (x >= 1 && x <= 6 && y >= 1 && y <= 6) && (x === 1 || x === 6 || y === 1 || y === 6);
+        ctx.fillStyle = isCoffer ? '#fafcf5' : ((x + y) & 1 ? '#e8ece2' : '#f1f3ea');
+        ctx.fillRect(x * step + 1.5, y * step + 1.5, step - 3, step - 3);
+        ctx.strokeRect(x * step + 1.5, y * step + 1.5, step - 3, step - 3);
       }
     }
+    ctx.strokeStyle = 'rgba(252, 254, 246, 0.85)';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(step, step, size - step * 2, size - step * 2);
   } else if (arch === 'office' || arch === 'redcity' || arch === 'warehouse' || arch === 'window_courtyard') {
     const base = arch === 'redcity' ? '#321414' : arch === 'warehouse' ? '#62666b' : '#ccc9be';
     ctx.fillStyle = base;
@@ -455,12 +457,45 @@ export function getLevelMaterials(levelCfg) {
   const wallBump = buildBumpFromDiffuse(wallCanvas, 128);
   const floorBump = buildBumpFromDiffuse(floorCanvas, 128);
 
-  const spanRep = Math.max(24, Math.round((levelCfg.worldSpan || 500) / 8));
+  const isPoolrooms = levelCfg.archetype === 'poolrooms';
+  const spanRep = isPoolrooms
+    ? Math.max(60, Math.round((levelCfg.worldSpan || 672) / 2.4))
+    : Math.max(24, Math.round((levelCfg.worldSpan || 500) / 8));
+  const ceilRep = isPoolrooms
+    ? Math.max(40, Math.round((levelCfg.worldSpan || 672) / 4.8))
+    : Math.max(18, Math.round((levelCfg.worldSpan || 400) / 10));
   const wallTex = toRepeatTex(wallCanvas, 1, 1, true);
   const floorTex = toRepeatTex(floorCanvas, spanRep, spanRep, true);
-  const ceilTex = toRepeatTex(ceilCanvas, Math.max(18, Math.round((levelCfg.worldSpan || 400) / 10)), Math.max(18, Math.round((levelCfg.worldSpan || 400) / 10)), true);
+  const ceilTex = toRepeatTex(ceilCanvas, ceilRep, ceilRep, true);
   const wallBumpTex = toRepeatTex(wallBump, 1, 1, false);
   const floorBumpTex = toRepeatTex(floorBump, spanRep, spanRep, false);
+
+  let mintTileMat = null;
+  let submergedTileMat = null;
+  if (isPoolrooms) {
+    const mintC = buildPatternCanvas('pool_tile_mint', 0xc8eee2, 0x4ca69c, 512, 307);
+    const subC = buildPatternCanvas('pool_tile_submerged', 0x72dece, 0x247c78, 512, 509);
+    const mintTex = toRepeatTex(mintC, 1, 1, true);
+    const subTex = toRepeatTex(subC, 1, 1, true);
+    mintTileMat = new THREE.MeshStandardMaterial({
+      map: mintTex,
+      bumpMap: wallBumpTex,
+      bumpScale: 0.042,
+      roughness: 0.44,
+      metalness: 0.03,
+      emissive: 0x6ecac0,
+      emissiveIntensity: 0.08
+    });
+    submergedTileMat = new THREE.MeshStandardMaterial({
+      map: subTex,
+      bumpMap: wallBumpTex,
+      bumpScale: 0.036,
+      roughness: 0.36,
+      metalness: 0.03,
+      emissive: 0x269e98,
+      emissiveIntensity: 0.16
+    });
+  }
 
   let waterTex = null;
   if (pal.water) {
@@ -484,22 +519,30 @@ export function getLevelMaterials(levelCfg) {
     wallMat: new THREE.MeshStandardMaterial({
       map: wallTex,
       bumpMap: wallBumpTex,
-      bumpScale: isTile ? 0.045 : 0.075,
-      roughness: isTile ? 0.24 : 0.82,
-      metalness: pal.wallPattern === 'dark_metal' ? 0.45 : 0.04
+      bumpScale: isPoolrooms ? 0.052 : isTile ? 0.045 : 0.075,
+      roughness: isPoolrooms ? 0.48 : isTile ? 0.24 : 0.82,
+      metalness: pal.wallPattern === 'dark_metal' ? 0.45 : isPoolrooms ? 0.02 : 0.04,
+      emissive: isPoolrooms ? 0xd6ded8 : 0x000000,
+      emissiveIntensity: isPoolrooms ? 0.07 : 0
     }),
     floorMat: new THREE.MeshStandardMaterial({
       map: floorTex,
       bumpMap: floorBumpTex,
-      bumpScale: pal.floorPattern === 'pool_tile' ? 0.04 : 0.07,
-      roughness: pal.floorPattern === 'pool_tile' ? 0.26 : 0.88,
-      metalness: pal.floorPattern === 'grate_concrete' ? 0.22 : 0.02
+      bumpScale: isPoolrooms ? 0.048 : pal.floorPattern === 'pool_tile' ? 0.04 : 0.07,
+      roughness: isPoolrooms ? 0.44 : pal.floorPattern === 'pool_tile' ? 0.26 : 0.88,
+      metalness: pal.floorPattern === 'grate_concrete' ? 0.22 : 0.02,
+      emissive: isPoolrooms ? 0xcadcd6 : 0x000000,
+      emissiveIntensity: isPoolrooms ? 0.05 : 0
     }),
     ceilMat: new THREE.MeshStandardMaterial({
       map: ceilTex,
-      roughness: isTile ? 0.35 : 0.90,
-      metalness: 0.04
+      roughness: isPoolrooms ? 0.45 : isTile ? 0.35 : 0.90,
+      metalness: 0.03,
+      emissive: isPoolrooms ? 0xe6eae0 : 0x000000,
+      emissiveIntensity: isPoolrooms ? 0.28 : 0
     }),
+    mintTileMat,
+    submergedTileMat,
     trimMat: new THREE.MeshStandardMaterial({
       color: pal.trim ?? 0x888888,
       roughness: 0.50,

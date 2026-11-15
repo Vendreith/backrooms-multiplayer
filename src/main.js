@@ -2827,6 +2827,9 @@ function updateLocalPlayer(dt, elapsed) {
   localFlashCore.visible = flashOn;
   fpFlashGroup.visible = flashOn;
   if (flashOn) {
+    const inBrightPool = activeLocalLevelId === 'level37';
+    localFlash.intensity = inBrightPool ? 1.85 : 11.5;
+    localFlashCore.intensity = inBrightPool ? 0.55 : 6.5;
     const kFlash = 1 - Math.exp(-5.4 * dt);
     const dYaw = Math.atan2(Math.sin(me.yaw - flashYaw), Math.cos(me.yaw - flashYaw));
     const dPitch = me.pitch - flashPitch;
@@ -4255,14 +4258,14 @@ function animate(now) {
           _atmoHemiGnd.setHex(pz.hemiGround ?? lc.hemiGround ?? 0x3b8ea5);
           scene.fog.color.lerp(_atmoFogCol, atmLerp);
           scene.background.lerp(_atmoFogCol, atmLerp);
-          scene.fog.density += ((pz.fogDensity ?? lc.fogDensity ?? 0.0052) - scene.fog.density) * atmLerp;
+          scene.fog.density += ((pz.fogDensity ?? lc.fogDensity ?? 0.0020) - scene.fog.density) * atmLerp;
           hemiLight.color.lerp(_atmoHemiSky, atmLerp);
           hemiLight.groundColor.lerp(_atmoHemiGnd, atmLerp);
-          hemiLight.intensity += (((pz.hemiInt ?? lc.hemiInt ?? 0.70) * 0.56) - hemiLight.intensity) * atmLerp;
-          _atmoHemiSky.setHex(pz.ambColor ?? lc.ambColor ?? 0x9cdde8);
+          hemiLight.intensity += (((pz.hemiInt ?? lc.hemiInt ?? 0.92) * 0.72) - hemiLight.intensity) * atmLerp;
+          _atmoHemiSky.setHex(pz.ambColor ?? lc.ambColor ?? 0xe8ebe0);
           ambLight.color.lerp(_atmoHemiSky, atmLerp);
-          ambLight.intensity += (((pz.ambInt ?? lc.ambInt ?? 0.35) * 0.45) - ambLight.intensity) * atmLerp;
-          const targetExp = Math.min(0.76, pz.exposure ?? 0.73) * br;
+          ambLight.intensity += (((pz.ambInt ?? lc.ambInt ?? 0.48) * 0.50) - ambLight.intensity) * atmLerp;
+          const targetExp = Math.min(0.76, (pz.exposure ?? 0.74) * 0.92) * br;
           renderer.toneMappingExposure += (targetExp - renderer.toneMappingExposure) * atmLerp;
           audio.updatePoolroomsZoneAudio?.(dt, pz, !!me.inWater);
           updatePoolroomsWorldEvents(dt, elapsed, me, map, world, audio, (cueTxt) => pushFeed(cueTxt, '#7ceeff'));

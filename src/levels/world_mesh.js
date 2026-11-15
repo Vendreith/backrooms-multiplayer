@@ -38,6 +38,17 @@ function makeTiledBox(dx, dy, dz, tileSize = 4.0) {
   return g;
 }
 
+function makeTiledCyl(rt, rb, h, seg = 16, tileSize = 2.4) {
+  const g = new THREE.CylinderGeometry(rt, rb, h, seg);
+  const uv = g.attributes.uv;
+  const circ = Math.max(1.0, Math.PI * (rt + rb));
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * (circ / tileSize), uv.getY(i) * (h / tileSize));
+  }
+  uv.needsUpdate = true;
+  return g;
+}
+
 function buildSkyDome(skyCfg, disposables) {
   const geo = reg(disposables, new THREE.SphereGeometry(540, 28, 18));
   const mat = reg(disposables, new THREE.ShaderMaterial({
@@ -247,44 +258,184 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     root.add(ceilMesh);
   }
 
-  // 3. Batch Walls & Structural Blocks
+  // 3. Batch Walls, Structural Blocks & Poolrooms V2 Architectural Modules (Arches, Round Columns, Vaults, Curves)
+  const isPoolrooms = cfg.archetype === 'poolrooms';
+  const tileUnit = isPoolrooms ? 2.4 : 4.5;
+  const wallGeoms = [];
+  const mintGeoms = [];
+  const bedGeoms = [];
+  const ceilVaultGeoms = [];
+  const glowGeoms = [];
+
   if (map.WALLS?.length) {
-    const wallGeoms = [];
     for (const w of map.WALLS) {
       const dx = Math.max(0.15, w.x1 - w.x0);
       const dz = Math.max(0.15, w.z1 - w.z0);
       const y0 = w.y0 ?? 0;
       const y1 = w.y1 ?? cfg.ceilH;
       const dy = Math.max(0.2, y1 - y0);
-      const box = makeTiledBox(dx, dy, dz, 4.5);
+      const box = makeTiledBox(dx, dy, dz, tileUnit);
       box.translate((w.x0 + w.x1) * 0.5, y0 + dy * 0.5, (w.z0 + w.z1) * 0.5);
       wallGeoms.push(box);
     }
-    const mergedW = reg(disposables, mergeList(wallGeoms));
-    if (mergedW) root.add(new THREE.Mesh(mergedW, mats.wallMat));
   }
 
-  // 4. Platforms, Stair Ramps & Water Slide Chutes ("Cầu Trượt Nước")
+  if (isPoolrooms && map.POOL_ARCH?.length) {
+    const pushArchPart = (list, bx, by, bz, lx, ly, lz, rz, ax, az, rotY) => {
+      const g = makeTiledBox(Math.max(0.12, bx), Math.max(0.12, by), Math.max(0.12, bz), 2.4);
+      if (rz) g.rotateZ(rz);
+      g.translate(lx, ly, lz);
+      if (rotY) g.rotateY(rotY);
+      g.translate(ax, 0, az);
+      list.push(g);
+    };
+    for (const item of map.POOL_ARCH) {
+      if (item.kind === 'arch') {
+        const span = item.span || 3.2;
+        const h = item.h || 4.0;
+        const pierW = item.pierW || 0.72;
+        const depth = item.depth || 1.2;
+        const y0 = item.y0 ?? 0;
+        const rotY = item.rotY || 0;
+        const R = span * 0.5;
+        const archRise = Math.min(R, Math.max(0.6, h - 0.85));
+        const straightH = Math.max(0.35, h - archRise);
+        const totalW = span + pierW * 2;
+        // Left & Right Tiled Piers
+        pushArchPart(wallGeoms, pierW, straightH + archRise, depth, -(R + pierW * 0.5), y0 + (straightH + archRise) * 0.5, 0, 0, item.x, item.z, rotY);
+        pushArchPart(wallGeoms, pierW, straightH + archRise, depth, (R + pierW * 0.5), y0 + (straightH + archRise) * 0.5, 0, 0, item.x, item.z, rotY);
+        // Upper Spandrel Header
+        const spH = item.headerH ?? 0.65;
+        pushArchPart(wallGeoms, totalW, spH, depth, 0, y0 + h + spH * 0.5, 0, 0, item.x, item.z, rotY);
+        // 9-Segment Radial Semicircular Voussoir Ring + Flush Corner Spandrel Fills (zero dark corner triangles)
+        const ringThick = Math.max(0.38, R * 0.30);
+        const segN = 9;
+        for (let k = 0; k < segN; k++) {
+          const ang = ((k + 0.5) / segN) * Math.PI;
+          const rMid = R + ringThick * 0.5;
+          const lx = Math.cos(ang) * rMid;
+          const ly = y0 + straightH + Math.sin(ang) * rMid * (archRise / R);
+          const segLen = 2 * rMid * Math.tan(Math.PI / (segN * 2)) + 0.08;
+          pushArchPart(wallGeoms, segLen, ringThick, depth, lx, ly, 0, ang - Math.PI * 0.5, item.x, item.z, rotY);
+        }
+        for (const u of [0.38, 0.58, 0.77, 0.93]) {
+          const yCurve = y0 + straightH + archRise * Math.sqrt(Math.max(0, 1 - u * u));
+          const fillH = Math.max(0.08, y0 + h + 0.05 - yCurve);
+          const fillW = R * 0.24;
+          const fillY = yCurve + fillH * 0.5;
+          pushArchPart(wallGeoms, fillW, fillH, depth, -R * u, fillY, 0, 0, item.x, item.z, rotY);
+          pushArchPart(wallGeoms, fillW, fillH, depth, R * u, fillY, 0, 0, item.x, item.z, rotY);
+        }
+        if (item.mint) {
+          pushArchPart(mintGeoms, pierW + 0.08, 0.48, depth + 0.08, -(R + pierW * 0.5), y0 + 0.24, 0, 0, item.x, item.z, rotY);
+          pushArchPart(mintGeoms, pierW + 0.08, 0.48, depth + 0.08, (R + pierW * 0.5), y0 + 0.24, 0, 0, item.x, item.z, rotY);
+        }
+        if (item.recessGlow) {
+          pushArchPart(wallGeoms, span + 0.2, h, 0.16, 0, y0 + h * 0.5, -depth * 0.42, 0, item.x, item.z, rotY);
+          pushArchPart(glowGeoms, span * 0.84, 0.24, 0.14, 0, y0 + h - 0.34, -depth * 0.28, 0, item.x, item.z, rotY);
+        }
+      } else if (item.kind === 'round_col') {
+        const r = item.r || 0.55;
+        const h = item.h || 6.5;
+        const y0 = item.y0 ?? -1.2;
+        const shaft = makeTiledCyl(r, r, h, 14, 2.4);
+        shaft.translate(item.x, y0 + h * 0.5, item.z);
+        wallGeoms.push(shaft);
+        const plinth = makeTiledBox(r * 2.4, 0.38, r * 2.4, 2.4);
+        plinth.translate(item.x, y0 + 0.19, item.z);
+        wallGeoms.push(plinth);
+        const cap = makeTiledBox(r * 2.45, 0.34, r * 2.45, 2.4);
+        cap.translate(item.x, y0 + h - 0.17, item.z);
+        wallGeoms.push(cap);
+        if (item.mintBand !== false && y0 < -0.25 && y0 + h > 0.1) {
+          const collar = makeTiledCyl(r + 0.035, r + 0.035, 0.34, 14, 2.4);
+          collar.translate(item.x, -0.18, item.z);
+          mintGeoms.push(collar);
+        }
+      } else if (item.kind === 'ceil_vault') {
+        const cx = (item.x0 + item.x1) * 0.5;
+        const cz = (item.z0 + item.z1) * 0.5;
+        const dx = Math.max(1.0, item.x1 - item.x0);
+        const dz = Math.max(1.0, item.z1 - item.z0);
+        const cy = item.y ?? 4.2;
+        const slab = makeTiledBox(dx, 0.32, dz, 4.8);
+        slab.translate(cx, cy + 0.16, cz);
+        ceilVaultGeoms.push(slab);
+        const ribs = item.ribs ?? 2;
+        if (ribs > 0) {
+          const alongX = dx >= dz;
+          for (let ri = 0; ri <= ribs; ri++) {
+            const t = (ri + 0.5) / (ribs + 1);
+            const rib = alongX
+              ? makeTiledBox(0.55, 0.38, dz, 2.4)
+              : makeTiledBox(dx, 0.38, 0.55, 2.4);
+            rib.translate(alongX ? item.x0 + dx * t : cx, cy - 0.18, alongX ? cz : item.z0 + dz * t);
+            wallGeoms.push(rib);
+          }
+        }
+        if (item.cofferGlow !== false && dx >= 3.2 && dz >= 3.2) {
+          const gw = Math.min(dx * 0.62, 6.2);
+          const gd = Math.min(dz * 0.62, 6.2);
+          const gPanel = new THREE.BoxGeometry(gw, 0.08, gd);
+          gPanel.translate(cx, cy - 0.02, cz);
+          glowGeoms.push(gPanel);
+        }
+      } else if (item.kind === 'curved_wall') {
+        const segs = item.segments || 8;
+        const rad = item.radius || 8.0;
+        const thick = item.thick || 0.85;
+        const ch = item.h || 5.2;
+        const cy0 = item.y0 ?? -0.5;
+        const a0 = item.ang0 ?? 0;
+        const a1 = item.ang1 ?? Math.PI;
+        const dA = (a1 - a0) / segs;
+        const chordLen = 2 * rad * Math.sin(Math.abs(dA) * 0.5) + thick * 0.45;
+        for (let si = 0; si < segs; si++) {
+          const ang = a0 + (si + 0.5) * dA;
+          const sg = makeTiledBox(thick, ch, chordLen, 2.4);
+          sg.rotateY(-ang);
+          sg.translate(item.cx + Math.cos(ang) * rad, cy0 + ch * 0.5, item.cz + Math.sin(ang) * rad);
+          wallGeoms.push(sg);
+        }
+      }
+    }
+  }
+
+  const mergedW = reg(disposables, mergeList(wallGeoms));
+  if (mergedW) root.add(new THREE.Mesh(mergedW, mats.wallMat));
+
+  // 4. Platforms, Stepped Ceramic Staircases, Pool Beds & Water Chutes
   {
     const platGeoms = [];
+    const platTileSz = isPoolrooms ? 2.4 : 5.0;
     for (const p of (map.PLATFORMS || [])) {
       if (!p.draw) continue;
       const dx = Math.max(0.5, p.x1 - p.x0);
       const dz = Math.max(0.5, p.z1 - p.z0);
       const pBot = p.yBase != null ? Math.min(p.y - 0.36, p.yBase) : (p.y - 0.36);
       const pH = Math.max(0.36, p.y - pBot);
-      const g = makeTiledBox(dx, pH, dz, 5.0);
+      const g = makeTiledBox(dx, pH, dz, platTileSz);
       g.translate((p.x0 + p.x1) * 0.5, pBot + pH * 0.5, (p.z0 + p.z1) * 0.5);
       platGeoms.push(g);
     }
-    if (cfg.archetype === 'poolrooms' && map.WATER_RECTS?.length) {
+    if (isPoolrooms && map.WATER_RECTS?.length) {
       for (const w of map.WATER_RECTS) {
         const dx = Math.max(1, w.x1 - w.x0);
         const dz = Math.max(1, w.z1 - w.z0);
         const bedY = w.bedY ?? -0.95;
-        const g = makeTiledBox(dx, 0.34, dz, 4.5);
+        const g = makeTiledBox(dx, 0.34, dz, 2.4);
         g.translate((w.x0 + w.x1) * 0.5, bedY - 0.17, (w.z0 + w.z1) * 0.5);
-        platGeoms.push(g);
+        bedGeoms.push(g);
+        // Subtle mint ceramic pool coping trim if basin is bordered cleanly
+        if (!w.noCoping && dx >= 6 && dz >= 6) {
+          const rimY = (w.waterY ?? -0.18) + 0.15;
+          const rimH = 0.08;
+          const rimT = 0.30;
+          const nR = makeTiledBox(dx + rimT * 2, rimH, rimT, 2.4); nR.translate((w.x0 + w.x1) * 0.5, rimY, w.z0 - rimT * 0.5); mintGeoms.push(nR);
+          const sR = makeTiledBox(dx + rimT * 2, rimH, rimT, 2.4); sR.translate((w.x0 + w.x1) * 0.5, rimY, w.z1 + rimT * 0.5); mintGeoms.push(sR);
+          const wR = makeTiledBox(rimT, rimH, dz, 2.4); wR.translate(w.x0 - rimT * 0.5, rimY, (w.z0 + w.z1) * 0.5); mintGeoms.push(wR);
+          const eR = makeTiledBox(rimT, rimH, dz, 2.4); eR.translate(w.x1 + rimT * 0.5, rimY, (w.z0 + w.z1) * 0.5); mintGeoms.push(eR);
+        }
       }
     }
     for (const r of (map.RAMPS || [])) {
@@ -293,17 +444,36 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
       const dz = Math.max(0.5, r.z1 - r.z0);
       const rise = r.y1 - r.y0;
       const run = r.axis === 'x' ? dx : dz;
-      const len = Math.hypot(run, rise);
-      const g = new THREE.BoxGeometry(r.axis === 'x' ? len : dx, 0.34, r.axis === 'x' ? dz : len);
-      const ang = Math.atan2(rise, run);
-      if (r.axis === 'x') g.rotateZ(ang);
-      else g.rotateX(-ang);
-      g.translate((r.x0 + r.x1) * 0.5, (r.y0 + r.y1) * 0.5 - 0.17, (r.z0 + r.z1) * 0.5);
-      platGeoms.push(g);
+      if (isPoolrooms) {
+        const steps = Math.max(4, Math.min(18, Math.round(Math.max(Math.abs(rise) / 0.17, run / 0.85))));
+        const minY = Math.min(r.y0, r.y1) - 0.22;
+        const stepSpan = run / steps;
+        for (let si = 0; si < steps; si++) {
+          const t = (si + 0.5) / steps;
+          const stepY = r.y0 + rise * t;
+          const stepH = Math.max(0.24, stepY - minY);
+          const sw = r.axis === 'x' ? stepSpan + 0.04 : dx;
+          const sd = r.axis === 'x' ? dz : stepSpan + 0.04;
+          const sg = makeTiledBox(sw, stepH, sd, 2.4);
+          const sx = r.axis === 'x' ? r.x0 + stepSpan * (si + 0.5) : (r.x0 + r.x1) * 0.5;
+          const sz = r.axis === 'x' ? (r.z0 + r.z1) * 0.5 : r.z0 + stepSpan * (si + 0.5);
+          sg.translate(sx, minY + stepH * 0.5, sz);
+          if (stepY <= 0.04) mintGeoms.push(sg);
+          else platGeoms.push(sg);
+        }
+      } else {
+        const len = Math.hypot(run, rise);
+        const g = new THREE.BoxGeometry(r.axis === 'x' ? len : dx, 0.34, r.axis === 'x' ? dz : len);
+        const ang = Math.atan2(rise, run);
+        if (r.axis === 'x') g.rotateZ(ang);
+        else g.rotateX(-ang);
+        g.translate((r.x0 + r.x1) * 0.5, (r.y0 + r.y1) * 0.5 - 0.17, (r.z0 + r.z1) * 0.5);
+        platGeoms.push(g);
+      }
     }
     const mergedP = reg(disposables, mergeList(platGeoms));
     if (mergedP) {
-      const pMat = cfg.archetype === 'poolrooms'
+      const pMat = isPoolrooms
         ? mats.wallMat
         : reg(disposables, new THREE.MeshStandardMaterial({
             color: cfg.archetype === 'field' ? 0x735c3d : cfg.archetype === 'ocean' ? 0x6b503a : cfg.archetype === 'sunset_beach' ? 0xd4b97e : (cfg.palette?.trim ?? 0xaaaaaa),
@@ -311,8 +481,20 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
           }));
       root.add(new THREE.Mesh(mergedP, pMat));
     }
+    if (isPoolrooms) {
+      const mergedMint = reg(disposables, mergeList(mintGeoms));
+      if (mergedMint) root.add(new THREE.Mesh(mergedMint, mats.mintTileMat || mats.wallMat));
+      const mergedBed = reg(disposables, mergeList(bedGeoms));
+      if (mergedBed) root.add(new THREE.Mesh(mergedBed, mats.submergedTileMat || mats.wallMat));
+      const mergedCeilV = reg(disposables, mergeList(ceilVaultGeoms));
+      if (mergedCeilV) root.add(new THREE.Mesh(mergedCeilV, mats.ceilMat));
+      const mergedGlow = reg(disposables, mergeList(glowGeoms));
+      if (mergedGlow) {
+        root.add(new THREE.Mesh(mergedGlow, reg(disposables, new THREE.MeshBasicMaterial({ color: 0xf7f9ee }))));
+      }
+    }
 
-    // Water Slides (curved-look half-pipe channels with guard rails & splash water sheen!)
+    // Water Slides (Poolrooms: minimalist cream-and-mint ceramic water chutes; other levels: colorful chute)
     if (map.SLIDES?.length) {
       const slideGeoms = [];
       const railGeoms = [];
@@ -323,26 +505,47 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         const run = s.axis === 'x' ? dx : dz;
         const len = Math.hypot(run, rise);
         const ang = Math.atan2(rise, run);
-        const chute = new THREE.BoxGeometry(s.axis === 'x' ? len : dx, 0.24, s.axis === 'x' ? dz : len);
+        const chute = isPoolrooms
+          ? makeTiledBox(s.axis === 'x' ? len : dx, 0.28, s.axis === 'x' ? dz : len, 2.4)
+          : new THREE.BoxGeometry(s.axis === 'x' ? len : dx, 0.24, s.axis === 'x' ? dz : len);
         if (s.axis === 'x') chute.rotateZ(ang);
         else chute.rotateX(-ang);
-        chute.translate((s.x0 + s.x1) * 0.5, (s.y0 + s.y1) * 0.5 - 0.12, (s.z0 + s.z1) * 0.5);
+        chute.translate((s.x0 + s.x1) * 0.5, (s.y0 + s.y1) * 0.5 - 0.14, (s.z0 + s.z1) * 0.5);
         slideGeoms.push(chute);
 
         for (const side of [-1, 1]) {
-          const rail = new THREE.BoxGeometry(s.axis === 'x' ? len : 0.18, 0.55, s.axis === 'x' ? 0.18 : len);
+          const rw = isPoolrooms ? 0.24 : 0.18;
+          const rh = isPoolrooms ? 0.46 : 0.55;
+          const rail = isPoolrooms
+            ? makeTiledBox(s.axis === 'x' ? len : rw, rh, s.axis === 'x' ? rw : len, 2.4)
+            : new THREE.BoxGeometry(s.axis === 'x' ? len : rw, rh, s.axis === 'x' ? rw : len);
           if (s.axis === 'x') rail.rotateZ(ang);
           else rail.rotateX(-ang);
           rail.translate(
-            (s.x0 + s.x1) * 0.5 + (s.axis === 'x' ? 0 : side * (dx * 0.5 - 0.08)),
-            (s.y0 + s.y1) * 0.5 + 0.24,
-            (s.z0 + s.z1) * 0.5 + (s.axis === 'x' ? side * (dz * 0.5 - 0.08) : 0)
+            (s.x0 + s.x1) * 0.5 + (s.axis === 'x' ? 0 : side * (dx * 0.5 - rw * 0.5)),
+            (s.y0 + s.y1) * 0.5 + 0.18,
+            (s.z0 + s.z1) * 0.5 + (s.axis === 'x' ? side * (dz * 0.5 - rw * 0.5) : 0)
           );
           railGeoms.push(rail);
         }
+        if (isPoolrooms) {
+          for (const t of [0.22, 0.78]) {
+            const sx = s.x0 + dx * (s.axis === 'x' ? t : 0.5);
+            const sz = s.z0 + dz * (s.axis === 'x' ? 0.5 : t);
+            const sy = s.y0 + rise * t - 0.28;
+            const supH = Math.max(0.6, sy + 1.4);
+            const sup = makeTiledBox(0.8, supH, 0.8, 2.4);
+            sup.translate(sx, sy - supH * 0.5, sz);
+            railGeoms.push(sup);
+          }
+        }
       }
-      const slideMat = reg(disposables, new THREE.MeshStandardMaterial({ color: 0x3ad8ee, roughness: 0.16, metalness: 0.12 }));
-      const railMat = reg(disposables, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 }));
+      const slideMat = isPoolrooms
+        ? (mats.mintTileMat || mats.wallMat)
+        : reg(disposables, new THREE.MeshStandardMaterial({ color: 0x3ad8ee, roughness: 0.16, metalness: 0.12 }));
+      const railMat = isPoolrooms
+        ? mats.wallMat
+        : reg(disposables, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 }));
       const mS = reg(disposables, mergeList(slideGeoms));
       const mR = reg(disposables, mergeList(railGeoms));
       if (mS) root.add(new THREE.Mesh(mS, slideMat));
@@ -366,11 +569,31 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         g.rotateX(-Math.PI * 0.5);
         g.translate((w.x0 + w.x1) * 0.5, w.waterY ?? -0.18, (w.z0 + w.z1) * 0.5);
         const vCount = g.attributes.position.count;
-        const depthArr = new Float32Array(vCount).fill(Math.max(0.25, (w.waterY ?? -0.18) - (w.bedY ?? -0.95)));
+        const depthArr = new Float32Array(vCount).fill(Math.max(0.18, (w.waterY ?? -0.18) - (w.bedY ?? -0.95)));
         const tempArr = new Float32Array(vCount).fill(w.temp ?? 0.25);
         g.setAttribute('aBedDepth', new THREE.BufferAttribute(depthArr, 1));
         g.setAttribute('aZoneTemp', new THREE.BufferAttribute(tempArr, 1));
         wGeoms.push(g);
+      }
+      // Thin water film inside ceramic slides
+      for (const s of (map.SLIDES || [])) {
+        const dx = Math.max(0.8, s.x1 - s.x0);
+        const dz = Math.max(0.8, s.z1 - s.z0);
+        const rise = s.y1 - s.y0;
+        const run = s.axis === 'x' ? dx : dz;
+        const len = Math.hypot(run, rise);
+        const ang = Math.atan2(rise, run);
+        const raw = new THREE.PlaneGeometry(s.axis === 'x' ? len : Math.max(0.4, dx - 0.52), s.axis === 'x' ? Math.max(0.4, dz - 0.52) : len, 4, 4);
+        const sg = raw.toNonIndexed();
+        raw.dispose();
+        sg.rotateX(-Math.PI * 0.5);
+        if (s.axis === 'x') sg.rotateZ(ang);
+        else sg.rotateX(-ang);
+        sg.translate((s.x0 + s.x1) * 0.5, (s.y0 + s.y1) * 0.5 + 0.03, (s.z0 + s.z1) * 0.5);
+        const vc = sg.attributes.position.count;
+        sg.setAttribute('aBedDepth', new THREE.BufferAttribute(new Float32Array(vc).fill(0.16), 1));
+        sg.setAttribute('aZoneTemp', new THREE.BufferAttribute(new Float32Array(vc).fill(0.10), 1));
+        wGeoms.push(sg);
       }
       const mW = reg(disposables, mergeList(wGeoms));
       if (mW) {
@@ -399,13 +622,13 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
             void main() {
               vec3 pos = position;
               vec4 wp = modelMatrix * vec4(pos, 1.0);
-              float w1 = sin(wp.x * 0.52 + uTime * 1.45) * cos(wp.z * 0.44 - uTime * 1.15);
-              float w2 = sin((wp.x + wp.z) * 0.85 - uTime * 2.15) * 0.5;
+              float w1 = sin(wp.x * 0.48 + uTime * 1.25) * cos(wp.z * 0.42 - uTime * 1.05);
+              float w2 = sin((wp.x + wp.z) * 0.78 - uTime * 1.75) * 0.5;
               float dP = distance(wp.xz, uPlayerPos.xz);
-              float ripP = sin(dP * 3.8 - uTime * 7.2) * exp(-dP * 0.24) * 0.045;
+              float ripP = sin(dP * 3.8 - uTime * 7.2) * exp(-dP * 0.24) * 0.035;
               float dE = distance(wp.xz, uEntityPos.xz);
-              float ripE = sin(dE * 3.1 - uTime * 6.0) * exp(-dE * 0.16) * 0.055;
-              float disp = (w1 * 0.020 + w2 * 0.012) + ripP + ripE;
+              float ripE = sin(dE * 3.1 - uTime * 6.0) * exp(-dE * 0.16) * 0.045;
+              float disp = (w1 * 0.012 + w2 * 0.008) + ripP + ripE;
               pos.y += disp;
               wp.y += disp;
               vWorldPos = wp.xyz;
@@ -427,39 +650,60 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
             varying float vRipple;
             void main() {
               vec2 uv = vWorldPos.xz;
-              // Analytical micro-normal perturbation for luminous skylight highlights
-              float nx = cos(uv.x * 1.35 + uTime * 1.7) * 0.08 + cos((uv.x - uv.y) * 2.4 - uTime * 2.3) * 0.05;
-              float nz = sin(uv.y * 1.25 - uTime * 1.5) * 0.08 + sin((uv.x + uv.y) * 2.2 + uTime * 2.0) * 0.05;
+              // Calm indoor pool micro-ripples (never choppy ocean waves)
+              float nx = cos(uv.x * 1.15 + uTime * 1.3) * 0.045 + cos((uv.x - uv.y) * 1.9 - uTime * 1.7) * 0.030;
+              float nz = sin(uv.y * 1.05 - uTime * 1.15) * 0.045 + sin((uv.x + uv.y) * 1.75 + uTime * 1.5) * 0.030;
               vec3 N = normalize(vec3(nx, 1.0, nz));
               vec3 V = normalize(cameraPosition - vWorldPos);
               float NdotV = max(dot(N, V), 0.0);
-              float fresnel = pow(1.0 - NdotV, 2.8);
+              float fresnel = pow(1.0 - NdotV, 4.2) * 0.16;
 
-              // Dual-layer aquatic caustics
-              float c1 = sin(uv.x * 1.85 + uTime * 1.6 + sin(uv.y * 1.4 - uTime * 1.1));
-              float c2 = cos(uv.y * 1.75 - uTime * 1.4 + cos(uv.x * 1.5 + uTime * 1.3));
-              float caustics = pow(max(0.0, (c1 * c2) * 0.5 + 0.5), 3.0);
+              // View-refracted floor coordinates reveal submerged 15x15cm ceramic mosaic & caustics
+              vec2 refUV = uv - (V.xz / max(abs(V.y), 0.24)) * clamp(vBedDepth * 0.28, 0.06, 0.52) + N.xz * 0.12;
+              vec2 tileCoord = refUV / 0.15;
+              vec2 fTile = fract(tileCoord);
+              vec2 idTile = floor(tileCoord);
+              float tileRnd = fract(sin(dot(idTile, vec2(12.9898, 78.233))) * 43758.5453);
+              float groutX = smoothstep(0.06, 0.13, fTile.x) * (1.0 - smoothstep(0.87, 0.94, fTile.x));
+              float groutZ = smoothstep(0.06, 0.13, fTile.y) * (1.0 - smoothstep(0.87, 0.94, fTile.y));
+              float tileMask = groutX * groutZ;
+              float subTileVis = exp(-max(0.0, vBedDepth - 0.15) * 0.62);
 
-              // Depth & zone temperature attenuation (warm aqua -> deep abyssal teal)
-              float depthT = clamp((vBedDepth - 0.55) / 2.0, 0.0, 1.0);
-              vec3 warmShallow = vec3(0.42, 0.88, 0.90);
-              vec3 coolMid = vec3(0.14, 0.62, 0.72);
-              vec3 abyssTeal = vec3(0.04, 0.22, 0.30);
-              vec3 baseCol = mix(warmShallow, coolMid, clamp(vZoneTemp * 0.8 + depthT * 0.45, 0.0, 1.0));
-              baseCol = mix(baseCol, abyssTeal, depthT * 0.78);
+              float c1 = sin(refUV.x * 2.35 + uTime * 1.35 + sin(refUV.y * 1.75 - uTime * 0.95));
+              float c2 = cos(refUV.y * 2.25 - uTime * 1.25 + cos(refUV.x * 1.85 + uTime * 1.15));
+              float c3 = sin((refUV.x - refUV.y) * 3.1 - uTime * 1.65);
+              float caustics = pow(max(0.0, (c1 * c2 * 0.7 + c3 * 0.3) * 0.5 + 0.5), 2.4);
 
-              // Skylight reflection tint + caustic shimmer + soft wave crest highlight
-              vec3 reflCol = mix(vec3(0.76, 0.96, 1.0), vec3(0.95, 0.93, 0.84), (1.0 - vZoneTemp) * 0.45);
-              vec3 col = baseCol + caustics * mix(0.20, 0.06, depthT) * vec3(0.55, 0.95, 1.0);
-              col = mix(col, reflCol, clamp(fresnel * 0.62 + 0.06, 0.0, 0.72));
-              col += vec3(0.65, 0.96, 1.0) * min(0.28, vRipple * 5.0);
+              // Reference vibrant mint -> turquoise -> cyan -> deep aquatic teal gradient
+              float depthT = clamp((vBedDepth - 0.28) / 2.1, 0.0, 1.0);
+              vec3 shallowMint = vec3(0.420, 0.855, 0.765);
+              vec3 clearTurq = vec3(0.200, 0.785, 0.740);
+              vec3 aquaticCyan = vec3(0.115, 0.655, 0.700);
+              vec3 mediumTeal = vec3(0.075, 0.460, 0.560);
+              vec3 deepTeal = vec3(0.045, 0.275, 0.390);
+
+              vec3 waterBody = mix(shallowMint, clearTurq, smoothstep(0.0, 0.35, depthT));
+              waterBody = mix(waterBody, aquaticCyan, smoothstep(0.25, 0.62, depthT));
+              waterBody = mix(waterBody, mix(mediumTeal, deepTeal, vZoneTemp), smoothstep(0.55, 1.0, depthT));
+
+              vec3 bedTileCol = mix(vec3(0.065, 0.295, 0.330), waterBody * (1.12 + tileRnd * 0.11), tileMask);
+              vec3 col = mix(waterBody, bedTileCol, subTileVis * 0.82);
+              col += vec3(0.58, 0.96, 0.92) * caustics * mix(0.32, 0.11, depthT);
+
+              // Restrained specular glint & soft mint-ivory ceiling reflection (never opaque grey/white)
+              vec3 L = normalize(vec3(0.35, 0.90, 0.25));
+              vec3 H = normalize(L + V);
+              float spec = pow(max(dot(N, H), 0.0), 56.0) * 0.18;
+              vec3 reflCol = mix(vec3(0.48, 0.88, 0.86), vec3(0.84, 0.93, 0.89), (1.0 - vZoneTemp) * 0.48);
+              col = mix(col, reflCol, clamp(fresnel, 0.0, 0.20));
+              col += vec3(0.82, 0.97, 0.95) * (spec + min(0.20, vRipple * 3.8));
 
               // Seamless exponential squared fog matching THREE.FogExp2
               float dist = length(cameraPosition - vWorldPos);
               float fogF = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
               col = mix(col, uFogColor, clamp(fogF, 0.0, 1.0));
 
-              float alpha = mix(0.58, 0.89, clamp(depthT * 0.55 + fresnel * 0.42, 0.0, 1.0));
+              float alpha = mix(0.54, 0.85, clamp(depthT * 0.65 + fresnel * 0.35, 0.0, 1.0));
               gl_FragColor = vec4(col, alpha);
             }
           `

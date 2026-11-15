@@ -349,8 +349,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 
   float preLumaHdr = dot(col, vec3(0.299, 0.587, 0.114));
   float coolMix = clamp(uCoolGrade, 0.0, 1.0);
-  vec3 deepAmberShadow = mix(vec3(0.82, 0.66, 0.24), vec3(0.74, 0.90, 0.98), coolMix);
-  vec3 sicklyYellowHi = mix(vec3(1.26, 1.08, 0.48), vec3(1.04, 1.06, 1.08), coolMix);
+  vec3 deepAmberShadow = mix(vec3(0.82, 0.66, 0.24), vec3(0.82, 0.93, 0.92), coolMix);
+  vec3 sicklyYellowHi = mix(vec3(1.26, 1.08, 0.48), vec3(1.03, 1.05, 1.01), coolMix);
   vec3 grade = mix(deepAmberShadow, sicklyYellowHi, smoothstep(0.03, 0.58, preLumaHdr));
   col *= grade;
 
