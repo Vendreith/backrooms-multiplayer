@@ -4,7 +4,7 @@ import {
   REVEAL_T, REVEAL_CD, TRAP_CD, TRAP_MAX, TRAP_LOCK, TRAP_R,
   SCAN_T, DISARM_T, WATER_LIFE, SPEED, FOG_SURV, FOG_KILLER, FAR_SURV, FAR_KILLER,
   SURV_COLORS, GFX_PRESETS, FX_CONTROLS, getPresetDefaultFx, FPS_CAPS, DEF_KB,
-  ENTITY_ARCHETYPES, esc
+  ENTITY_ARCHETYPES, selectMatchEntities, esc
 } from './constants.js';
 import { genMap, collide, blocked, getSurfaceAt, getZoneLuminanceAt, getZoneAtmosphereAt } from './map.js';
 import { registerTextureTasks, createMapLightmaps } from './textures.js';
@@ -14,7 +14,7 @@ import {
   makeFPEntityClaws, updateFPEntityClaws, spawnTrapMesh, spawnFlareMesh
 } from './models.js';
 import { GraphicsManager } from './postfx.js';
-import { audio, MUSIC_TRACKS, AMBIENT_TRACK_KEYS } from './audio.js';
+import { audio, MUSIC_TRACKS, AMBIENT_TRACK_KEYS, HORROR_SFX_TRACKS, CREEPY_RANDOM_KEYS } from './audio.js';
 import { EntityAIController, findGridPath } from './ai.js';
 import { NetworkManager } from './network.js';
 
@@ -708,20 +708,30 @@ async function beginMatch(matchSeed, roster, localId) {
   players = {};
   let sIdx = 0;
   let routeMapIdx = 0;
+  const elevPos = map.ELEVATOR || map.SPAWN;
+  const elevSlots = [
+    [0.0, 0.15],
+    [-0.85, 0.35],
+    [0.85, 0.35],
+    [-0.48, 0.92],
+    [0.48, 0.92]
+  ];
   for (const r of roster) {
     const isK = r.role === 'k';
     let ox, oz;
     if (isK) {
       const archIdx = Math.max(0, ENTITY_ARCHETYPES.findIndex(a => a.id === r.id || a.kind === r.aiKind));
       const route = map.ENTITY_ROUTES?.[archIdx % (map.ENTITY_ROUTES?.length || 1)] || map.ENTITY_ROUTES?.[routeMapIdx];
-      const rSpawn = route?.wps?.[0] || map.K_SPAWN;
+      const safeWps = (route?.wps || []).filter(w => Math.hypot(w.x - elevPos.x, w.z - elevPos.z) >= 85);
+      const wpIdx = r.spawnJitter && safeWps.length ? Math.floor(r.spawnJitter * safeWps.length) % safeWps.length : 0;
+      const rSpawn = safeWps[wpIdx] || route?.wps?.[0] || map.K_SPAWN;
       ox = rSpawn.x;
       oz = rSpawn.z;
       routeMapIdx++;
     } else {
-      const spawn = map.SPOTS[(map.SPOTS.indexOf(map.SPAWN) + sIdx * 3) % map.SPOTS.length] || map.SPAWN;
-      ox = spawn.x + (sIdx % 2 === 0 ? -0.9 : 0.9);
-      oz = spawn.z + (sIdx < 2 ? 0.6 : -0.8);
+      const slot = elevSlots[sIdx % elevSlots.length];
+      ox = elevPos.x + slot[0];
+      oz = elevPos.z + slot[1];
     }
 
     players[r.id] = {
@@ -844,7 +854,12 @@ async function beginMatch(matchSeed, roster, localId) {
   hud.classList.remove('hidden');
   updateHUD(0, fpsCap || 60);
 
-  pushFeed(amK ? 'Bạn là Thực thể Backrooms! Tầm nhìn hạn chế — Hãy săn tìm âm thanh!' : `Băng ghi hình bắt đầu! Sửa ${NEED} máy & theo dây mũi tên dưới sàn để thoát!`, '#f5e69a');
+  pushFeed(
+    amK
+      ? 'Bạn là Thực thể Backrooms! Tầm nhìn hạn chế — Hãy săn tìm âm thanh!'
+      : `Thang máy A-Sync đã dừng tại Level 0 — Bấm [E] để mở cửa ngay! (Sửa ${NEED} máy để thoát)`,
+    '#f5e69a'
+  );
   if (!location.hash.includes('test')) {
     if (isMobileUiActive()) {
       document.body.style.cursor = '';
@@ -912,6 +927,16 @@ function processPlayerActionHost(actorId, msg) {
   if (!net.isHost || !inMatch || matchEnded) return;
   const p = players[actorId];
   if (!p) return;
+
+  if (msg.act === 'openElevator') {
+    if (!map?.ELEVATOR || map.elevatorState !== 'closed') return;
+    const distEl = Math.hypot(p.x - map.ELEVATOR.x, p.z - map.ELEVATOR.z);
+    if (distEl < 3.8) {
+      map.elevatorState = 'opening';
+      broadcastEvent({ ev: 'elevOpen', byId: p.id, byName: p.name });
+    }
+    return;
+  }
 
   if (msg.act === 'pickup') {
     if (p.role !== 's' || p.state !== 'ok') return;
@@ -1316,6 +1341,12 @@ function handleNetEvent(ev) {
         em.signMat.color.setHex(0x36e074);
       }
     }
+  } else if (ev.ev === 'elevOpen') {
+    if (map) {
+      if (map.elevatorState === 'closed') map.elevatorState = 'opening';
+      audio.playElevatorSequence(map.ELEVATOR);
+    }
+    pushFeed(`${ev.byName || 'Người chơi'} đã bấm nút mở Thang Máy — Bước vào Level 0!`, '#4ed884');
   } else if (ev.ev === 'escaped') {
     const v = players[ev.id];
     pushFeed(`${v?.name || 'Người chơi'} đã thoát khỏi Level 0!`, '#4ed884');
@@ -1375,6 +1406,16 @@ function applyHostSnapshot(snap) {
       }
     }
   }
+  if (snap.elevState && map) {
+    const wasClosed = map.elevatorState === 'closed';
+    map.elevatorState = snap.elevState;
+    if (typeof snap.elevOpenP === 'number') {
+      map.elevatorOpenProgress = Math.max(map.elevatorOpenProgress || 0, snap.elevOpenP);
+    }
+    if (wasClosed && snap.elevState !== 'closed') {
+      audio.playElevatorSequence(map.ELEVATOR);
+    }
+  }
   if (snap.tasks) {
     snap.tasks.forEach((p, idx) => {
       if (map.TASKS[idx] && !map.TASKS[idx].done) {
@@ -1403,6 +1444,21 @@ function syncTaskCabinetLEDs() {
 // ---------- Host Simulation Tick (Multi-Entity AI + World Timers) ----------
 function updateHostSimulation(dt) {
   if (!net.isHost) return;
+
+  // Animate A-Sync Elevator Doors smoothly (plus auto-open if all Survivors are AI bots)
+  if (map?.ELEVATOR) {
+    if (map.elevatorState === 'closed') {
+      const hasHumanSurv = Object.values(players).some(p => p.role === 's' && !p.isAI);
+      if (!hasHumanSurv && matchTime >= 1.6) {
+        map.elevatorState = 'opening';
+        broadcastEvent({ ev: 'elevOpen', byId: 'BOT', byName: 'Đội thám hiểm' });
+      }
+    }
+    if (map.elevatorState === 'opening') {
+      map.elevatorOpenProgress = Math.min(1, (map.elevatorOpenProgress || 0) + dt / 1.45);
+      if (map.elevatorOpenProgress >= 1) map.elevatorState = 'open';
+    }
+  }
 
   // Drive ALL patrolling quadrant AI Entities
   for (const ctrl of aiControllers) {
@@ -1501,7 +1557,9 @@ function updateHostSimulation(dt) {
     net.broadcast({
       t: 'snap',
       players,
-      tasks: map.TASKS.map(t => t.p)
+      tasks: map.TASKS.map(t => t.p),
+      elevState: map.elevatorState,
+      elevOpenP: map.elevatorOpenProgress
     });
   }
 }
@@ -1891,6 +1949,15 @@ function findBestPrompt(me) {
     return { critical: true, text: 'Đang bị treo trên móc — Chờ đồng đội đến cứu!' };
   }
   if (me.state !== 'ok') return null;
+
+  // 0. Elevator Door Open Button inside A-Sync Cabin (first player in can trigger immediately!)
+  if (map?.ELEVATOR && map.elevatorState === 'closed' && Math.hypot(me.x - map.ELEVATOR.x, me.z - map.ELEVATOR.z) < 3.1) {
+    return {
+      critical: true,
+      text: '[E] Bấm mở Thang Máy → Level 0',
+      act: () => sendAction({ act: 'openElevator' })
+    };
+  }
 
   // 1. Rescue Hooked teammate (checks both hook slot and live teammate coords)
   for (const h of map.HOOKS) {
@@ -2614,6 +2681,7 @@ $('aiToggle').addEventListener('change', (e) => net.toggleAIEntity(e.target.chec
 $('startGameBtn').addEventListener('click', () => {
   if (warmingMatch || !net.isHost) return;
   const s = (Math.random() * 89999 + 10000) | 0;
+  if (net.aiEnabled) net.toggleAIEntity(true, s);
   net.broadcast({ t: 'start', seed: s, roster: net.roster });
   beginMatch(s, net.roster, net.myId);
 });
@@ -2876,6 +2944,10 @@ function animate(now) {
   if (inMatch && map && world) {
     matchTime += dt;
     updateHostSimulation(dt);
+    if (!net.isHost && map.elevatorState === 'opening') {
+      map.elevatorOpenProgress = Math.min(1, (map.elevatorOpenProgress || 0) + dt / 1.45);
+      if (map.elevatorOpenProgress >= 1) map.elevatorState = 'open';
+    }
     updateLocalPlayer(dt, elapsed);
 
     const me = players[myId];
@@ -2992,6 +3064,9 @@ function animate(now) {
     });
     const isRepairing = !!(busyAct && busyAct.kind === 'task' && !scState);
     audio.updateRepairAudio(dt, isRepairing, isRepairing ? (busyAct.prog || 0) : 0);
+    if (!paused && !matchEnded && me) {
+      audio.updateCreepySounds(dt, me, map, map.elevatorState || 'open');
+    }
 
     // Dynamic Zone Light & Scene Atmosphere Adaptation (per-scene colors, shadow intensity, fog tint & depth!)
     if (me && !isK) {
@@ -3532,22 +3607,23 @@ async function runSelfTests() {
       .filter(p => p.role === 'k')
       .map(p => ({ p, x: p.x, z: p.z }));
 
+    const adrAnchor = map.TASKS[1] || { x: map.SPAWN.x, z: map.SPAWN.z - 6.0 };
     let bestYaw = 0;
     let bestFreeDist = -1;
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2;
-      const tx = map.SPAWN.x - Math.sin(a) * 3.5;
-      const tz = map.SPAWN.z - Math.cos(a) * 3.5;
+      const tx = adrAnchor.x - Math.sin(a) * 3.5;
+      const tz = adrAnchor.z - Math.cos(a) * 3.5;
       const [cx2, cz2] = collide(tx, tz, 0.36, map, false, 0);
-      const d = Math.hypot(cx2 - map.SPAWN.x, cz2 - map.SPAWN.z);
+      const d = Math.hypot(cx2 - adrAnchor.x, cz2 - adrAnchor.z);
       if (d > bestFreeDist) { bestFreeDist = d; bestYaw = a; }
     }
 
     for (const entry of savedKillers) {
-      entry.p.x = map.SPAWN.x + 120;
-      entry.p.z = map.SPAWN.z + 120;
+      entry.p.x = adrAnchor.x + 120;
+      entry.p.z = adrAnchor.z + 120;
     }
-    meAdr.x = map.SPAWN.x; meAdr.z = map.SPAWN.z; meAdr.y = 0; meAdr.vy = 0;
+    meAdr.x = adrAnchor.x; meAdr.z = adrAnchor.z; meAdr.y = 0; meAdr.vy = 0;
     meAdr.yaw = bestYaw; camYaw = bestYaw; flashYaw = bestYaw;
     meAdr.crouch = false; meAdr.state = 'ok';
     hVelX = 0; hVelZ = 0; stam = SPEED.STAM_DRAIN; stamExhausted = false;
@@ -3557,10 +3633,10 @@ async function runSelfTests() {
     const stamDropFar = SPEED.STAM_DRAIN - stam;
 
     if (savedKillers.length > 0) {
-      savedKillers[0].p.x = map.SPAWN.x + 2.5;
-      savedKillers[0].p.z = map.SPAWN.z;
+      savedKillers[0].p.x = adrAnchor.x + 2.5;
+      savedKillers[0].p.z = adrAnchor.z;
     }
-    meAdr.x = map.SPAWN.x; meAdr.z = map.SPAWN.z; meAdr.y = 0; meAdr.vy = 0;
+    meAdr.x = adrAnchor.x; meAdr.z = adrAnchor.z; meAdr.y = 0; meAdr.vy = 0;
     meAdr.yaw = bestYaw; camYaw = bestYaw; flashYaw = bestYaw;
     hVelX = 0; hVelZ = 0; stam = SPEED.STAM_DRAIN; stamExhausted = false;
     for (let i = 0; i < 3; i++) updateLocalPlayer(0.12, 6.0 + i * 0.12);
@@ -3717,6 +3793,91 @@ async function runSelfTests() {
     updateHUD(players[myId]);
   }
 
+  // Random Creepy Horror Sounds (preloaded real OGG/WAV + 3D spatial triggers)
+  {
+    const sfxCount = Object.keys(HORROR_SFX_TRACKS).length;
+    const preloadedSfxCount = Object.keys(audio.sfxRawBuffers).length;
+    const sampleHit = audio.playCreepySfx('sfx_whisper', { x: map.SPAWN.x + 6, y: 1.5, z: map.SPAWN.z - 6 });
+    const elevBellOk = audio.playElevatorSequence(map.ELEVATOR);
+    assert(
+      sfxCount >= 11 && CREEPY_RANDOM_KEYS.length >= 10 && preloadedSfxCount >= 10 &&
+      sampleHit?.played === true && elevBellOk === true,
+      'creepy_random_horror_sfx_preloaded_and_spatial'
+    );
+  }
+
+  // Additional Distinct Monster Archetypes & Seeded Randomization across the Map
+  {
+    const rA = selectMatchEntities(2026, 5);
+    const rB = selectMatchEntities(9090, 5);
+    const sigA = rA.map(e => `${e.kind}:${e.spawnQuadrant}`).join('|');
+    const sigB = rB.map(e => `${e.kind}:${e.spawnQuadrant}`).join('|');
+    const allRigsValid = ENTITY_ARCHETYPES.every(arch => {
+      const av = buildEntityAvatar(arch.kind);
+      animateEntity(av, 0.016, { spd: 5.5, swingT: 0.4 }, 1.4);
+      return av && av.jaw && av.eyes?.length === 2 && av.tendrils?.length > 0 && av.eyeLight;
+    });
+    const allFarFromElev = aiControllers.every(c => {
+      const ep = players[c.id];
+      return ep && Math.hypot(ep.x - map.ELEVATOR.x, ep.z - map.ELEVATOR.z) >= 80;
+    });
+    assert(
+      ENTITY_ARCHETYPES.length >= 8 && sigA !== sigB && allRigsValid && allFarFromElev,
+      'multi_entity_random_roster_and_models'
+    );
+  }
+
+  // Ornate Interactive Spawn Elevator Intro (Wait together, first player can open immediately!)
+  {
+    const meEl = players[myId];
+    const el = map.ELEVATOR;
+    const doorZ = el.z - el.depth * 0.5;
+    map.elevatorState = 'closed';
+    map.elevatorOpenProgress = 0;
+    updateWorldLighting(world, map, camera.position, 0.2, []);
+
+    const insideDist = Math.hypot(meEl.x - el.x, meEl.z - el.z);
+    // Test pressing from inside the cabin against the inner face of the closed sliding doors
+    const [blockedX, blockedZ] = collide(el.x, doorZ + 0.35, 0.36, map, false, 0);
+    const elevPrompt = findBestPrompt(meEl);
+
+    sendAction({ act: 'openElevator' });
+    const startedOpening = map.elevatorState === 'opening';
+    updateHostSimulation(0.8);
+    updateHostSimulation(0.8);
+    updateWorldLighting(world, map, camera.position, 1.8, []);
+
+    const [walkedX, walkedZ] = collide(el.x, doorZ - 1.5, 0.36, map, false, 0);
+    const elevDiag = {
+      hasParts: !!world.elevator?.doorL && !!world.elevator?.doorR && !!world.elevator?.buttonMesh,
+      insideDist: +insideDist.toFixed(2),
+      blockedZ: +blockedZ.toFixed(2),
+      doorZ: +doorZ.toFixed(2),
+      elevPrompt: elevPrompt?.text || null,
+      startedOpening,
+      elevState: map.elevatorState,
+      elevProg: +(map.elevatorOpenProgress || 0).toFixed(2),
+      doorLX: +(world.elevator?.doorL?.position?.x || 0).toFixed(2),
+      doorRX: +(world.elevator?.doorR?.position?.x || 0).toFixed(2),
+      walkedZ: +walkedZ.toFixed(2)
+    };
+    const elevPass = (
+      elevDiag.hasParts &&
+      insideDist < 2.2 && blockedZ >= doorZ + 0.55 && Number.isFinite(blockedX) &&
+      elevPrompt?.text.includes('Thang Máy') && startedOpening &&
+      map.elevatorState === 'open' && map.elevatorOpenProgress >= 0.99 &&
+      world.elevator.doorL.position.x < -1.25 && world.elevator.doorR.position.x > 1.25 &&
+      walkedZ < doorZ - 1.0 && Number.isFinite(walkedX)
+    );
+    if (!elevPass) console.error('ELEVATOR TEST DIAG:', elevDiag);
+    assert(elevPass, 'elevator_intro_spawn_collide_and_early_open');
+
+    // Reset elevator back to pristine waiting state for visual inspection/screenshots
+    map.elevatorState = 'closed';
+    map.elevatorOpenProgress = 0;
+    updateWorldLighting(world, map, camera.position, 0.2, []);
+  }
+
   gfx.render(0.016);
 
   // Expose live debug handle for automated Playtest/Playwright verification
@@ -3724,9 +3885,16 @@ async function runSelfTests() {
     camera,
     gfx,
     audio,
+    scene,
     getMe: () => players[myId],
     getMap: () => map,
+    getWorld: () => world,
+    getPlayers: () => players,
+    getAvatars: () => avatars,
     getAI: () => aiControllers,
+    openElevator: () => sendAction({ act: 'openElevator' }),
+    buildEntityAvatar,
+    animateEntity,
     getStamState: () => ({ stam, max: SPEED.STAM_DRAIN, ratio: stam / SPEED.STAM_DRAIN, exhausted: stamExhausted }),
     setStam: (ratio) => { stam = SPEED.STAM_DRAIN * ratio; if (ratio <= 0.01) stamExhausted = true; },
     repairTaskStep: (idx, sec) => {

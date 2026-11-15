@@ -1,5 +1,5 @@
 import { Peer, PEER_OPTS } from './engine.js';
-import { MAXP, SURV_COLORS, ENTITY_ARCHETYPES } from './constants.js';
+import { MAXP, SURV_COLORS, ENTITY_ARCHETYPES, selectMatchEntities } from './constants.js';
 
 const ROOM_PREFIX = 'br-dbd-v2-';
 
@@ -44,7 +44,23 @@ export class NetworkManager {
     if (this.peer) { try { this.peer.destroy(); } catch {} this.peer = null; }
   }
 
-  startSolo(playerName, playAsKiller = false) {
+  _appendAIEntities(seed) {
+    const selected = selectMatchEntities(seed ?? ((Math.random() * 89999 + 10000) | 0), 5);
+    for (const arch of selected) {
+      this.roster.push({
+        id: arch.id,
+        aiKind: arch.kind,
+        name: arch.name,
+        role: 'k',
+        colorIdx: 0,
+        spawnQuadrant: arch.spawnQuadrant,
+        spawnJitter: arch.spawnJitter,
+        isAI: true
+      });
+    }
+  }
+
+  startSolo(playerName, playAsKiller = false, seed = ((Math.random() * 89999 + 10000) | 0)) {
     this.destroy();
     this.isHost = true;
     this.isSolo = true;
@@ -55,16 +71,7 @@ export class NetworkManager {
       { id: 'P1', name: (playerName || 'Wanderer').slice(0, 18), role: playAsKiller ? 'k' : 's', colorIdx: 0, isAI: false }
     ];
     if (!playAsKiller) {
-      for (const arch of ENTITY_ARCHETYPES) {
-        this.roster.push({
-          id: arch.id,
-          aiKind: arch.kind,
-          name: arch.name,
-          role: 'k',
-          colorIdx: 0,
-          isAI: true
-        });
-      }
+      this._appendAIEntities(seed);
     } else {
       this.roster.push({ id: 'BOT_S1', name: 'M.E.G. Operative 1', role: 's', colorIdx: 1, isAI: true });
       this.roster.push({ id: 'BOT_S2', name: 'M.E.G. Operative 2', role: 's', colorIdx: 2, isAI: true });
@@ -256,22 +263,13 @@ export class NetworkManager {
     this.h.onLobbyUpdate(this.roster, this);
   }
 
-  toggleAIEntity(enabled) {
+  toggleAIEntity(enabled, seed = ((Math.random() * 89999 + 10000) | 0)) {
     if (!this.isHost) return;
     this.aiEnabled = enabled;
     this.roster = this.roster.filter(r => r.id !== 'AI_ENTITY' && !r.id.startsWith('AI_ENT_'));
     if (enabled) {
       for (const r of this.roster) if (r.role === 'k') r.role = 's';
-      for (const arch of ENTITY_ARCHETYPES) {
-        this.roster.push({
-          id: arch.id,
-          aiKind: arch.kind,
-          name: arch.name,
-          role: 'k',
-          colorIdx: 0,
-          isAI: true
-        });
-      }
+      this._appendAIEntities(seed);
     }
     this.broadcast({ t: 'lobby', roster: this.roster, aiEnabled: this.aiEnabled });
     this.h.onLobbyUpdate(this.roster, this);

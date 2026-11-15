@@ -940,13 +940,32 @@ export function genMap(seed = 1337) {
   }
   wallGrid.build(RECTS);
 
-  // Sample walkable spots across the entire 124x124 labyrinth
+  // Reserve A-Sync Ornate Service Elevator bay in South Threshold (faces -Z into Level 0)
+  const ELEVATOR = {
+    x: midX,
+    z: N * C - 17.5,
+    width: 3.7,
+    depth: 3.3,
+    doorW: 1.92,
+    doorH: 2.95,
+    ceilingH: 3.48,
+    dirZ: -1,
+    btnX: midX + 1.24,
+    btnZ: (N * C - 17.5) - 1.26
+  };
+  const inElevatorZone = (x, z, pad = 0.6) => (
+    Math.abs(x - ELEVATOR.x) < ELEVATOR.width * 0.5 + pad &&
+    Math.abs(z - ELEVATOR.z) < ELEVATOR.depth * 0.5 + pad
+  );
+
+  // Sample walkable spots across the entire 124x124 labyrinth (strictly outside Elevator cabin)
   const SPOTS = [];
   for (let r = 1; r < N - 1; r++) {
     for (let c = 1; c < N - 1; c++) {
       if (cellSolid[r][c]) continue;
       const x = (c + 0.5) * C;
       const z = (r + 0.5) * C;
+      if (inElevatorZone(x, z, 0.9)) continue;
       if (isFree(x, z, 0.85)) SPOTS.push({ x, z, c, r });
     }
   }
@@ -972,10 +991,10 @@ export function genMap(seed = 1337) {
 
   // Eerie Liminal Curiosities & Scattered Stray Glitch Anomalies across endless corridors
   const curioKinds = ['stairs_to_ceiling', 'solitary_door', 'crt_bank', 'tilted_pillar'];
-  const curioSpots = pickFarSpots(30, 26, [{ x: midX, z: N * C - 14 }]);
+  const curioSpots = pickFarSpots(30, 26, [{ x: ELEVATOR.x, z: ELEVATOR.z }]);
   for (let i = 0; i < curioSpots.length; i++) {
     const sp = curioSpots[i];
-    if (!isFree(sp.x, sp.z, 1.35)) continue;
+    if (inElevatorZone(sp.x, sp.z, 2.5) || !isFree(sp.x, sp.z, 1.35)) continue;
     const kind = curioKinds[i % curioKinds.length];
     const rot = ((rnd() * 4) | 0) * (Math.PI / 2);
     curiosities.push({ kind, x: sp.x, z: sp.z, rot });
@@ -987,15 +1006,34 @@ export function genMap(seed = 1337) {
     'rotary_payphone', 'vending_machine_sideways', 'ff1_red_dumpster',
     'ff2_blue_tape_grid', 'ff2_crt_tv_plants'
   ];
-  const extraAnomSpots = pickFarSpots(36, 26, [{ x: midX, z: N * C - 12 }]);
+  const extraAnomSpots = pickFarSpots(36, 26, [{ x: ELEVATOR.x, z: ELEVATOR.z }]);
   for (let i = 0; i < extraAnomSpots.length; i++) {
     const sp = extraAnomSpots[i];
-    if (!isFree(sp.x, sp.z, 1.1)) continue;
+    if (inElevatorZone(sp.x, sp.z, 2.5) || !isFree(sp.x, sp.z, 1.1)) continue;
     anomalies.push({ kind: extraAnomKinds[i % extraAnomKinds.length], x: sp.x, z: sp.z, rot: rnd() * Math.PI * 2 });
+  }
+
+  // Push Elevator chamber walls + sliding doorway collider BEFORE building spatial grid
+  {
+    const ex = ELEVATOR.x;
+    const ez = ELEVATOR.z;
+    const hwEl = ELEVATOR.width * 0.5;
+    const hdEl = ELEVATOR.depth * 0.5;
+    const doorHalf = ELEVATOR.doorW * 0.5;
+    const wallT = 0.28;
+    // Left, Right, Back solid enclosure walls (visually modeled by buildElevatorMesh in models.js)
+    RECTS.push({ x0: ex - hwEl, z0: ez - hdEl, x1: ex - hwEl + wallT, z1: ez + hdEl, y0: 0, y1: WH, h: WH, hidden: true, kind: 'elevatorWall' });
+    RECTS.push({ x0: ex + hwEl - wallT, z0: ez - hdEl, x1: ex + hwEl, z1: ez + hdEl, y0: 0, y1: WH, h: WH, hidden: true, kind: 'elevatorWall' });
+    RECTS.push({ x0: ex - hwEl, z0: ez + hdEl - wallT, x1: ex + hwEl, z1: ez + hdEl, y0: 0, y1: WH, h: WH, hidden: true, kind: 'elevatorWall' });
+    // Front door jamb piers (-Z exit side)
+    RECTS.push({ x0: ex - hwEl, z0: ez - hdEl, x1: ex - doorHalf, z1: ez - hdEl + wallT, y0: 0, y1: WH, h: WH, hidden: true, kind: 'elevatorWall' });
+    RECTS.push({ x0: ex + doorHalf, z0: ez - hdEl, x1: ex + hwEl, z1: ez - hdEl + wallT, y0: 0, y1: WH, h: WH, hidden: true, kind: 'elevatorWall' });
+    // Dynamic sliding door collider (open when map.elevatorOpenProgress >= 0.72)
+    RECTS.push({ x0: ex - doorHalf - 0.05, z0: ez - hdEl + 0.04, x1: ex + doorHalf + 0.05, z1: ez - hdEl + wallT - 0.04, y0: 0, y1: WH, h: WH, hidden: true, elevatorDoor: true, kind: 'elevatorDoor' });
   }
   wallGrid.build(RECTS);
 
-  const exitAvoid = [{ x: midX, z: 3 }, { x: midX, z: N * C - 3 }];
+  const exitAvoid = [{ x: midX, z: 3 }, { x: midX, z: N * C - 3 }, { x: ELEVATOR.x, z: ELEVATOR.z }];
   const taskSpots = pickFarSpots(NTASK, 48, exitAvoid);
   const TASKS = taskSpots.map((sp, i) => {
     const symInfo = TASK_SYMBOLS[i % TASK_SYMBOLS.length];
@@ -1033,7 +1071,12 @@ export function genMap(seed = 1337) {
     }
     return best;
   };
-  const SPAWN = pickNear(midX, N * C - 18);
+  const SPAWN = {
+    x: ELEVATOR.x,
+    z: ELEVATOR.z,
+    r: Math.floor(ELEVATOR.z / C),
+    c: Math.floor(ELEVATOR.x / C)
+  };
   const K_SPAWN = pickNear(midX, 26);
 
   const makePickups = (count, prefix) => pickFarSpots(count, 11.5, exitAvoid).map((sp, i) => ({
@@ -1074,6 +1117,7 @@ export function genMap(seed = 1337) {
     for (let c = 1; c < N; c += 2) {
       const lx = (c + 0.5) * C;
       const lz = (r + 0.5) * C;
+      if (inElevatorZone(lx, lz, 0.35)) continue;
       const zi = cellZone[r][c];
       const z = ZONES[zi];
       const zt = z ? z.type : 'monolith_maze';
@@ -1336,37 +1380,42 @@ export function genMap(seed = 1337) {
     return best || fallback;
   };
 
-  const ENTITY_ROUTES = ENTITY_ARCHETYPES.map((arch) => {
-    const q = arch.quadrant;
-    const isNorth = q.startsWith('N');
-    const isWest = q.endsWith('W');
-    // Define opposite extreme corners of each Entity's massive territory so start <-> end are ALWAYS >= 150m apart!
-    const startR0 = isNorth ? 4 : N - 26;
-    const startR1 = isNorth ? 24 : N - 6;
-    const startC0 = isWest ? 4 : N - 26;
-    const startC1 = isWest ? 24 : N - 5;
+  const routeQuads = ['NW', 'NE', 'SW', 'SE', 'N', 'W', 'E', 'C'];
+  const ENTITY_ROUTES = ENTITY_ARCHETYPES.map((arch, idx) => {
+    const qRoll = routeQuads[(idx + Math.floor(rnd() * routeQuads.length)) % routeQuads.length];
+    const q = qRoll.length === 2 ? qRoll : arch.quadrant;
+    const isNorth = q.startsWith('N') || qRoll === 'C';
+    const isWest = q.endsWith('W') || (rnd() < 0.5 && qRoll === 'N');
+    // Define opposite extreme corners of each Entity's massive territory (>= 90m from Elevator spawn, >= 145m span)
+    const startR0 = isNorth ? 4 : Math.min(N - 34, halfN + 4);
+    const startR1 = isNorth ? 26 : N - 26;
+    const startC0 = isWest ? 4 : Math.max(26, N - 30);
+    const startC1 = isWest ? 28 : N - 5;
 
-    const endR0 = isNorth ? halfN - 6 : halfN - 10;
-    const endR1 = isNorth ? halfN + 12 : halfN + 8;
-    const endC0 = isWest ? halfN - 8 : halfN - 16;
-    const endC1 = isWest ? halfN + 16 : halfN + 8;
+    const endR0 = isNorth ? halfN - 6 : 6;
+    const endR1 = isNorth ? halfN + 12 : halfN + 6;
+    const endC0 = isWest ? halfN - 6 : 6;
+    const endC1 = isWest ? N - 8 : halfN + 10;
 
-    const startWP = pickSpotInBounds(startR0, startR1, startC0, startC1, K_SPAWN);
+    let startWP = pickSpotInBounds(startR0, startR1, startC0, startC1, K_SPAWN);
+    if (Math.hypot(startWP.x - ELEVATOR.x, startWP.z - ELEVATOR.z) < 88) {
+      startWP = pickSpotInBounds(4, 24, isWest ? 4 : N - 28, isWest ? 26 : N - 5, K_SPAWN);
+    }
     let endWP = pickSpotInBounds(endR0, endR1, endC0, endC1, SPAWN);
     if (Math.hypot(endWP.x - startWP.x, endWP.z - startWP.z) < 145) {
       let bestSp = endWP, bestD = 0;
       for (const sp of SPOTS) {
-        if (Math.hypot(sp.x - SPAWN.x, sp.z - SPAWN.z) < 28) continue;
+        if (Math.hypot(sp.x - SPAWN.x, sp.z - SPAWN.z) < 32) continue;
         const d = Math.hypot(sp.x - startWP.x, sp.z - startWP.z);
-        if (d > bestD && d < 280) { bestD = d; bestSp = sp; }
+        if (d > bestD && d < 290) { bestD = d; bestSp = sp; }
       }
       endWP = bestSp;
     }
 
-    const rLow = isNorth ? 4 : halfN - 8;
-    const rHigh = isNorth ? halfN + 8 : N - 8;
-    const cLow = isWest ? 4 : halfN - 8;
-    const cHigh = isWest ? halfN + 8 : N - 5;
+    const rLow = 4;
+    const rHigh = N - 22;
+    const cLow = 4;
+    const cHigh = N - 5;
     const mid1 = pickSpotInBounds(rLow, rHigh, cLow, cHigh, startWP);
     const mid2 = pickSpotInBounds(rLow, rHigh, cLow, cHigh, endWP);
     const wps = [startWP, mid1, endWP, mid2];
@@ -1430,9 +1479,11 @@ export function genMap(seed = 1337) {
     REDZ, TASKS, HOOKS, EXITS, LIGHTS, TRAPS: [],
     WATERS, SCANS, JELLIES, RATIONS, FLARES, RELICS,
     GUIDE_SEGMENTS, EXIT_GUIDE_SEGMENTS, GUIDE_MARKERS, ENTITY_ROUTES,
-    SPOTS, SPAWN, K_SPAWN, PILLARS, WALLS, ARCHES,
+    SPOTS, SPAWN, ELEVATOR, K_SPAWN, PILLARS, WALLS, ARCHES,
     PROPS: { vents, pipes, puddles, posters, wallDecals, pitfalls, furniture, curiosities, anomalies, signs, cords },
     exitsOpen: false,
+    elevatorState: 'closed',
+    elevatorOpenProgress: 0,
     seed
   };
 }
@@ -1459,6 +1510,7 @@ export function collide(x, z, r, map, crouch = false, y = 0) {
   const near = wallGrid.queryNear(x, z, r + 1.2);
   for (const b of near) {
     if (b.crawl && crouch && y < 0.25) continue;
+    if (b.elevatorDoor && (map.elevatorOpenProgress || 0) >= 0.72) continue;
 
     const cx = Math.max(b.x0, Math.min(x, b.x1));
     const cz = Math.max(b.z0, Math.min(z, b.z1));
@@ -1503,6 +1555,7 @@ export function blocked(x1, z1, x2, z2, map) {
     const near = map.wallGrid.queryNear(cx, cz, 0.35);
     for (const b of near) {
       if (b.half) continue;
+      if (b.elevatorDoor && (map.elevatorOpenProgress || 0) >= 0.72) continue;
       if (cx >= b.x0 && cx <= b.x1 && cz >= b.z0 && cz <= b.z1) {
         return true;
       }

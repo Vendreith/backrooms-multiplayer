@@ -307,6 +307,10 @@ export class EntityAIController {
     }
 
     // Move along LOS or A* Path
+    const isSmiler = this.kind === 'smiler';
+    const isStealer = this.kind === 'skin_stealer';
+    const isWire = this.kind === 'wire_stalker';
+
     let spd = aiPlayer.carrying
       ? SPEED.KILLER_CARRY
       : this.slowT > 0
@@ -314,7 +318,11 @@ export class EntityAIController {
         : this.state === 'CHASE'
           ? (this.archetype.chaseSpd || SPEED.KILLER_BASE)
           : (this.archetype.patrolSpd || SPEED.KILLER_BASE * 0.85);
-    if (this.beamSlowT > 0) spd *= 0.36;
+    if (isStealer && this.state === 'CHASE' && this.targetPos) {
+      const td = Math.hypot(this.targetPos.x - aiPlayer.x, this.targetPos.z - aiPlayer.z);
+      if (td < 9.5) spd *= 1.07; // Skin-Stealer lunges faster once close!
+    }
+    if (this.beamSlowT > 0) spd *= isSmiler ? 0.24 : 0.36;
 
     if (goal) {
       const canSeeGoal = !blocked(aiPlayer.x, aiPlayer.z, goal.x, goal.z, map);
@@ -324,7 +332,7 @@ export class EntityAIController {
         this.pathTimer -= dt;
         if (this.pathTimer <= 0 || !this.path.length) {
           this.path = findGridPath(map, aiPlayer.x, aiPlayer.z, goal.x, goal.z);
-          this.pathTimer = 0.55;
+          this.pathTimer = isWire ? 0.38 : 0.55;
         }
         while (this.path.length > 1 && Math.hypot(this.path[0][0] - aiPlayer.x, this.path[0][1] - aiPlayer.z) < 1.25) {
           this.path.shift();

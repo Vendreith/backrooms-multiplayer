@@ -1772,6 +1772,203 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     exitMeshes.push({ group: g, door, signMat: sign.material, dirZ: e.dirZ });
   }
 
+  // 10b. Ornate A-Sync Service Elevator Cabin (Interactive Spawn Chamber)
+  let elevator = null;
+  if (map.ELEVATOR) {
+    const el = map.ELEVATOR;
+    const hwEl = el.width * 0.5;
+    const hdEl = el.depth * 0.5;
+    const wallT = 0.28;
+    const ceilY = el.ceilingH;
+    const doorHalf = el.doorW * 0.5;
+    const doorH = el.doorH;
+
+    const eg = new THREE.Group();
+    eg.position.set(el.x, 0, el.z);
+    root.add(eg);
+
+    const marbleMat = track(new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.32, metalness: 0.22 }));
+    const rugMat = track(new THREE.MeshStandardMaterial({ color: 0x561816, roughness: 0.92, metalness: 0.04 }));
+    const walnutMat = track(new THREE.MeshStandardMaterial({ color: 0x452818, roughness: 0.56, metalness: 0.10 }));
+    const brassMat = track(new THREE.MeshStandardMaterial({ color: 0xd4ad56, roughness: 0.38, metalness: 0.78 }));
+    const chromeMat = track(new THREE.MeshStandardMaterial({ color: 0x8a929a, roughness: 0.28, metalness: 0.72 }));
+    const doorSteelMat = track(new THREE.MeshStandardMaterial({ color: 0x3b424b, roughness: 0.68, metalness: 0.36 }));
+    const darkSteelMat = track(new THREE.MeshStandardMaterial({ color: 0x22262c, roughness: 0.46, metalness: 0.62 }));
+    const exteriorWallMat = track(new THREE.MeshStandardMaterial({ map: texStore.concreteFloorTex || texStore.wallMap, color: 0xc2b284, roughness: 0.72 }));
+    const slitGlassMat = track(new THREE.MeshStandardMaterial({ color: 0xffe298, transparent: true, opacity: 0.20, roughness: 0.62, metalness: 0.05 }));
+
+    // Floor: Marble deck + recessed crimson & brass-trimmed centerpiece carpet
+    const deck = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - 0.1, 0.03, el.depth - 0.1)), marbleMat);
+    deck.position.y = 0.015;
+    const rug = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - 0.85, 0.025, el.depth - 0.78)), rugMat);
+    rug.position.set(0, 0.032, 0.05);
+    const rugTrim = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - 0.76, 0.018, el.depth - 0.69)), brassMat);
+    rugTrim.position.set(0, 0.024, 0.05);
+    eg.add(deck, rugTrim, rug);
+
+    // Exterior & Interior Side/Back Cabin Walls
+    const addPanelWall = (x, z, w, d) => {
+      const m = new THREE.Mesh(track(new THREE.BoxGeometry(w, WH, d)), exteriorWallMat);
+      m.position.set(x, WH * 0.5, z);
+      eg.add(m);
+    };
+    addPanelWall(-hwEl + wallT * 0.5, 0, wallT, el.depth);
+    addPanelWall(hwEl - wallT * 0.5, 0, wallT, el.depth);
+    addPanelWall(0, hdEl - wallT * 0.5, el.width, wallT);
+
+    // Interior walnut paneling slabs & brass vertical trim mullions
+    const panL = new THREE.Mesh(track(new THREE.BoxGeometry(0.06, ceilY, el.depth - wallT * 2)), walnutMat);
+    panL.position.set(-hwEl + wallT + 0.025, ceilY * 0.5, 0);
+    const panR = new THREE.Mesh(track(new THREE.BoxGeometry(0.06, ceilY, el.depth - wallT * 2)), walnutMat);
+    panR.position.set(hwEl - wallT - 0.025, ceilY * 0.5, 0);
+    const panB = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - wallT * 2, ceilY, 0.06)), walnutMat);
+    panB.position.set(0, ceilY * 0.5, hdEl - wallT - 0.025);
+    eg.add(panL, panR, panB);
+
+    // Mirror-finish brushed stainless panel along back wall + brass stiles
+    const backMirror = new THREE.Mesh(track(new THREE.BoxGeometry(1.85, 1.45, 0.025)), chromeMat);
+    backMirror.position.set(0, 1.85, hdEl - wallT - 0.065);
+    const mirrorFrame = new THREE.Mesh(track(new THREE.BoxGeometry(1.96, 1.56, 0.018)), brassMat);
+    mirrorFrame.position.set(0, 1.85, hdEl - wallT - 0.058);
+    eg.add(mirrorFrame, backMirror);
+
+    for (const bx of [-0.95, 0.95]) {
+      const stileB = new THREE.Mesh(track(new THREE.BoxGeometry(0.055, ceilY, 0.03)), brassMat);
+      stileB.position.set(bx, ceilY * 0.5, hdEl - wallT - 0.05);
+      eg.add(stileB);
+    }
+    for (const bz of [-0.75, 0.0, 0.75]) {
+      for (const sx of [-1, 1]) {
+        const stile = new THREE.Mesh(track(new THREE.BoxGeometry(0.03, ceilY, 0.055)), brassMat);
+        stile.position.set(sx * (hwEl - wallT - 0.05), ceilY * 0.5, bz);
+        eg.add(stile);
+      }
+    }
+
+    // Polished tubular brass handrails on L, R, Back walls (y = 0.96m)
+    const railGeoSide = track(new THREE.CylinderGeometry(0.026, 0.026, el.depth - 0.9, 10));
+    railGeoSide.rotateX(Math.PI / 2);
+    for (const sx of [-1, 1]) {
+      const rMesh = new THREE.Mesh(railGeoSide, brassMat);
+      rMesh.position.set(sx * (hwEl - wallT - 0.13), 0.96, 0.05);
+      eg.add(rMesh);
+      for (const bz of [-0.7, 0.7]) {
+        const brk = new THREE.Mesh(track(new THREE.BoxGeometry(0.11, 0.035, 0.04)), brassMat);
+        brk.position.set(sx * (hwEl - wallT - 0.075), 0.96, bz);
+        eg.add(brk);
+      }
+    }
+    const railGeoBack = track(new THREE.CylinderGeometry(0.026, 0.026, el.width - 0.85, 10));
+    railGeoBack.rotateZ(Math.PI / 2);
+    const rBack = new THREE.Mesh(railGeoBack, brassMat);
+    rBack.position.set(0, 0.96, hdEl - wallT - 0.13);
+    eg.add(rBack);
+
+    // Front Doorway Portal Piers + Transom Header (extends smoothly up to WH)
+    const jambW = hwEl - doorHalf;
+    const jambL = new THREE.Mesh(track(new THREE.BoxGeometry(jambW, WH, wallT)), darkSteelMat);
+    jambL.position.set(-doorHalf - jambW * 0.5, WH * 0.5, -hdEl + wallT * 0.5);
+    const jambR = new THREE.Mesh(track(new THREE.BoxGeometry(jambW, WH, wallT)), darkSteelMat);
+    jambR.position.set(doorHalf + jambW * 0.5, WH * 0.5, -hdEl + wallT * 0.5);
+    const headerBox = new THREE.Mesh(track(new THREE.BoxGeometry(el.doorW + 0.16, WH - doorH, wallT + 0.04)), darkSteelMat);
+    headerBox.position.set(0, doorH + (WH - doorH) * 0.5, -hdEl + wallT * 0.5);
+    const trimArch = new THREE.Mesh(track(new THREE.BoxGeometry(el.doorW + 0.24, 0.11, wallT + 0.14)), brassMat);
+    trimArch.position.set(0, doorH + 0.04, -hdEl + wallT * 0.5);
+    eg.add(jambL, jambR, headerBox, trimArch);
+
+    // Ornate Coffered Brass Canopy & Warm Frosted Luminous Chandelier Ceiling
+    const canopyOuter = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - 0.2, 0.18, el.depth - 0.2)), darkSteelMat);
+    canopyOuter.position.set(0, ceilY + 0.09, 0);
+    const canopyMat = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.95, 0.82, 0.56), toneMapped: false }));
+    const canopyGlow = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - 1.1, 0.06, el.depth - 1.0)), canopyMat);
+    canopyGlow.position.set(0, ceilY - 0.02, 0.05);
+    const cCross1 = new THREE.Mesh(track(new THREE.BoxGeometry(el.width - 1.05, 0.08, 0.065)), brassMat);
+    cCross1.position.set(0, ceilY - 0.04, 0.05);
+    const cCross2 = new THREE.Mesh(track(new THREE.BoxGeometry(0.065, 0.08, el.depth - 0.95)), brassMat);
+    cCross2.position.set(0, ceilY - 0.04, 0.05);
+    eg.add(canopyOuter, canopyGlow, cCross1, cCross2);
+
+    // Dedicated warm interior Elevator Cabin PointLight (fixed light count across entire match!)
+    const cabinLight = new THREE.PointLight(0xffcf88, 1.05, 9.5, 1.45);
+    cabinLight.position.set(0, ceilY - 0.35, 0);
+    eg.add(cabinLight);
+
+    // Illuminated Overhead Floor Matrix Sign (inside & outside transom!)
+    const tCanvas = document.createElement('canvas');
+    tCanvas.width = 512; tCanvas.height = 128;
+    const tCtx = tCanvas.getContext('2d');
+    tCtx.fillStyle = '#0c0d10';
+    tCtx.fillRect(0, 0, 512, 128);
+    tCtx.strokeStyle = '#c89e46';
+    tCtx.lineWidth = 6;
+    tCtx.strokeRect(4, 4, 504, 120);
+    tCtx.fillStyle = '#ffbe48';
+    tCtx.font = 'bold 46px monospace';
+    tCtx.textAlign = 'center';
+    tCtx.fillText('A-SYNC KV-31 :: LVL 0', 256, 62);
+    tCtx.font = 'bold 28px monospace';
+    tCtx.fillStyle = '#d8b468';
+    tCtx.fillText('[E] OPEN DOORS  ▲', 256, 104);
+    const transomTex = track(new THREE.CanvasTexture(tCanvas));
+    transomTex.colorSpace = THREE.SRGBColorSpace;
+    const transomMat = track(new THREE.MeshBasicMaterial({ map: transomTex, color: new THREE.Color(0.95, 0.80, 0.48), toneMapped: false }));
+    const transomIn = new THREE.Mesh(track(new THREE.PlaneGeometry(1.44, 0.32)), transomMat);
+    transomIn.position.set(0, doorH - 0.06, -hdEl + wallT + 0.11);
+    const transomOut = new THREE.Mesh(track(new THREE.PlaneGeometry(1.44, 0.32)), transomMat);
+    transomOut.rotation.y = Math.PI;
+    transomOut.position.set(0, doorH + 0.22, -hdEl - 0.03);
+    eg.add(transomIn, transomOut);
+
+    // Interior Interactive Call-Button Console on right jamb (easily visible & reachable)
+    const panelPlate = new THREE.Mesh(track(new THREE.BoxGeometry(0.24, 0.52, 0.06)), brassMat);
+    panelPlate.position.set(doorHalf + 0.20, 1.28, -hdEl + wallT + 0.025);
+    const btnBezel = new THREE.Mesh(track(new THREE.CylinderGeometry(0.068, 0.068, 0.03, 18)), darkSteelMat);
+    btnBezel.rotation.x = Math.PI / 2;
+    btnBezel.position.set(doorHalf + 0.20, 1.32, -hdEl + wallT + 0.055);
+    const buttonMat = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(1.45, 0.95, 0.22), toneMapped: false }));
+    const buttonMesh = new THREE.Mesh(track(new THREE.CylinderGeometry(0.048, 0.048, 0.035, 18)), buttonMat);
+    buttonMesh.rotation.x = Math.PI / 2;
+    buttonMesh.position.set(doorHalf + 0.20, 1.32, -hdEl + wallT + 0.068);
+    const stopKnob = new THREE.Mesh(track(new THREE.CylinderGeometry(0.032, 0.032, 0.04, 12)), track(new THREE.MeshStandardMaterial({ color: 0xb01e1a, roughness: 0.3 })));
+    stopKnob.rotation.x = Math.PI / 2;
+    stopKnob.position.set(doorHalf + 0.20, 1.14, -hdEl + wallT + 0.062);
+    eg.add(panelPlate, btnBezel, buttonMesh, stopKnob);
+
+    // Twin Sliding Elevator Doors with Brass Molding + Tinted Vision Slits looking into Level 0!
+    const buildDoorLeaf = (side) => {
+      const leaf = new THREE.Group();
+      const lw = doorHalf;
+      const body = new THREE.Mesh(track(new THREE.BoxGeometry(lw - 0.015, doorH - 0.02, 0.085)), doorSteelMat);
+      body.position.y = doorH * 0.5;
+      const frameOuter = new THREE.Mesh(track(new THREE.BoxGeometry(lw - 0.01, 0.14, 0.10)), brassMat);
+      frameOuter.position.y = 0.08;
+      const midRail = new THREE.Mesh(track(new THREE.BoxGeometry(lw - 0.06, 0.08, 0.095)), brassMat);
+      midRail.position.y = 1.25;
+      // Frosted reinforced observation window slit so players see Level 0 haze waiting outside!
+      const glass = new THREE.Mesh(track(new THREE.BoxGeometry(0.18, 0.96, 0.095)), slitGlassMat);
+      glass.position.set(-side * 0.06, 1.82, 0);
+      const glassFrame = new THREE.Mesh(track(new THREE.BoxGeometry(0.24, 1.02, 0.092)), brassMat);
+      glassFrame.position.set(-side * 0.06, 1.82, -0.002);
+      leaf.add(body, frameOuter, midRail, glassFrame, glass);
+      leaf.position.set(side * (lw * 0.5), 0, -hdEl + wallT * 0.5);
+      return leaf;
+    };
+    const doorL = buildDoorLeaf(-1);
+    const doorR = buildDoorLeaf(1);
+    eg.add(doorL, doorR);
+
+    elevator = {
+      group: eg,
+      doorL,
+      doorR,
+      doorHalf,
+      buttonMesh,
+      buttonMat,
+      transomMat,
+      cabinLight
+    };
+  }
+
   // 11. Detailed Textured Backrooms Item Pickups
   const itemMeshes = new Map();
   const spawnPickups = (arr, kind) => {
@@ -1893,6 +2090,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     hookMeshes,
     exitMeshes,
     itemMeshes,
+    elevator,
     exitGuideMat,
     chaserLedTex,
     chaserExitTex,
@@ -1913,6 +2111,29 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
   const redRadius2 = 10.5 * 10.5;
   const newRedSet = new Set();
   let colorsDirty = false;
+
+  // 0. Animate Spawn Elevator Sliding Doors & Status LEDs
+  if (world.elevator && map.ELEVATOR) {
+    const evEl = world.elevator;
+    const p = Math.max(0, Math.min(1, map.elevatorOpenProgress || 0));
+    const ease = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+    const slide = ease * (evEl.doorHalf * 0.90);
+    const baseHalf = evEl.doorHalf * 0.5;
+    evEl.doorL.position.x = -baseHalf - slide;
+    evEl.doorR.position.x = baseHalf + slide;
+
+    if (map.elevatorState === 'closed') {
+      const pulse = 0.78 + 0.30 * Math.sin(elapsed * 4.2);
+      evEl.buttonMat.color.setRGB(1.45 * pulse, 0.95 * pulse, 0.22 * pulse);
+      evEl.transomMat.color.setRGB(0.95, 0.80, 0.48);
+    } else {
+      evEl.buttonMat.color.setRGB(0.28, 1.55, 0.58);
+      evEl.transomMat.color.setRGB(0.45, 1.05, 0.62);
+    }
+    if (evEl.cabinLight) {
+      evEl.cabinLight.intensity = 1.05 + Math.sin(elapsed * 18.0) * 0.04;
+    }
+  }
 
   // Animate scrolling floor chevron strips forward toward targets + bobbing glitch artifacts
   if (world.chaserLedTex) world.chaserLedTex.offset.y = -((elapsed * 0.95) % 1);
@@ -2135,40 +2356,63 @@ export function buildEntityAvatar(kind = 'bacteria') {
   const isHowler = kind === 'howler';
   const isMimic = kind === 'mimic';
   const isNull = kind === 'nullshade';
+  const isSmiler = kind === 'smiler';
+  const isStealer = kind === 'skin_stealer';
+  const isWire = kind === 'wire_stalker';
+  const isDuller = kind === 'duller';
 
   if (isHowler) g.scale.set(0.95, 1.14, 0.95);
   else if (isMimic) g.scale.set(1.04, 0.98, 1.04);
   else if (isNull) g.scale.set(1.0, 1.06, 1.0);
+  else if (isSmiler) g.scale.set(1.06, 1.12, 1.06);
+  else if (isStealer) g.scale.set(0.92, 1.10, 0.92);
+  else if (isWire) g.scale.set(1.08, 1.05, 1.08);
+  else if (isDuller) g.scale.set(0.84, 1.24, 0.84);
 
   const fleshMat = new THREE.MeshStandardMaterial({
-    color: isHowler ? 0x6c665d : isMimic ? 0x766424 : isNull ? 0x160a1e : 0x160a0a,
-    roughness: isMimic ? 0.52 : 0.22,
-    metalness: isNull ? 0.45 : 0.22
+    color: isHowler ? 0x6c665d
+      : isMimic ? 0x766424
+      : isNull ? 0x160a1e
+      : isSmiler ? 0x050507
+      : isStealer ? 0xc2987e
+      : isWire ? 0x1d2024
+      : isDuller ? 0x454952
+      : 0x160a0a,
+    roughness: isMimic || isStealer ? 0.56 : isSmiler ? 0.92 : 0.24,
+    metalness: isNull || isWire ? 0.55 : isSmiler ? 0.05 : 0.20
   });
   const tarMat = new THREE.MeshStandardMaterial({
-    color: isHowler ? 0x3b3832 : isNull ? 0x26083a : 0x050405,
-    roughness: 0.14,
-    metalness: 0.40
+    color: isHowler ? 0x3b3832
+      : isNull ? 0x26083a
+      : isStealer ? 0x6e3a2b
+      : isWire ? 0x7a4d24
+      : isDuller ? 0x22252b
+      : 0x050405,
+    roughness: 0.16,
+    metalness: isWire ? 0.65 : 0.35
   });
   const boneMat = new THREE.MeshStandardMaterial({
-    color: isHowler ? 0xdad2bf : 0xc2ad88,
-    roughness: 0.62,
+    color: isSmiler ? 0xf8fbff : isHowler ? 0xdad2bf : isWire ? 0x9aa29c : isDuller ? 0x868c94 : 0xc2ad88,
+    emissive: isSmiler ? 0xddeeff : 0x000000,
+    emissiveIntensity: isSmiler ? 1.45 : 0.0,
+    roughness: isSmiler ? 0.15 : 0.62,
     metalness: 0.05
   });
   const bloodMat = new THREE.MeshStandardMaterial({
-    color: isNull ? 0x9014c8 : isMimic ? 0x4d180c : 0x720608,
-    emissive: isNull ? 0x3a0652 : 0x2a0204,
-    roughness: 0.16
+    color: isNull ? 0x9014c8 : isMimic ? 0x4d180c : isWire ? 0x18a84e : isSmiler ? 0x040406 : 0x720608,
+    emissive: isNull ? 0x3a0652 : isWire ? 0x0c441c : isSmiler ? 0x000000 : 0x2a0204,
+    roughness: 0.18
   });
   // Piercing HDR incandescent predator eyes unique per Entity archetype!
   const eyeOuterMat = new THREE.MeshBasicMaterial({
-    color: isHowler
-      ? new THREE.Color(0.5, 2.5, 3.0)
-      : isMimic
-        ? new THREE.Color(2.9, 1.85, 0.25)
-        : isNull
-          ? new THREE.Color(2.6, 0.4, 3.2)
-          : new THREE.Color(2.4, 0.28, 0.12),
+    color: isHowler ? new THREE.Color(0.5, 2.5, 3.0)
+      : isMimic ? new THREE.Color(2.9, 1.85, 0.25)
+      : isNull ? new THREE.Color(2.6, 0.4, 3.2)
+      : isSmiler ? new THREE.Color(3.6, 3.6, 3.6)
+      : isStealer ? new THREE.Color(3.2, 1.25, 0.18)
+      : isWire ? new THREE.Color(0.35, 3.4, 1.1)
+      : isDuller ? new THREE.Color(0.55, 2.3, 3.3)
+      : new THREE.Color(2.4, 0.28, 0.12),
     toneMapped: false
   });
   const eyeCoreMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 2.8, 2.2), toneMapped: false });
@@ -2177,85 +2421,136 @@ export function buildEntityAvatar(kind = 'bacteria') {
   torso.position.y = 1.44;
   root.add(torso);
 
-  const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.13, 0.96, 9), fleshMat);
-  chest.scale.set(1.26, 1, 0.85);
+  const chest = new THREE.Mesh(
+    isWire ? new THREE.BoxGeometry(0.52, 0.92, 0.40) : new THREE.CylinderGeometry(isDuller ? 0.22 : 0.30, 0.13, isDuller ? 1.08 : 0.96, 9),
+    fleshMat
+  );
+  chest.scale.set(isSmiler ? 1.35 : 1.22, 1, 0.85);
   torso.add(chest);
 
-  // Torn raw meat cavity + protruding cracked yellow ribs
+  // Archetype torso anatomy: surgical seams for Skin-Stealer, CRT/cable coils for Wire-Stalker, void wisps for Smiler, ribcage otherwise
   const cavity = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.48, 0.16), bloodMat);
   cavity.position.set(0, 0.05, -0.14);
   torso.add(cavity);
 
-  for (let i = 0; i < 5; i++) {
-    const ry = 0.30 - i * 0.14;
-    const rib = new THREE.Mesh(new THREE.TorusGeometry(0.26 - i * 0.018, 0.024, 6, 12, Math.PI * 1.2), boneMat);
-    rib.position.set(0, ry, -0.05);
-    rib.rotation.x = Math.PI / 2 + 0.22;
-    rib.rotation.z = Math.PI * 0.4;
-    torso.add(rib);
+  if (isWire) {
+    for (let i = 0; i < 6; i++) {
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(0.30, 0.032, 6, 14), i % 2 ? brassCopperMatFallback() : tarMat);
+      coil.position.set(0, 0.34 - i * 0.14, 0);
+      coil.rotation.x = Math.PI / 2 + (i % 2 ? 0.28 : -0.22);
+      torso.add(coil);
+    }
+  } else if (isStealer) {
+    for (let i = 0; i < 6; i++) {
+      const stitch = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.025, 0.22), tarMat);
+      stitch.position.set(0, 0.32 - i * 0.12, -0.08);
+      stitch.rotation.z = (i % 2 ? 0.22 : -0.22);
+      torso.add(stitch);
+    }
+  } else if (!isSmiler) {
+    for (let i = 0; i < 5; i++) {
+      const ry = 0.30 - i * 0.14;
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.26 - i * 0.018, 0.024, 6, 12, Math.PI * 1.2), boneMat);
+      rib.position.set(0, ry, -0.05);
+      rib.rotation.x = Math.PI / 2 + 0.22;
+      rib.rotation.z = Math.PI * 0.4;
+      torso.add(rib);
+    }
   }
 
-  // Jagged spinal vertebrae spikes protruding from back
+  function brassCopperMatFallback() {
+    return bloodMat;
+  }
+
+  // Jagged spinal vertebrae / shadow wisps / cable tendrils protruding from back
   const tendrils = [];
   for (let i = 0; i < 7; i++) {
-    const sp = new THREE.Mesh(new THREE.ConeGeometry(0.042, 0.38 + (i % 2) * 0.16, 5), boneMat);
-    sp.position.set(0, 0.40 - i * 0.14, 0.20);
+    const sp = new THREE.Mesh(
+      isSmiler ? new THREE.CylinderGeometry(0.02, 0.06, 0.62 + (i % 2) * 0.22, 6)
+        : isWire ? new THREE.CylinderGeometry(0.018, 0.025, 0.72, 6)
+        : new THREE.ConeGeometry(0.042, 0.38 + (i % 2) * 0.16, 5),
+      isSmiler ? fleshMat : isWire ? tarMat : boneMat
+    );
+    sp.position.set(isSmiler || isWire ? Math.sin(i * 1.3) * 0.22 : 0, 0.40 - i * 0.13, 0.22);
     sp.rotation.x = -1.25 - i * 0.05;
     torso.add(sp);
     tendrils.push(sp);
   }
 
-  // Distorted elongated Neck & Skull with blazing Eyes + Jaw
+  // Distorted Neck & Skull / Smiler Mask / Wire CRT Head / Duller Vertical Slit
   const neck = new THREE.Group();
-  neck.position.set(0, 0.56, -0.14);
+  neck.position.set(0, isDuller ? 0.58 : 0.56, -0.14);
   torso.add(neck);
 
-  const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.23, 10, 9), fleshMat);
-  cranium.scale.set(0.84, 1.28, 1.08);
+  const cranium = new THREE.Mesh(
+    isWire ? new THREE.BoxGeometry(0.42, 0.36, 0.36) : new THREE.SphereGeometry(isSmiler ? 0.28 : 0.23, 10, 9),
+    fleshMat
+  );
+  if (!isWire) cranium.scale.set(isDuller ? 0.74 : isSmiler ? 1.05 : 0.84, isDuller ? 1.42 : 1.28, 1.08);
   neck.add(cranium);
 
+  if (isDuller) {
+    // Deep vertical split down Duller's soot mask-face
+    const cleft = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.42, 0.12), tarMat);
+    cleft.position.set(0, 0.0, -0.19);
+    neck.add(cleft);
+  }
+
   const eyes = [];
+  const eyeScale = isSmiler ? 1.45 : isDuller ? 0.65 : 1.0;
   for (const s of [-1, 1]) {
-    const socket = new THREE.Mesh(new THREE.SphereGeometry(0.062, 8, 8), tarMat);
-    socket.position.set(s * 0.088, 0.055, -0.175);
-    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 8), eyeOuterMat);
-    iris.position.set(s * 0.088, 0.055, -0.215);
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), eyeCoreMat);
-    core.position.set(s * 0.088, 0.055, -0.238);
+    const socket = new THREE.Mesh(new THREE.SphereGeometry(0.062 * eyeScale, 8, 8), tarMat);
+    socket.position.set(s * (isSmiler ? 0.115 : 0.088), 0.065, isWire ? -0.16 : -0.175);
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.040 * eyeScale, 8, 8), eyeOuterMat);
+    iris.position.set(s * (isSmiler ? 0.115 : 0.088), 0.065, isWire ? -0.195 : -0.215);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.018 * eyeScale, 6, 6), eyeCoreMat);
+    core.position.set(s * (isSmiler ? 0.115 : 0.088), 0.065, isWire ? -0.215 : -0.238);
     neck.add(socket, iris, core);
     eyes.push(iris);
   }
 
-  // Eye-beam ominous crimson PointLight illuminating dark walls in front of Entity
-  const eyeLight = new THREE.PointLight(0xff2410, 3.2, 11, 1.6);
+  const eyeLightCol = isHowler ? 0x3ad4ff : isMimic ? 0xffa820 : isNull ? 0xc428ff : isSmiler ? 0xdceeff : isStealer ? 0xff7c24 : isWire ? 0x2aff70 : isDuller ? 0x5cc8ff : 0xff2410;
+  const eyeLight = new THREE.PointLight(eyeLightCol, 3.2, 11.5, 1.6);
   eyeLight.position.set(0, 0.05, -0.35);
   neck.add(eyeLight);
 
   const jaw = new THREE.Group();
   jaw.position.set(0, -0.07, -0.06);
-  const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.27), bloodMat);
-  jawMesh.position.set(0, -0.06, -0.09);
-  jaw.add(jawMesh);
-  for (let t = -3; t <= 3; t++) {
-    const fang = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.11, 4), boneMat);
-    fang.position.set(t * 0.03, 0.02, -0.19 + Math.abs(t) * 0.015);
-    jaw.add(fang);
+  if (isSmiler) {
+    // Iconic Smiler wide crescent ring of incandescent neon-white triangular teeth!
+    for (let t = -5; t <= 5; t++) {
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.11, 4), eyeCoreMat);
+      const u = t / 5;
+      tooth.position.set(u * 0.21, -0.03 + u * u * 0.12, -0.19 - (1 - Math.abs(u)) * 0.06);
+      tooth.rotation.x = Math.PI;
+      jaw.add(tooth);
+    }
+  } else {
+    const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.27), bloodMat);
+    jawMesh.position.set(0, -0.06, -0.09);
+    jaw.add(jawMesh);
+    for (let t = -3; t <= 3; t++) {
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.11, 4), boneMat);
+      fang.position.set(t * 0.03, 0.02, -0.19 + Math.abs(t) * 0.015);
+      jaw.add(fang);
+    }
   }
   neck.add(jaw);
 
+  const armLenScale = isDuller ? 1.28 : isWire ? 1.15 : 1.0;
   const makeClawArm = (side) => {
     const sh = new THREE.Group();
     sh.position.set(side * 0.38, 0.36, -0.05);
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.05, 0.74, 7), fleshMat);
-    upper.position.y = -0.34;
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.05, 0.74 * armLenScale, 7), fleshMat);
+    upper.position.y = -0.34 * armLenScale;
     const elbow = new THREE.Group();
-    elbow.position.y = -0.70;
-    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.036, 0.80, 7), tarMat);
-    fore.position.y = -0.38;
+    elbow.position.y = -0.70 * armLenScale;
+    const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.036, 0.80 * armLenScale, 7), tarMat);
+    fore.position.y = -0.38 * armLenScale;
     elbow.add(fore);
     for (let f = -1.5; f <= 1.5; f++) {
-      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.017, 0.38, 4), f % 1 ? boneMat : bloodMat);
-      talon.position.set(f * 0.038, -0.84, -0.05);
+      const talon = new THREE.Mesh(new THREE.ConeGeometry(0.017, isDuller ? 0.48 : 0.38, 4), f % 1 ? boneMat : bloodMat);
+      talon.position.set(f * 0.038, -0.84 * armLenScale, -0.05);
       talon.rotation.x = Math.PI + 0.45;
       elbow.add(talon);
     }
@@ -2282,7 +2577,7 @@ export function buildEntityAvatar(kind = 'bacteria') {
   const lLeg = makeLeg(-1);
   const rLeg = makeLeg(1);
 
-  const aura = new THREE.PointLight(0xff1e10, 1.4, 7.0, 1.8);
+  const aura = new THREE.PointLight(eyeLightCol, 1.4, 7.0, 1.8);
   aura.position.set(0, 1.4, -0.2);
   g.add(aura);
 

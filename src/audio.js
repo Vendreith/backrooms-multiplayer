@@ -16,6 +16,33 @@ export const MUSIC_TRACKS = {
   null_chase: './audio/null_protocol_chase.mp3'
 };
 
+export const HORROR_SFX_TRACKS = {
+  sfx_whisper: './audio/sfx_whisper.ogg',
+  sfx_creak: './audio/sfx_creak.ogg',
+  sfx_metal_bang: './audio/sfx_metal_bang.ogg',
+  sfx_knock: './audio/sfx_knock.ogg',
+  sfx_growl1: './audio/sfx_growl1.ogg',
+  sfx_growl2: './audio/sfx_growl2.ogg',
+  sfx_squeak: './audio/sfx_squeak.ogg',
+  sfx_clasp: './audio/sfx_clasp.ogg',
+  sfx_static: './audio/sfx_static.wav',
+  sfx_saturn_radio: './audio/sfx_saturn_radio.wav',
+  sfx_elevator_door: './audio/sfx_elevator_door.ogg'
+};
+
+export const CREEPY_RANDOM_KEYS = [
+  'sfx_whisper',
+  'sfx_creak',
+  'sfx_metal_bang',
+  'sfx_knock',
+  'sfx_growl1',
+  'sfx_growl2',
+  'sfx_squeak',
+  'sfx_clasp',
+  'sfx_static',
+  'sfx_saturn_radio'
+];
+
 export const AMBIENT_TRACK_KEYS = [
   'burning',
   'ballroom',
@@ -52,7 +79,9 @@ class AudioManager {
     this.chaseGain = null;
 
     this.rawBuffers = {};     // Pre-fetched ArrayBuffers from Preloader
-    this.audioBuffers = {};   // Decoded AudioBuffers
+    this.audioBuffers = {};   // Decoded looping music AudioBuffers
+    this.sfxRawBuffers = {};  // Pre-fetched one-shot horror/elevator SFX buffers
+    this.sfxBuffers = {};     // Decoded one-shot AudioBuffers
     this.sources = {};        // Active looping AudioBufferSourceNodes + GainNodes
     this.decoding = new Set();
 
@@ -76,24 +105,35 @@ class AudioManager {
     this.musicVol = 0.72;
     this.sfxVol = 0.85;
     this._heartT = 0;
+    this._nextCreepyT = 5.5;
+    this._lastCreepyKey = '';
   }
 
   /**
-   * Downloads all 5 MP3 music files into RAM during Preloader so runtime switching never hitches.
+   * Downloads all music tracks & random horror/elevator SFX into RAM during Preloader.
    */
   registerPreloadTasks(preloader) {
     const entries = Object.entries(MUSIC_TRACKS);
-    preloader.addTask('Tải nhạc Backrooms & âm thanh truy đuổi (MP3)...', async () => {
-      await Promise.all(entries.map(async ([key, url]) => {
-        try {
-          const res = await fetch(url);
-          if (res.ok) {
-            this.rawBuffers[key] = await res.arrayBuffer();
+    const sfxEntries = Object.entries(HORROR_SFX_TRACKS);
+    preloader.addTask('Tải nhạc Backrooms & âm thanh kinh dị (MP3/OGG)...', async () => {
+      await Promise.all([
+        ...entries.map(async ([key, url]) => {
+          try {
+            const res = await fetch(url);
+            if (res.ok) this.rawBuffers[key] = await res.arrayBuffer();
+          } catch (e) {
+            console.warn('Audio preload skipped:', url, e);
           }
-        } catch (e) {
-          console.warn('Audio preload skipped:', url, e);
-        }
-      }));
+        }),
+        ...sfxEntries.map(async ([key, url]) => {
+          try {
+            const res = await fetch(url);
+            if (res.ok) this.sfxRawBuffers[key] = await res.arrayBuffer();
+          } catch (e) {
+            console.warn('SFX preload skipped:', url, e);
+          }
+        })
+      ]);
       await PreloaderSystem.yieldFrame();
     });
   }
@@ -179,6 +219,19 @@ class AudioManager {
         this._ensureTrackPlaying(key);
       } catch (e) {
         console.warn('Audio decode failed:', key, e);
+      } finally {
+        this.decoding.delete(key);
+      }
+    }
+    for (const key of Object.keys(HORROR_SFX_TRACKS)) {
+      const raw = this.sfxRawBuffers[key];
+      if (!raw || this.sfxBuffers[key] || this.decoding.has(key)) continue;
+      this.decoding.add(key);
+      try {
+        const copy = raw.slice(0);
+        this.sfxBuffers[key] = await this.ctx.decodeAudioData(copy);
+      } catch (e) {
+        console.warn('SFX decode failed:', key, e);
       } finally {
         this.decoding.delete(key);
       }
@@ -901,6 +954,170 @@ class AudioManager {
     g.connect(this.sfxGain);
     osc.start(t);
     osc.stop(t + 0.18);
+  }
+
+  /**
+   * Plays warm retro two-tone elevator chime + heavy metallic sliding door sound.
+   */
+  playElevatorSequence(pos = null) {
+    if (!this.ensureContext()) return false;
+    const t = this.ctx.currentTime;
+    const targetOut = pos ? this._makePanner(pos, 5, 34) : this.sfxGain;
+
+    // Two-tone brass bell ding-dong (D5 -> B4)
+    const tones = [
+      { freq: 587.33, start: 0.0, dur: 0.55 },
+      { freq: 493.88, start: 0.22, dur: 0.78 }
+    ];
+    for (const tn of tones) {
+      const osc = this.ctx.createOscillator();
+      const overtone = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      overtone.type = 'triangle';
+      osc.frequency.setValueAtTime(tn.freq, t + tn.start);
+      overtone.frequency.setValueAtTime(tn.freq * 2.0, t + tn.start);
+      g.gain.setValueAtTime(0.001, t + tn.start);
+      g.gain.linearRampToValueAtTime(0.24, t + tn.start + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + tn.start + tn.dur);
+      osc.connect(g);
+      overtone.connect(g);
+      g.connect(targetOut);
+      osc.start(t + tn.start);
+      overtone.start(t + tn.start);
+      osc.stop(t + tn.start + tn.dur + 0.04);
+      overtone.stop(t + tn.start + tn.dur + 0.04);
+    }
+
+    // Play real recorded sliding steel elevator door if decoded, else hydraulic rumble fallback
+    const doorBuf = this.sfxBuffers.sfx_elevator_door;
+    if (doorBuf) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = doorBuf;
+      src.playbackRate.value = 0.92;
+      const g = this.ctx.createGain();
+      const startAt = t + 0.32;
+      const playDur = Math.min(2.4, Math.max(0.9, doorBuf.duration));
+      g.gain.setValueAtTime(0.001, startAt);
+      g.gain.linearRampToValueAtTime(0.46, startAt + 0.14);
+      g.gain.exponentialRampToValueAtTime(0.001, startAt + playDur);
+      src.connect(g);
+      g.connect(targetOut);
+      src.start(startAt, 0, playDur);
+    } else if (this._breathBuffer) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this._breathBuffer;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(160, t + 0.32);
+      bp.frequency.linearRampToValueAtTime(310, t + 1.15);
+      bp.Q.value = 1.8;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.001, t + 0.32);
+      g.gain.linearRampToValueAtTime(0.32, t + 0.50);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.55);
+      src.connect(bp);
+      bp.connect(g);
+      g.connect(targetOut);
+      src.start(t + 0.32, 0, 1.3);
+    }
+    return true;
+  }
+
+  /**
+   * Plays a spatialized eerie horror SFX at 3D world coordinates `pos`,
+   * falling back cleanly to synthesized creepy foley if audio buffers aren't decoded.
+   */
+  playCreepySfx(preferredKey = null, pos = null, opts = {}) {
+    if (!this.ensureContext()) return { played: false, key: null };
+    let key = preferredKey;
+    if (!key) {
+      const candidates = CREEPY_RANDOM_KEYS.filter(k => k !== this._lastCreepyKey);
+      key = candidates[(Math.random() * candidates.length) | 0] || CREEPY_RANDOM_KEYS[0];
+    }
+    this._lastCreepyKey = key;
+
+    const p = pos || { x: 0, y: 1.4, z: 0 };
+    const refDist = opts.refDistance ?? 4.5;
+    const maxDist = opts.maxDistance ?? 36;
+    const vol = opts.volume ?? (0.28 + Math.random() * 0.22);
+    const outNode = pos ? this._makePanner(p, refDist, maxDist) : this.sfxGain;
+
+    // Slight distance lowpass muffling so corridor walls make noises deeply ominous
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = opts.cutoffHz ?? (2600 + Math.random() * 3200);
+    lp.connect(outNode);
+
+    const buf = this.sfxBuffers[key];
+    if (buf) {
+      const t = this.ctx.currentTime;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = 0.78 + Math.random() * 0.28;
+      const dur = Math.min(3.8, Math.max(0.45, buf.duration - 0.05));
+      const maxOffset = Math.max(0, buf.duration - dur - 0.05);
+      const offset = maxOffset > 0.2 ? Math.random() * maxOffset : 0;
+
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(vol, t + Math.min(0.18, dur * 0.2));
+      g.gain.setValueAtTime(vol * 0.9, t + Math.max(0.2, dur - 0.35));
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+      src.connect(g);
+      g.connect(lp);
+      src.start(t, offset, dur);
+      return { played: true, key, x: p.x, z: p.z, synthesized: false };
+    }
+
+    // Procedural chilling Web Audio synth fallback
+    const t = this.ctx.currentTime;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.linearRampToValueAtTime(vol * 0.65, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.35);
+    g.connect(lp);
+
+    const o1 = this.ctx.createOscillator();
+    o1.type = key.includes('growl') ? 'sawtooth' : key.includes('knock') ? 'triangle' : 'sine';
+    const baseF = key.includes('knock') ? 130 : key.includes('creak') ? 390 : 74;
+    o1.frequency.setValueAtTime(baseF, t);
+    o1.frequency.exponentialRampToValueAtTime(Math.max(28, baseF * (key.includes('creak') ? 1.38 : 0.62)), t + 1.25);
+    o1.connect(g);
+    o1.start(t);
+    o1.stop(t + 1.4);
+    return { played: true, key, x: p.x, z: p.z, synthesized: true };
+  }
+
+  /**
+   * Sporadically schedules unsettling 3D horror noises around the player during gameplay
+   * (including cable groans & faint whispers while waiting inside the opening Elevator!).
+   */
+  updateCreepySounds(dt, me, map, elevatorState = 'open') {
+    if (!me || this.muted) return null;
+    this._nextCreepyT -= dt;
+    if (this._nextCreepyT > 0) return null;
+
+    const inElevator = elevatorState !== 'open';
+    // More frequent in tense moments; slightly longer quiet gaps after each sting so jumps stay unpredictable
+    this._nextCreepyT = inElevator ? (6.5 + Math.random() * 6.0) : (8.5 + Math.random() * 11.5);
+
+    const backBias = Math.random() < 0.65 ? Math.PI : 0;
+    const angle = (me.yaw || 0) + backBias + (Math.random() - 0.5) * 1.9;
+    const dist = inElevator ? (4.5 + Math.random() * 7.5) : (7.5 + Math.random() * 15.0);
+    const px = me.x - Math.sin(angle) * dist;
+    const pz = me.z - Math.cos(angle) * dist;
+
+    const pool = inElevator
+      ? ['sfx_creak', 'sfx_clasp', 'sfx_whisper', 'sfx_static', 'sfx_squeak']
+      : CREEPY_RANDOM_KEYS;
+    const filtered = pool.filter(k => k !== this._lastCreepyKey);
+    const chosen = filtered[(Math.random() * filtered.length) | 0] || pool[0];
+    return this.playCreepySfx(chosen, { x: px, y: 1.5, z: pz }, {
+      volume: inElevator ? 0.24 : 0.34,
+      cutoffHz: dist > 15 ? 2100 : 3800
+    });
   }
 }
 

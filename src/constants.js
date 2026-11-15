@@ -84,8 +84,91 @@ export const ENTITY_ARCHETYPES = [
     revealCD: 999,
     quadrant: 'SE',
     desc: 'Bóng lỗi không gian từ Null KX — gây nhiễu tín hiệu VHS mạnh khi áp sát.'
+  },
+  {
+    id: 'AI_ENT_4',
+    kind: 'smiler',
+    name: 'The Smiler (Kẻ Cười Đêm)',
+    patrolSpd: 4.65,
+    chaseSpd: 5.95,
+    sightRange: 16.5,
+    hearRange: 13.0,
+    loseTime: 4.8,
+    revealCD: 999,
+    beamSlows: true,
+    quadrant: 'NW',
+    desc: 'Nụ cười trắng rợn người lơ lửng trong bóng tối — săn mồi cực nhanh nhưng chững lại khi gặp ánh đèn.'
+  },
+  {
+    id: 'AI_ENT_5',
+    kind: 'skin_stealer',
+    name: 'Skin-Stealer (Kẻ Lột Da)',
+    patrolSpd: 4.1,
+    chaseSpd: 5.75,
+    sightRange: 16.0,
+    hearRange: 14.5,
+    loseTime: 5.2,
+    revealCD: 999,
+    quadrant: 'NE',
+    desc: 'Nhái dáng hình người vá chằng chịt vết khâu — rình rập êm ru trước khi lao vào xé xác.'
+  },
+  {
+    id: 'AI_ENT_6',
+    kind: 'wire_stalker',
+    name: 'Wire-Stalker (Thực Thể Cáp)',
+    patrolSpd: 4.25,
+    chaseSpd: 5.50,
+    sightRange: 18.8,
+    hearRange: 11.5,
+    loseTime: 4.4,
+    revealCD: 999,
+    quadrant: 'SW',
+    desc: 'Khối dây cáp điện công nghiệp xoắn chặt gắn đầu màn hình CRT xanh — tầm quét hành lang rất xa.'
+  },
+  {
+    id: 'AI_ENT_7',
+    kind: 'duller',
+    name: 'The Duller (Bóng Xám Khô)',
+    patrolSpd: 4.35,
+    chaseSpd: 5.65,
+    sightRange: 14.8,
+    hearRange: 13.5,
+    loseTime: 4.6,
+    revealCD: 999,
+    quadrant: 'SE',
+    desc: 'Bóng người xám cao kều không cổ với khe mặt rách dọc và đôi tay lưỡi hái dài ngoằng.'
   }
 ];
+
+/**
+ * Deterministically selects a randomized subset & quadrant permutation of Entities from a seed
+ * so every match surprises players with varied monsters at different random sectors across the map.
+ */
+export function selectMatchEntities(seed = 1337, count = 5) {
+  let s = (Math.floor(seed) ^ 0x9e3779b9) >>> 0;
+  const rand = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pool = ENTITY_ARCHETYPES.map(a => ({ ...a }));
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const quads = ['NW', 'NE', 'SW', 'SE', 'NW', 'NE', 'SW', 'SE'];
+  for (let i = quads.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [quads[i], quads[j]] = [quads[j], quads[i]];
+  }
+  const n = Math.min(pool.length, Math.max(4, count));
+  return pool.slice(0, n).map((arch, idx) => ({
+    ...arch,
+    spawnQuadrant: quads[idx % quads.length],
+    spawnJitter: rand()
+  }));
+}
 export const FREE_TIME = 4;
 export const BLEED = 120;
 export const MAXP = 5;
