@@ -11,7 +11,7 @@ import {
   NoiseEffect,
   BlendFunction
 } from './engine.js';
-import { GFX_PRESETS, getPresetDefaultFx } from './constants.js';
+import { GFX_PRESETS, FOOTAGE_FILTER_PRESETS, getPresetDefaultFx } from './constants.js';
 
 const MOTION_BLUR_FRAG = /* glsl */ `
 uniform mat4 uReprojMatrix;
@@ -24,6 +24,10 @@ uniform float uShutterScale;
 uniform float uTurnMix;
 uniform float uShakeMix;
 uniform float uTemporalMix;
+uniform float uSoftDefocus;
+uniform float uTaaMix;
+uniform float uHasHistory;
+uniform vec2 uTexelSize;
 uniform float uEnabled;
 uniform float uDofAmount;
 uniform float uCamNear;
@@ -54,13 +58,15 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float turnMask = clamp(uTurnMix, 0.0, 1.0) * step(0.5, uEnabled);
   float shakeMask = clamp(uShakeMix, 0.0, 1.0) * step(0.5, uEnabled);
 
-  // 1. Real 3D Depth-Buffer Camera Reprojection Velocity (for strong Camera-Turn motion blur)
+  // 1. Real 3D Depth-Buffer Camera Reprojection Velocity (for Camera-Turn motion blur & Soft TAA)
   vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
   vec4 prevClip = uReprojMatrix * clipPos;
   vec2 reprojTrail = vec2(0.0);
-  if (prevClip.w > 0.0002) {
-    vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
-    reprojTrail = (prevUV - uv) * uShutterScale;
+  vec2 reprojPrevUV = uv;
+  bool hasPrevReproj = prevClip.w > 0.0002;
+  if (hasPrevReproj) {
+    reprojPrevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
+    reprojTrail = (reprojPrevUV - uv) * uShutterScale;
   }
 
   // 2. Strong Camera-Turn Motion Blur + Noticeably Lighter & Faster Running Camera-Shake Micro-Blur
@@ -79,48 +85,86 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float mag = length(totalTrail);
   if (mag > 0.28) totalTrail = totalTrail * (0.28 / mag);
 
-  // Early exit when both motion blur is off AND scene pixel is within 15m sharp radius
-  if (mag < 0.0014 && dofCurve < 0.0015) {
+  // Early exit when motion blur, distant DoF, soft optical defocus, and TAA softness are all off
+  if (mag < 0.0014 && dofCurve < 0.0015 && uSoftDefocus < 0.001 && uTaaMix < 0.001) {
     outputColor = inputColor;
     return;
   }
 
-  vec4 accum = inputColor;
-  float totalWeight = 1.0;
-  float jitter = mbHash12(uv * 917.3 + fract(uSpeedBlur * 13.7 + uVelocity.x * 71.1));
-  const int SAMPLES = 28;
-  float aspectInv = 1.0 / max(uAspect, 0.5);
-  float dofRad = 0.044 * dofCurve;
-  float dofGate = smoothstep(0.0, 0.14, dofCurve) * (1.0 - smoothstep(0.008, 0.020, mag));
+  vec3 blurred = inputColor.rgb;
+  if (mag >= 0.0014 || dofCurve >= 0.0015) {
+    vec4 accum = inputColor;
+    float totalWeight = 1.0;
+    float jitter = mbHash12(uv * 917.3 + fract(uSpeedBlur * 13.7 + uVelocity.x * 71.1));
+    const int SAMPLES = 28;
+    float aspectInv = 1.0 / max(uAspect, 0.5);
+    float dofRad = 0.044 * dofCurve;
+    float dofGate = smoothstep(0.0, 0.14, dofCurve) * (1.0 - smoothstep(0.008, 0.020, mag));
 
-  for (int i = 1; i <= SAMPLES; i++) {
-    float fi = float(i);
-    float t = (fi - 0.5 + jitter * 0.60) / float(SAMPLES);
-    // Golden-Angle Poisson Bokeh disc spread for silky-smooth >15m distance optical blur
-    float ang = fi * 2.3999632 + jitter * 6.28318;
-    float rDisc = sqrt((fi - 0.35) / float(SAMPLES));
-    vec2 bokehOffset = vec2(cos(ang) * aspectInv, sin(ang)) * (dofRad * rDisc);
-    vec2 motionOffset = totalTrail * t;
+    for (int i = 1; i <= SAMPLES; i++) {
+      float fi = float(i);
+      float t = (fi - 0.5 + jitter * 0.60) / float(SAMPLES);
+      // Golden-Angle Poisson Bokeh disc spread for silky-smooth >15m distance optical blur
+      float ang = fi * 2.3999632 + jitter * 6.28318;
+      float rDisc = sqrt((fi - 0.35) / float(SAMPLES));
+      vec2 bokehOffset = vec2(cos(ang) * aspectInv, sin(ang)) * (dofRad * rDisc);
+      vec2 motionOffset = totalTrail * t;
 
-    vec2 suv = clamp(uv + motionOffset + bokehOffset, vec2(0.003), vec2(0.997));
-    vec4 sCol = texture2D(inputBuffer, suv);
-    float sLuma = dot(sCol.rgb, vec3(0.299, 0.587, 0.114));
-    float lightBoost = 1.0 + smoothstep(0.68, 2.00, sLuma) * mix(0.65, 1.15, turnMask);
+      vec2 suv = clamp(uv + motionOffset + bokehOffset, vec2(0.003), vec2(0.997));
+      vec4 sCol = texture2D(inputBuffer, suv);
+      float sLuma = dot(sCol.rgb, vec3(0.299, 0.587, 0.114));
+      float lightBoost = 1.0 + smoothstep(0.68, 2.00, sLuma) * mix(0.65, 1.15, turnMask);
 
-    // Continuous foreground bleed-guard so 15m transition never forms hard cutout seams
-    float bleedGuard = 1.0;
-    if (dofGate > 0.005) {
-      float sDistM = linearizeDist(min(readDepth(suv), 0.9994), uCamNear, uCamFar);
-      float bleedMask = mix(0.06, 1.0, smoothstep(12.0, 20.5, sDistM));
-      bleedGuard = mix(1.0, bleedMask, dofGate);
+      // Continuous foreground bleed-guard so 15m transition never forms hard cutout seams
+      float bleedGuard = 1.0;
+      if (dofGate > 0.005) {
+        float sDistM = linearizeDist(min(readDepth(suv), 0.9994), uCamNear, uCamFar);
+        float bleedMask = mix(0.06, 1.0, smoothstep(12.0, 20.5, sDistM));
+        bleedGuard = mix(1.0, bleedMask, dofGate);
+      }
+
+      float w = (1.0 - t * 0.22) * lightBoost * bleedGuard;
+      accum += sCol * w;
+      totalWeight += w;
     }
-
-    float w = (1.0 - t * 0.22) * lightBoost * bleedGuard;
-    accum += sCol * w;
-    totalWeight += w;
+    blurred = accum.rgb / max(totalWeight, 0.0001);
   }
 
-  vec3 blurred = accum.rgb / max(totalWeight, 0.0001);
+  // Slight global lens optical defocus (subtle 10-20% softness keeping silhouettes readable)
+  if (uSoftDefocus > 0.001) {
+    vec2 px = max(uTexelSize, vec2(0.0005)) * (1.05 + uSoftDefocus * 1.95);
+    vec2 dPx = px * 0.7071;
+    vec3 defCol = blurred * 1.40;
+    defCol += texture2D(inputBuffer, clamp(uv + vec2(px.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
+    defCol += texture2D(inputBuffer, clamp(uv - vec2(px.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
+    defCol += texture2D(inputBuffer, clamp(uv + vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
+    defCol += texture2D(inputBuffer, clamp(uv - vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
+    defCol += texture2D(inputBuffer, clamp(uv + dPx, vec2(0.002), vec2(0.998))).rgb * 0.75;
+    defCol += texture2D(inputBuffer, clamp(uv - dPx, vec2(0.002), vec2(0.998))).rgb * 0.75;
+    defCol += texture2D(inputBuffer, clamp(uv + vec2(dPx.x, -dPx.y), vec2(0.002), vec2(0.998))).rgb * 0.75;
+    defCol += texture2D(inputBuffer, clamp(uv + vec2(-dPx.x, dPx.y), vec2(0.002), vec2(0.998))).rgb * 0.75;
+    defCol /= 8.40;
+    blurred = mix(blurred, defCol, clamp(uSoftDefocus, 0.0, 0.68));
+  }
+
+  // Soft TAA / Temporal accumulation smear & subtle camera-motion ghosting
+  if (uTaaMix > 0.001 && uHasHistory > 0.5 && hasPrevReproj &&
+      reprojPrevUV.x >= 0.0 && reprojPrevUV.x <= 1.0 &&
+      reprojPrevUV.y >= 0.0 && reprojPrevUV.y <= 1.0) {
+    vec2 px = max(uTexelSize, vec2(0.0005));
+    vec2 histUv = clamp(reprojPrevUV, vec2(0.002), vec2(0.998));
+    vec3 histCol = texture2D(uPrevFrame, histUv).rgb;
+    vec3 n0 = texture2D(inputBuffer, clamp(uv + vec2(px.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
+    vec3 n1 = texture2D(inputBuffer, clamp(uv - vec2(px.x, 0.0), vec2(0.002), vec2(0.998))).rgb;
+    vec3 n2 = texture2D(inputBuffer, clamp(uv + vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
+    vec3 n3 = texture2D(inputBuffer, clamp(uv - vec2(0.0, px.y), vec2(0.002), vec2(0.998))).rgb;
+    vec3 cMin = min(blurred, min(min(n0, n1), min(n2, n3)));
+    vec3 cMax = max(blurred, max(max(n0, n1), max(n2, n3)));
+    // Mild margin creates natural TAA ghosting/smear rather than crisp modern anti-aliasing
+    vec3 margin = (cMax - cMin) * 0.38 + vec3(0.032);
+    histCol = clamp(histCol, max(cMin - margin, vec3(0.0)), cMax + margin);
+    blurred = mix(blurred, histCol, clamp(uTaaMix, 0.0, 0.56));
+  }
 
   float tMix = uTemporalMix * turnMask * smoothstep(0.015, 0.055, mag);
   if (tMix > 0.001) {
@@ -146,6 +190,20 @@ uniform float uIs43;
 uniform vec2 uResolution;
 uniform float uCrtNear;
 uniform float uCrtFar;
+uniform float uStreamMix;
+uniform float uSoftUpscale;
+uniform float uSubResH;
+uniform float uCaBoost;
+uniform float uCompressAmt;
+uniform float uAutoExpAmt;
+uniform float uGradeHaze;
+uniform float uSensorNoise;
+uniform float uDisableSharpen;
+uniform float uContrast;
+uniform float uGamma;
+uniform float uHue;
+uniform float uSaturation;
+uniform float uScanlineMask;
 
 float crtLinearizeDist(float d, float zn, float zf) {
   float zNdc = clamp(d, 0.0, 0.99995) * 2.0 - 1.0;
@@ -162,6 +220,17 @@ vec3 hash32(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
   p3 += dot(p3, p3.yxz + 33.33);
   return fract((p3.xxy + p3.yzz) * p3.zyx);
+}
+
+// Smooth virtual low-resolution bilinear/bicubic-tent reconstruction without post-sharpening
+vec3 sampleSoftRes(sampler2D buf, vec2 suv, vec2 subDims, float softAmt) {
+  vec2 uvQ = mix(suv, (floor(suv * subDims) + 0.5) / subDims, 0.24 * softAmt);
+  vec2 px = (0.58 / max(subDims, vec2(160.0))) * (0.65 + 0.55 * softAmt);
+  vec3 c0 = texture2D(buf, clamp(uvQ + vec2(px.x, px.y), vec2(0.006), vec2(0.994))).rgb;
+  vec3 c1 = texture2D(buf, clamp(uvQ + vec2(-px.x, px.y), vec2(0.006), vec2(0.994))).rgb;
+  vec3 c2 = texture2D(buf, clamp(uvQ + vec2(px.x, -px.y), vec2(0.006), vec2(0.994))).rgb;
+  vec3 c3 = texture2D(buf, clamp(uvQ + vec2(-px.x, -px.y), vec2(0.006), vec2(0.994))).rgb;
+  return max((c0 + c1 + c2 + c3) * 0.25, vec3(0.0));
 }
 
 // Smooth ultra-tiny circular optical emulsion grains (avoids square Cartesian pixel noise)
@@ -191,6 +260,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float r4 = r2 * r2;
 
   // 1. Strongly Curved Wide-Angle CRT/Camcorder Barrel Lens (16:9 & extreme 4:3 CRT modes)
+  float scanAmt = max(uScanlineAmount, 0.0);
   float curveScale = max(uLensCurve, 0.0);
   float baseZoom = mix(1.0, mix(0.76, 0.70, uIs43), clamp(curveScale, 0.0, 1.0));
   float lensPow = mix(0.66, 1.06, uIs43) * mix(1.0, 0.48, uIsKiller) * curveScale;
@@ -215,22 +285,36 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float nearFocus = 1.0 - smoothstep(0.85, 2.85, closeDistM);
 
   // 2. Heavy Camcorder VHS Tracking & Entity Proximity Interference
-  float scanAmt = max(uScanlineAmount, 0.0);
+  float hMask = clamp(uScanlineMask, 0.0, 1.0);
   float vhs = uVhsStrength * scanAmt;
   float sweep = sin(cuv.y * 7.0 - uTime * 2.4 + sin(uTime * 11.0));
   float sweepLine = smoothstep(0.965, 1.0, sweep);
   float bottomNoise = smoothstep(0.045, 0.0, cuv.y) * 0.65;
-  float tearFreq = (0.00022 + sweepLine * 0.0065 + bottomNoise * 0.008 + uPanic * 0.016) * vhs * mix(1.0, 0.08, nearFocus);
+  float tearFreq = (0.00022 + sweepLine * 0.0065 + bottomNoise * 0.008 + uPanic * 0.016) * vhs * hMask * mix(1.0, 0.08, nearFocus);
   float lineNoise = (hash12(vec2(floor(cuv.y * 260.0), floor(uTime * 24.0))) - 0.5);
   cuv.x = clamp(cuv.x + lineNoise * tearFreq, 0.006, 0.994);
 
-  // 3. Clean Optical Lens Dispersion + Film Halation across HDR blurred inputBuffer + Close-Range Optical Micro-Sharpening
+  // 3. Clean Optical Lens Dispersion + Soft Low-Res Upscale + Film Halation across HDR blurred inputBuffer
   vec2 clampedCuv = clamp(cuv, vec2(0.006), vec2(0.994));
-  float shift = (0.00068 + r2 * 0.0030 + uPanic * 0.0026 * vhs) * scanAmt * mix(0.35, 1.0, clamp(curveScale, 0.0, 1.0)) * mix(1.0, 0.14, nearFocus);
-  float colR = max(0.0, texture2D(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994))).r);
-  float colG = max(0.0, texture2D(inputBuffer, clampedCuv).g);
-  float colB = max(0.0, texture2D(inputBuffer, clamp(clampedCuv - vec2(shift, 0.0), vec2(0.006), vec2(0.994))).b);
-  vec3 col = vec3(colR, colG, colB);
+  vec2 resPx = max(uResolution.xy, vec2(640.0, 360.0));
+  float tgtH = clamp(uSubResH > 10.0 ? uSubResH : resPx.y, 180.0, 1080.0);
+  vec2 subDims = vec2(max(tgtH * (resPx.x / resPx.y), 240.0), tgtH);
+
+  float streamCa = (0.00055 + r2 * 0.0022) * uCaBoost;
+  float shift = ((0.00068 + r2 * 0.0030 + uPanic * 0.0026 * vhs) * scanAmt * mix(0.35, 1.0, clamp(curveScale, 0.0, 1.0)) + streamCa) * mix(1.0, 0.14 * (1.0 - clamp(uStreamMix * 0.85, 0.0, 0.85)), nearFocus);
+  float softAmt = clamp(uSoftUpscale, 0.0, 1.0);
+  vec3 col = vec3(0.0);
+  if (softAmt > 0.01) {
+    vec3 cCenter = sampleSoftRes(inputBuffer, clampedCuv, subDims, softAmt);
+    float cR = sampleSoftRes(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994)), subDims, softAmt * 0.65).r;
+    float cB = sampleSoftRes(inputBuffer, clamp(clampedCuv - vec2(shift, 0.0), vec2(0.006), vec2(0.994)), subDims, softAmt * 0.65).b;
+    col = max(vec3(cR, cCenter.g, cB), vec3(0.0));
+  } else {
+    float colR = max(0.0, texture2D(inputBuffer, clamp(clampedCuv + vec2(shift, 0.0), vec2(0.006), vec2(0.994))).r);
+    float colG = max(0.0, texture2D(inputBuffer, clampedCuv).g);
+    float colB = max(0.0, texture2D(inputBuffer, clamp(clampedCuv - vec2(shift, 0.0), vec2(0.006), vec2(0.994))).b);
+    col = vec3(colR, colG, colB);
+  }
 
   // Subtle Analog Camcorder Halation (warm amber-red bloom rim around bright fluorescent tubes)
   vec2 halStep = vec2(0.0032, 0.0022);
@@ -243,8 +327,9 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float halLuma = dot(halSample, vec3(0.299, 0.587, 0.114));
   col += vec3(1.0, 0.48, 0.16) * smoothstep(0.72, 1.85, halLuma) * 0.14 * clamp(uCrtAmount, 0.0, 1.0);
 
-  if (nearFocus > 0.01) {
-    vec2 pxStep = 1.0 / max(uResolution.xy, vec2(640.0, 360.0));
+  // Bypass close-up sharpening whenever low-res Footage / Stream filter is active (sharpen near zero)
+  if (nearFocus > 0.01 && uDisableSharpen < 0.5) {
+    vec2 pxStep = 1.0 / resPx;
     vec3 nb = 0.25 * (
       texture2D(inputBuffer, clamp(clampedCuv + vec2(pxStep.x, 0.0), vec2(0.006), vec2(0.994))).rgb +
       texture2D(inputBuffer, clamp(clampedCuv - vec2(pxStep.x, 0.0), vec2(0.006), vec2(0.994))).rgb +
@@ -255,9 +340,10 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     col = max(vec3(0.0), col + sharpDelta * (nearFocus * 0.82));
   }
 
-  // 4. HDR Color Grade & Filmic ACES Tone Mapping BEFORE Contrast S-curve (prevents negative channel wrap!)
-  float uneasyBreathe = mix(1.0 + sin(uTime * 0.68) * 0.025 + sin(uTime * 2.1) * 0.012 * uPanic, 1.0, uIsKiller);
-  col = pow(max(col * uneasyBreathe, vec3(0.0)), vec3(1.04));
+  // 4. HDR Color Grade, Auto-Exposure Instability & Filmic ACES Tone Mapping
+  float autoExpDrift = (sin(uTime * 1.15) * 0.5 + sin(uTime * 2.7 + 1.3) * 0.3 + sin(uTime * 6.4) * 0.2) * 0.10 * uAutoExpAmt;
+  float uneasyBreathe = mix(1.0 + sin(uTime * 0.68) * 0.025 + sin(uTime * 2.1) * 0.012 * uPanic, 1.0, uIsKiller) * (1.0 + autoExpDrift);
+  col = pow(max(col * uneasyBreathe, vec3(0.0)), vec3(1.04 + clamp(uGradeHaze, 0.0, 1.2) * 0.05));
 
   float preLumaHdr = dot(col, vec3(0.299, 0.587, 0.114));
   vec3 deepAmberShadow = vec3(0.82, 0.66, 0.24);
@@ -270,14 +356,21 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   }
   col = mix(col, col * vec3(1.24, 0.76, 0.62), uPanic * 0.52);
 
-  // Filmic ACES rolloff matched near Picture-2 iconic bright Backrooms exposure without negative wrap
+  // Subtle footage haze / highlight clip push / slight cool-fluorescent tint
+  float hazeAmt = clamp(uGradeHaze, 0.0, 1.6);
+  if (hazeAmt > 0.01) {
+    col += vec3(0.008, 0.009, 0.011) * min(hazeAmt, 1.2);
+    col *= mix(vec3(1.0), vec3(0.97, 1.01, 0.99), min(hazeAmt * 0.45, 0.6));
+    col *= 1.0 + 0.04 * hazeAmt;
+  }
+
+  // Filmic ACES rolloff
   col *= 0.84;
   col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), vec3(0.0), vec3(1.0));
 
-  // Ultra-tiny Circular Analog Silver-Halide Grain — soft round beads with high highlight presence!
+  // Ultra-tiny Circular Analog Silver-Halide Grain (naturally scaled down when Footage Filter runs)
   float preLuma = dot(col, vec3(0.299, 0.587, 0.114));
   float lightGrainBoost = smoothstep(0.24, 0.86, preLuma);
-  vec2 resPx = max(uResolution.xy, vec2(640.0, 360.0));
   vec2 rotPx = mat2(0.8, -0.6, 0.6, 0.8) * (clampedCuv * resPx);
   float tSeedA = floor(fract(uTime * 0.73) * 48.0);
   float tSeedB = floor(fract(uTime * 0.59 + 0.37) * 48.0);
@@ -291,19 +384,117 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float darkBite = max(0.0, -gMix) * lightGrainBoost * mix(0.62, 0.32, uIsKiller) * min(grainMul, 1.5) * mix(1.0, 0.16, nearFocus);
   col = clamp(col * max(0.28, 1.0 - darkBite) + vec3(gMix) * lightGrain * vec3(1.12, 1.00, 0.76), vec3(0.0), vec3(1.0));
 
+  // Digital sensor luma + low-light shadow chroma noise (prevents sterile smooth digital blur)
+  if (uSensorNoise > 0.005) {
+    vec2 nGrid = floor(clampedCuv * max(subDims, vec2(320.0, 180.0)) * 1.15);
+    float tTick = floor(uTime * 24.0);
+    vec3 n3 = hash32(nGrid + vec2(tTick * 19.1, tTick * 7.3)) - 0.5;
+    float pLuma = dot(col, vec3(0.299, 0.587, 0.114));
+    float darkZone = 1.0 - smoothstep(0.03, 0.44, pLuma);
+    float lumaN = (n3.x * 0.65 + n3.y * 0.35) * (0.022 + darkZone * 0.044) * uSensorNoise;
+    vec3 chromaN = (n3 - vec3(dot(n3, vec3(0.3333)))) * (darkZone * 0.046 * uSensorNoise);
+    col = clamp(col + vec3(lumaN) + chromaN, vec3(0.0), vec3(1.0));
+  }
+
   // VHS horizontal tape snow spikes on tracking / Entity proximity (calmed over close-up inspection)
   float snowTrigger = smoothstep(0.92 - uPanic * 0.25, 1.0, hash12(vec2(cuv.x * 180.0, floor(cuv.y * 220.0 + uTime * 42.0))));
-  col += vec3(0.75, 0.68, 0.42) * snowTrigger * (0.045 + sweepLine * 0.09 + uPanic * 0.22) * vhs * mix(1.0, 0.14, nearFocus);
+  col += vec3(0.75, 0.68, 0.42) * snowTrigger * (0.045 + sweepLine * 0.09 + uPanic * 0.22) * vhs * hMask * mix(1.0, 0.14, nearFocus);
 
-  // Bounded [0,1] contrast S-curve preserving deep recesses & clear wall textures
-  col = mix(col, col * col * (3.0 - 2.0 * col), 0.24);
+  // Bounded [0,1] contrast S-curve + footage crushed shadows / clipped highlights
+  float sCurveWeight = clamp(0.24 + hazeAmt * 0.14, 0.24, 0.44);
+  col = mix(col, col * col * (3.0 - 2.0 * col), sCurveWeight);
+  if (hazeAmt > 0.01) {
+    float cLuma = dot(col, vec3(0.299, 0.587, 0.114));
+    float toeCrush = smoothstep(0.0, 0.16 * min(hazeAmt, 1.2), cLuma);
+    col *= mix(1.0, mix(0.84, 1.0, toeCrush), min(hazeAmt * 0.7, 0.85));
+  }
+
+  // 4B. Final H.264 / Stream / VOD Low-Bitrate Compression Simulation (Macroblocks, 4:2:0 Chroma Smear, Banding)
+  if (uCompressAmt > 0.005) {
+    vec2 encRes = max(mix(resPx * 0.65, subDims * 1.15, 0.60), vec2(426.0, 240.0));
+    vec2 mbStep = 8.0 / encRes;
+    vec2 mbCoord = clampedCuv * encRes / 8.0;
+    vec2 mbCenter = (floor(mbCoord) + 0.5) * mbStep;
+    vec2 mbFrac = fract(mbCoord);
+    vec2 chromaCenter = (floor(clampedCuv * encRes / 4.0) + 0.5) * (4.0 / encRes);
+
+    vec3 mbRaw = texture2D(inputBuffer, clamp(mbCenter, vec2(0.006), vec2(0.994))).rgb;
+    vec3 chRaw = 0.5 * (
+      texture2D(inputBuffer, clamp(chromaCenter + vec2(3.0 / encRes.x, 0.0), vec2(0.006), vec2(0.994))).rgb +
+      texture2D(inputBuffer, clamp(chromaCenter - vec2(3.0 / encRes.x, 0.0), vec2(0.006), vec2(0.994))).rgb
+    );
+    vec3 killerScale = uIsKiller > 0.5 ? vec3(1.10, 0.92, 0.80) : vec3(1.0);
+    vec3 mbTone = grade * uneasyBreathe * killerScale * 0.84 * (1.0 + 0.04 * hazeAmt);
+    vec3 mbPre = mbRaw * mbTone;
+    vec3 chPre = chRaw * mbTone;
+    vec3 mbEst = clamp((mbPre * (2.51 * mbPre + 0.03)) / (mbPre * (2.43 * mbPre + 0.59) + 0.14), vec3(0.0), vec3(1.0));
+    vec3 chEst = clamp((chPre * (2.51 * chPre + 0.03)) / (chPre * (2.43 * chPre + 0.59) + 0.14), vec3(0.0), vec3(1.0));
+
+    float cY = dot(col, vec3(0.299, 0.587, 0.114));
+    float cCb = (col.b - cY) * 0.564;
+    float cCr = (col.r - cY) * 0.713;
+
+    float bY = dot(mbEst, vec3(0.299, 0.587, 0.114));
+    float sY = dot(chEst, vec3(0.299, 0.587, 0.114));
+    float sCb = (chEst.b - sY) * 0.564;
+    float sCr = (chEst.r - sY) * 0.713;
+
+    float cmp = clamp(uCompressAmt, 0.0, 1.8);
+    float detailDiff = abs(cY - bY);
+    float flatZone = 1.0 - smoothstep(0.025, 0.16, detailDiff);
+    float darkMask = 1.0 - smoothstep(0.02, 0.38, bY);
+    float blockMix = clamp(cmp * (0.18 + 0.42 * flatZone) * (0.45 + 0.55 * darkMask), 0.0, 0.78);
+    float yOut = mix(cY, bY, blockMix);
+
+    // Shadow gradient posterization & banding
+    float qLevels = mix(64.0, 22.0, clamp(cmp * 0.65, 0.0, 0.92));
+    float yQuant = floor(yOut * qLevels + 0.35) / qLevels;
+    yOut = mix(yOut, yQuant, clamp(cmp * (0.18 + 0.34 * darkMask), 0.0, 0.58));
+
+    // Crushed black floor & low-bitrate dark muddiness
+    yOut *= mix(1.0, smoothstep(0.0, 0.065 * min(cmp, 1.4), yOut), clamp(cmp * 0.55, 0.0, 0.72));
+
+    // Subtle 8x8 DCT mosquito ringing around high-contrast edges
+    float edgeRing = smoothstep(0.06, 0.24, detailDiff) * cmp * 0.018;
+    float dctWave = cos(mbFrac.x * 9.42477) * cos(mbFrac.y * 6.28318);
+    yOut = clamp(yOut + dctWave * edgeRing, 0.0, 1.0);
+
+    // YUV 4:2:0 chroma subsampling smear
+    float cSmear = clamp(cmp * 0.52, 0.0, 0.85);
+    float cbOut = mix(cCb, sCb, cSmear) * mix(1.0, 0.92, clamp(cmp * 0.35, 0.0, 0.4));
+    float crOut = mix(cCr, sCr, cSmear) * mix(1.0, 0.92, clamp(cmp * 0.35, 0.0, 0.4));
+
+    col = clamp(vec3(
+      yOut + 1.402 * crOut,
+      yOut - 0.344136 * cbOut - 0.714136 * crOut,
+      yOut + 1.772 * cbOut
+    ), vec3(0.0), vec3(1.0));
+  }
 
   // 5. Pronounced CRT Scanlines & Aperture Grille (eased smoothly up close so small text stays crisp)
   float scan = sin(clampedCuv.y * max(uResolution.y, 480.0) * 1.1) * 0.5 + 0.5;
-  float scanMul = mix(1.0 - (mix(0.14, 0.18, uIs43) * scanAmt) * (1.0 - scan), 1.0, nearFocus * 0.58);
+  float scanMul = mix(1.0 - (mix(0.14, 0.18, uIs43) * scanAmt * hMask) * (1.0 - scan), 1.0, nearFocus * 0.58);
   float triad = sin(clampedCuv.x * max(uResolution.x, 640.0) * 1.65) * 0.5 + 0.5;
-  float triadMul = mix(1.0 - (0.045 * scanAmt) * triad, 1.0, nearFocus * 0.58);
+  float triadMul = mix(1.0 - (0.040 * scanAmt * hMask) * triad, 1.0, nearFocus * 0.58);
   col *= scanMul * triadMul;
+
+  // 5B. User Color Adjustments: Contrast, Gamma, Hue Rotation, Saturation (before vignette)
+  if (abs(uContrast - 1.0) > 0.005) {
+    col = clamp((col - 0.5) * uContrast + 0.5, vec3(0.0), vec3(1.0));
+  }
+  if (abs(uGamma - 1.0) > 0.005) {
+    col = pow(max(col, vec3(0.0)), vec3(1.0 / max(uGamma, 0.25)));
+  }
+  if (abs(uHue) > 0.002) {
+    const vec3 kAxis = vec3(0.57735027);
+    float cH = cos(uHue);
+    float sH = sin(uHue);
+    col = clamp(col * cH + cross(kAxis, col) * sH + kAxis * dot(kAxis, col) * (1.0 - cH), vec3(0.0), vec3(1.0));
+  }
+  if (abs(uSaturation - 1.0) > 0.005) {
+    float satLuma = dot(col, vec3(0.299, 0.587, 0.114));
+    col = clamp(mix(vec3(satLuma), col, uSaturation), vec3(0.0), vec3(1.0));
+  }
 
   // 6. Strong Deep Camcorder Optical Vignette + Curved Bezel Glass Roll-Off
   float vigAmt = max(uVignetteAmount, 0.0);
@@ -505,6 +696,10 @@ export class BackroomsMotionBlurEffect extends Effect {
         ['uTurnMix', new THREE.Uniform(0)],
         ['uShakeMix', new THREE.Uniform(0)],
         ['uTemporalMix', new THREE.Uniform(0)],
+        ['uSoftDefocus', new THREE.Uniform(0)],
+        ['uTaaMix', new THREE.Uniform(0)],
+        ['uHasHistory', new THREE.Uniform(0)],
+        ['uTexelSize', new THREE.Uniform(new THREE.Vector2(1 / 1280, 1 / 720))],
         ['uEnabled', new THREE.Uniform(1)],
         ['uDofAmount', new THREE.Uniform(1.0)],
         ['uCamNear', new THREE.Uniform(0.08)],
@@ -522,6 +717,7 @@ export class BackroomsMotionBlurEffect extends Effect {
   resetHistory() {
     this._hasHistory = false;
     this.uniforms.get('uTemporalMix').value = 0.0;
+    this.uniforms.get('uHasHistory').value = 0.0;
   }
 
   updateMatrices(camera, dt) {
@@ -533,6 +729,7 @@ export class BackroomsMotionBlurEffect extends Effect {
     this.uniforms.get('uCamNear').value = camera.near || 0.08;
     this.uniforms.get('uCamFar').value = camera.far || 115.0;
     this.uniforms.get('uAspect').value = camera.aspect || 16 / 9;
+    this.uniforms.get('uHasHistory').value = this._hasHistory ? 1.0 : 0.0;
     if (!this._hasHistory) {
       this._prevViewProj.copy(this._currViewProj);
       this.uniforms.get('uReprojMatrix').value.identity();
@@ -568,7 +765,21 @@ export class BackroomsCRTGradeEffect extends Effect {
         ['uIs43', new THREE.Uniform(0)],
         ['uResolution', new THREE.Uniform(new THREE.Vector2(1280, 720))],
         ['uCrtNear', new THREE.Uniform(0.06)],
-        ['uCrtFar', new THREE.Uniform(115.0)]
+        ['uCrtFar', new THREE.Uniform(115.0)],
+        ['uStreamMix', new THREE.Uniform(0.0)],
+        ['uSoftUpscale', new THREE.Uniform(0.0)],
+        ['uSubResH', new THREE.Uniform(1080.0)],
+        ['uCaBoost', new THREE.Uniform(0.0)],
+        ['uCompressAmt', new THREE.Uniform(0.0)],
+        ['uAutoExpAmt', new THREE.Uniform(0.0)],
+        ['uGradeHaze', new THREE.Uniform(0.0)],
+        ['uSensorNoise', new THREE.Uniform(0.0)],
+        ['uDisableSharpen', new THREE.Uniform(0.0)],
+        ['uContrast', new THREE.Uniform(1.0)],
+        ['uGamma', new THREE.Uniform(1.0)],
+        ['uHue', new THREE.Uniform(0.0)],
+        ['uSaturation', new THREE.Uniform(1.0)],
+        ['uScanlineMask', new THREE.Uniform(1.0)]
       ])
     });
   }
@@ -628,6 +839,10 @@ export class GraphicsManager {
     this._shakeVelY = 0;
     this._shakeMix = 0;
     this._speedBlur = 0;
+    this._footagePreset = FOOTAGE_FILTER_PRESETS.off;
+    this._footageStr = 0;
+    this._effVig = 1.28;
+    this._effGrain = 1.0;
   }
 
   _ensureComposer() {
@@ -671,8 +886,19 @@ export class GraphicsManager {
   applyFx(fx, hemiLight = null, ambLight = null) {
     this.fx = { ...this.fx, ...fx };
 
-    const dpr = Math.min(window.devicePixelRatio || 1, Number(this.fx.renderScale) || 1.0);
-    this.renderer.setPixelRatio(Math.max(0.5, dpr));
+    const fKey = (this.fx.footageFilterMode in FOOTAGE_FILTER_PRESETS) ? this.fx.footageFilterMode : 'off';
+    const fPreset = FOOTAGE_FILTER_PRESETS[fKey] || FOOTAGE_FILTER_PRESETS.off;
+    const fStr = fPreset.id > 0 ? THREE.MathUtils.clamp(Number(this.fx.footageFilterStrength ?? 1.0), 0, 2.0) : 0.0;
+    const fMix01 = Math.min(fStr, 1.0);
+    this._footagePreset = fPreset;
+    this._footageStr = fStr;
+
+    const baseScale = Number(this.fx.renderScale) || 1.0;
+    const effScale = fMix01 > 0.001
+      ? Math.min(baseScale, THREE.MathUtils.lerp(baseScale, fPreset.internalScale, fMix01))
+      : baseScale;
+    const dpr = Math.min(window.devicePixelRatio || 1, effScale);
+    this.renderer.setPixelRatio(Math.max(0.4, dpr));
     this.renderer.shadowMap.enabled = !!this.fx.shadows;
 
     const br = Number(this.fx.brightness) || 1.0;
@@ -688,21 +914,76 @@ export class GraphicsManager {
       const hasRtShadow = (this.fx.rtShadow ?? 0) > 0.05;
       const hasMBlur = this.fx.motionBlur > 0.01;
       const hasDof = this.fx.dofBlur > 0.01;
-      const hasBloom = this.fx.bloom > 0.01;
+      const hasTaa = fStr > 0.01 && fPreset.taaMix > 0.005;
+      const hasSoftDefocus = fStr > 0.01 && fPreset.softDefocus > 0.005;
+      const hasFootageMotion = fStr > 0.01 && fPreset.motionBoost > 0.01;
+      const hasBloom = this.fx.bloom > 0.01 || (fStr > 0.01 && fPreset.bloomBoost > 0.01);
+
+      const userLens = Math.max(0, this.fx.lensCurve);
+      const userScan = Math.max(0, this.fx.scanlines);
+      const userGrain = Math.max(0, this.fx.grain);
+      const userVig = Math.max(0, this.fx.vignette);
+
+      const effLens = fMix01 > 0.01 && (fPreset.minLensCurve || 0) > 0
+        ? Math.max(userLens, THREE.MathUtils.lerp(userLens, fPreset.minLensCurve, fMix01))
+        : userLens;
+      const effScan = fMix01 > 0.01 && fPreset.scanTarget !== null
+        ? THREE.MathUtils.lerp(userScan, fPreset.scanTarget * Math.max(0.25, userScan / 1.5), fMix01)
+        : userScan;
+      const effGrain = fMix01 > 0.01 && fPreset.grainTarget !== null
+        ? THREE.MathUtils.lerp(userGrain, fPreset.grainTarget * Math.max(0.35, userGrain / 1.5), fMix01)
+        : userGrain;
+      const effVig = fMix01 > 0.01 && fPreset.vignetteTarget !== null
+        ? THREE.MathUtils.lerp(userVig, fPreset.vignetteTarget * Math.max(0.5, userVig / 1.5), fMix01)
+        : userVig;
+      this._effVig = effVig;
+      this._effGrain = effGrain;
 
       this.rtShadow.uniforms.get('uStrength').value = Math.max(0, this.fx.rtShadow ?? 0);
-      this.bloom.intensity = 1.55 * Math.max(0, this.fx.bloom);
-      this.motionBlur.uniforms.get('uEnabled').value = hasMBlur ? 1.0 : 0.0;
-      this.motionBlur.uniforms.get('uDofAmount').value = Math.max(0, this.fx.dofBlur);
-      this.crtGrade.uniforms.get('uCrtAmount').value = this.fx.lensCurve > 0.01 || this.fx.scanlines > 0.01 ? 1.0 : 0.0;
-      this.crtGrade.uniforms.get('uLensCurve').value = Math.max(0, this.fx.lensCurve);
-      this.crtGrade.uniforms.get('uGrainAmount').value = Math.max(0, this.fx.grain);
-      this.crtGrade.uniforms.get('uScanlineAmount').value = Math.max(0, this.fx.scanlines);
-      this.crtGrade.uniforms.get('uVignetteAmount').value = Math.max(0, this.fx.vignette);
-      this.crtGrade.uniforms.get('uIs43').value = this.aspectMode === '4:3' ? 1.0 : 0.0;
+      this.bloom.intensity = 1.18 * (Math.max(0, this.fx.bloom) + (fStr > 0.01 ? fPreset.bloomBoost * fStr : 0.0));
+      if (this.bloom.luminanceMaterial) {
+        this.bloom.luminanceMaterial.threshold = fMix01 > 0.01
+          ? THREE.MathUtils.lerp(0.56, fPreset.bloomThreshold, fMix01)
+          : 0.56;
+      }
+      if (this.bloom.mipmapBlurPass) {
+        const baseRad = fMix01 > 0.01 ? THREE.MathUtils.lerp(0.78, 0.88, fMix01) : 0.78;
+        const extraRad = Math.max(0, (Number(this.fx.bloom) || 0) - 1.6) * 0.055;
+        this.bloom.mipmapBlurPass.radius = Math.min(0.95, baseRad + extraRad);
+      }
+
+      const mbU = this.motionBlur.uniforms;
+      mbU.get('uEnabled').value = (hasMBlur || hasFootageMotion) ? 1.0 : 0.0;
+      mbU.get('uDofAmount').value = Math.max(0, this.fx.dofBlur);
+      mbU.get('uSoftDefocus').value = hasSoftDefocus ? THREE.MathUtils.clamp(fPreset.softDefocus * fStr, 0, 0.65) : 0.0;
+      mbU.get('uTaaMix').value = hasTaa ? THREE.MathUtils.clamp(fPreset.taaMix * fStr, 0, 0.55) : 0.0;
+
+      const crtU = this.crtGrade.uniforms;
+      crtU.get('uCrtAmount').value = effLens > 0.01 || effScan > 0.01 || fStr > 0.01 ? 1.0 : 0.0;
+      crtU.get('uLensCurve').value = effLens;
+      crtU.get('uGrainAmount').value = effGrain;
+      crtU.get('uScanlineAmount').value = effScan;
+      crtU.get('uVignetteAmount').value = effVig;
+      crtU.get('uIs43').value = this.aspectMode === '4:3' ? 1.0 : 0.0;
+
+      // Multi-layer low-quality found-footage / stream / VOD pipeline uniforms
+      crtU.get('uStreamMix').value = fMix01;
+      crtU.get('uSoftUpscale').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.softUpscale * (0.55 + 0.45 * fStr), 0, 1.0) : 0.0;
+      crtU.get('uSubResH').value = fMix01 > 0.01 ? THREE.MathUtils.lerp(1080, fPreset.subResH / Math.max(0.75, Math.min(1.4, fStr > 1 ? 0.85 + 0.15 * fStr : 1.0)), fMix01) : 1080.0;
+      crtU.get('uCaBoost').value = fStr > 0.01 ? fPreset.caBoost * fStr : 0.0;
+      crtU.get('uCompressAmt').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.compressAmt * fStr, 0, 1.8) : 0.0;
+      crtU.get('uAutoExpAmt').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.autoExpAmt * fStr, 0, 1.2) : 0.0;
+      crtU.get('uGradeHaze').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.gradeHaze * fStr, 0, 1.6) : 0.0;
+      crtU.get('uSensorNoise').value = fStr > 0.01 ? THREE.MathUtils.clamp(fPreset.sensorNoise * fStr, 0, 1.6) : 0.0;
+      crtU.get('uDisableSharpen').value = (fStr > 0.01 && fPreset.disableSharpen) ? 1.0 : 0.0;
+      crtU.get('uScanlineMask').value = this.fx.crtScanlines === false ? 0.0 : 1.0;
+      crtU.get('uContrast').value = THREE.MathUtils.clamp(Number(this.fx.contrast ?? 1.0), 0.80, 1.25);
+      crtU.get('uGamma').value = THREE.MathUtils.clamp(Number(this.fx.gamma ?? 1.0), 0.80, 1.25);
+      crtU.get('uHue').value = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(Number(this.fx.hue ?? 0), -35, 35));
+      crtU.get('uSaturation').value = THREE.MathUtils.clamp(Number(this.fx.saturation ?? 1.0), 0.65, 1.30);
 
       // TRUE SEPARATE MULTI-PASS PIPELINE:
-      // RenderPass -> RTShadowPass (High/Ultra Real-Time Contact AO + Raymarched Wall Shadows) -> Bloom -> MotionBlur/DoF -> SavePass -> CRTGrade
+      // RenderPass -> RTShadowPass -> Bloom -> MotionBlur/DoF/SoftTAA/Defocus -> SavePass -> CRT/FootageGrade/Compression
       if (hasRtShadow) {
         this.rtShadowPass = new EffectPass(this.camera, this.rtShadow);
         this.composer.addPass(this.rtShadowPass);
@@ -711,7 +992,7 @@ export class GraphicsManager {
         this.bloomPass = new EffectPass(this.camera, this.bloom);
         this.composer.addPass(this.bloomPass);
       }
-      if (hasMBlur || hasDof) {
+      if (hasMBlur || hasDof || hasTaa || hasSoftDefocus || hasFootageMotion) {
         this.savePass = new SavePass();
         this.motionBlur.uniforms.get('uPrevFrame').value = this.savePass.renderTarget.texture;
         this.mblurPass = new EffectPass(this.camera, this.motionBlur);
@@ -747,6 +1028,8 @@ export class GraphicsManager {
     if (this.composer) {
       this.composer.setSize(w, h);
     }
+    const pr = this.renderer.getPixelRatio ? (this.renderer.getPixelRatio() || 1) : 1;
+    this.motionBlur.uniforms.get('uTexelSize').value.set(1 / Math.max(w * pr, 320), 1 / Math.max(h * pr, 180));
     this.crtGrade.uniforms.get('uResolution').value.set(w, h);
     this.rtShadow.uniforms.get('uResolution').value.set(w, h);
     this.motionBlur.resetHistory();
@@ -757,7 +1040,9 @@ export class GraphicsManager {
     if (!this.fx.postFX) return;
 
     const mbU = this.motionBlur.uniforms;
-    const mbScale = Math.max(0, this.fx.motionBlur || 0);
+    const fBoost = this._footageStr > 0.01 ? (this._footagePreset.motionBoost || 0) * this._footageStr : 0;
+    const baseMb = Math.max(0, this.fx.motionBlur || 0);
+    const mbScale = baseMb > 0.01 ? (baseMb + fBoost * 0.25) : fBoost;
     const turnMag = Math.hypot(turnYawRate, turnPitchRate);
     const shakeMag = Math.hypot(shakeXRate, shakeYRate);
     const fdtT = Math.min(dt, 0.068);
@@ -814,8 +1099,8 @@ export class GraphicsManager {
     crtU.get('uCrtFar').value = this.camera.far || 115.0;
 
     const p = THREE.MathUtils.clamp(panic, 0, 1);
-    const vigMul = Math.max(0, this.fx.vignette ?? 1.28);
-    const grainMul = Math.max(0, this.fx.grain ?? 1.0);
+    const vigMul = this._footageStr > 0.01 ? (this._effVig ?? 0.85) : Math.max(0, this.fx.vignette ?? 1.28);
+    const grainMul = this._footageStr > 0.01 ? (this._effGrain ?? 0.40) : Math.max(0, this.fx.grain ?? 1.0);
     this.vignette.darkness = Math.min(0.98, (0.86 + p * 0.14) * Math.min(vigMul, 1.5));
     this.noise.blendMode.opacity.value = ((isKiller ? 0.022 : 0.040) + p * 0.09) * grainMul;
   }

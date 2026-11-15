@@ -379,7 +379,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
   const haloMat = track(new THREE.MeshBasicMaterial({
     map: texStore.haloTex,
     transparent: true,
-    opacity: 0.68,
+    opacity: 0.48,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false
@@ -401,15 +401,16 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     haloInst.setMatrixAt(i, dummy.matrix);
 
     const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
+    const lgSoft = lg > 0.85 ? 0.85 + (lg - 0.85) * 0.45 : lg;
     if (l.dead) colObj.setRGB(0.05, 0.045, 0.03);
     else if (Array.isArray(l.rgb)) {
-      const e = 1.2 + lg * 2.25;
+      const e = 1.05 + lgSoft * 1.55;
       colObj.setRGB(l.rgb[0] * e, l.rgb[1] * e, l.rgb[2] * e);
-    } else if (l.red) colObj.setRGB(3.0, 0.28, 0.16);
-    else if (l.green) colObj.setRGB(0.72, 2.75, 1.15);
-    else if (l.purple) colObj.setRGB(2.2, 0.55, 2.8);
+    } else if (l.red) colObj.setRGB(2.6, 0.26, 0.15);
+    else if (l.green) colObj.setRGB(0.68, 2.35, 1.02);
+    else if (l.purple) colObj.setRGB(2.0, 0.50, 2.5);
     else {
-      const e = 1.15 + lg * 2.55; // Bright radiant yellow Backrooms ceiling tubes across tiers
+      const e = 1.05 + lgSoft * 1.65; // Warm glowing Backrooms tubes without washing out walls
       colObj.setRGB(e, e * 0.91, e * 0.56);
     }
     baseLightColors[i] = [colObj.r, colObj.g, colObj.b];
@@ -1870,6 +1871,15 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     root.add(dustPoints);
   }
 
+  // Pre-allocated pooled UV Flare PointLights so throwing Flares at runtime never changes scene light count or hitches shaders
+  const flareLightPool = [];
+  for (let i = 0; i < 2; i++) {
+    const fpl = new THREE.PointLight(0xd84cff, 0, 16, 1.5);
+    fpl.position.set(0, -10, 0);
+    root.add(fpl);
+    flareLightPool.push(fpl);
+  }
+
   return {
     root,
     skirtInst,
@@ -1878,6 +1888,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     baseLightColors,
     dynamicRedSet: new Set(),
     lightPool,
+    flareLightPool,
     taskMeshes,
     hookMeshes,
     exitMeshes,
@@ -1999,10 +2010,11 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
       pl.decay = 1.32;
     } else {
       const lg = l.gain ?? (l.bright ? 1.16 : 0.62);
+      const lgSoft = lg > 0.80 ? 0.80 + (lg - 0.80) * 0.45 : lg;
       pl.color.setHex(l.hex || (lg >= 0.9 ? 0xfff5c6 : lg >= 0.5 ? 0xffe696 : 0xffdb76));
-      pl.intensity = (2.1 + lg * 8.7) * fl; // Tier 1 ~5.0, Tier 2 ~7.5, Tier 3 ~10.1, Tier 4 ~12.2
-      pl.distance = 18 + lg * 16;
-      pl.decay = 1.56 - lg * 0.42;
+      pl.intensity = (2.0 + lgSoft * 5.8) * fl; // Keeps bright halls clear while preserving wall/floor detail
+      pl.distance = 17 + lgSoft * 11;
+      pl.decay = Math.max(1.24, 1.58 - lgSoft * 0.28);
     }
   }
 
@@ -2090,9 +2102,6 @@ export function animateSurvivor(av, dt, p, elapsed) {
   const air = (p.y || 0) > 0.08;
 
   if (av.flash) av.flash.visible = !!p.fl && p.state !== 'dead';
-  if (av.flashTarget) {
-    av.flashTarget.position.y = (av.kind === 'rig' ? 1.3 : 1.25) + Math.sin(p.pitch || 0) * 6;
-  }
 
   if (av.kind === 'rig') {
     const targetClip = down ? 'Idle' : spd > 5.8 ? 'Run' : spd > 0.4 ? 'Walk' : 'Idle';
@@ -2576,7 +2585,7 @@ export function spawnTrapMesh(scene, x, z) {
   return g;
 }
 
-export function spawnFlareMesh(scene, x, z) {
+export function spawnFlareMesh(scene, x, z, pooledLight = null) {
   const g = new THREE.Group();
   g.position.set(x, 0.08, z);
   const stick = new THREE.Mesh(
@@ -2584,9 +2593,17 @@ export function spawnFlareMesh(scene, x, z) {
     new THREE.MeshBasicMaterial({ color: 0xf466ff, toneMapped: false })
   );
   stick.rotation.z = Math.PI / 2;
-  const pl = new THREE.PointLight(0xd84cff, 4.2, 16, 1.5);
-  pl.position.set(0, 0.28, 0);
-  g.add(stick, pl);
+  g.add(stick);
+  let pl;
+  if (pooledLight) {
+    pl = pooledLight;
+    pl.position.set(x, 0.36, z);
+    pl.intensity = 4.2;
+  } else {
+    pl = new THREE.PointLight(0xd84cff, 4.2, 16, 1.5);
+    pl.position.set(0, 0.28, 0);
+    g.add(pl);
+  }
   scene.add(g);
-  return { group: g, light: pl, age: 0, maxAge: 28 };
+  return { group: g, light: pl, pooled: !!pooledLight, age: 0, maxAge: 28 };
 }

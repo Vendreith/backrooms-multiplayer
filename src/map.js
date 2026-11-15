@@ -101,19 +101,19 @@ export function getZoneAtmosphereAt(x, z, map) {
     return { fogHex: 0x260605, hemiSky: 0xff7e6e, hemiGnd: 0x3b0c09, exposure: 1.06 };
   }
   if (zt === 'poolrooms' || zt === 'flooded_sump' || zt === 'flooded_yellow_hall') {
-    return { fogHex: 0x0b1916, hemiSky: 0xa6f2e2, hemiGnd: 0x16322b, exposure: 1.08 };
+    return { fogHex: 0x0b1916, hemiSky: 0xa6f2e2, hemiGnd: 0x16322b, exposure: 1.02 };
   }
   if (zt === 'mb_bicycle_tripod' || zt === 'fluorescent_greenhouse' || zt === 'breaker_vault') {
-    return { fogHex: 0x12190a, hemiSky: 0xc8eb78, hemiGnd: 0x263512, exposure: 1.06 };
+    return { fogHex: 0x12190a, hemiSky: 0xc8eb78, hemiGnd: 0x263512, exposure: 1.03 };
   }
   if (zt === 'mb_grey_basement' || zt === 'ff1_white_gallery' || zt === 'ff1_filing_corridor') {
-    return { fogHex: 0x191b1f, hemiSky: 0xe6ebf2, hemiGnd: 0x2a2e38, exposure: 1.10 };
+    return { fogHex: 0x191b1f, hemiSky: 0xe6ebf2, hemiGnd: 0x2a2e38, exposure: 1.02 };
   }
   if (zt === 'mb_gold_tile_blood') {
-    return { fogHex: 0x281506, hemiSky: 0xffb868, hemiGnd: 0x3a200a, exposure: 1.12 };
+    return { fogHex: 0x281506, hemiSky: 0xffb868, hemiGnd: 0x3a200a, exposure: 1.03 };
   }
   if (zt === 'suburb_pitfalls' || zt === 'mb_courtyard' || zt === 'colonnade' || zt === 'mb_mall_atrium') {
-    return { fogHex: 0x221d0e, hemiSky: 0xfff0be, hemiGnd: 0x3b3119, exposure: 1.12 };
+    return { fogHex: 0x221d0e, hemiSky: 0xfff0be, hemiGnd: 0x3b3119, exposure: 1.02 };
   }
   if (zt === 'blackout' || zt === 'office' || zt === 'mb_unrealized_mural' || zt === 'mb_van_tunnel') {
     return { fogHex: 0x0b0905, hemiSky: 0xd4c28e, hemiGnd: 0x18140a, exposure: 1.02 };
@@ -1097,44 +1097,44 @@ export function genMap(seed = 1337) {
       } else if (zt === 'office') {
         const distCenter = Math.hypot(lx - zcx, lz - zcz);
         if (distCenter < 7.5) {
-          tier = 4; gain = 2.05; rgb = [1.0, 0.94, 0.76]; hex = 0xfff0c2;
+          tier = 4; gain = 1.28; rgb = [1.0, 0.94, 0.76]; hex = 0xfff0c2;
         } else {
           tier = 1; gain = 0.26; dead = rnd() < 0.42; rgb = [0.78, 0.72, 0.54]; hex = 0xc7b88a;
         }
       } else if (zt === 'flooded_yellow_hall') {
         const rowAlt = (((r >> 1) + (c >> 1)) % 2 === 0);
         if (rowAlt) {
-          tier = 4; gain = 1.38; rgb = [1.0, 0.95, 0.72]; hex = 0xfff2b8;
+          tier = 4; gain = 1.06; rgb = [1.0, 0.95, 0.72]; hex = 0xfff2b8;
         } else {
           tier = 0; gain = 0.12; dead = true;
         }
       } else if (zt === 'mb_bicycle_tripod') {
         tier = 2; gain = 0.78; rgb = [0.58, 0.85, 0.34]; hex = 0x94d957;
       } else if (zt === 'mb_courtyard' || zt === 'mb_mall_atrium' || zt === 'mb_diner_fridge' || zt === 'mb_dining_blue_drapes') {
-        tier = 4; gain = 1.18; rgb = [1.0, 0.88, 0.66]; hex = 0xffe0a8;
+        tier = 4; gain = 0.96; rgb = [1.0, 0.88, 0.66]; hex = 0xffe0a8;
       } else if (zt === 'mb_unrealized_mural' || zt === 'mb_brick_alcove_hall') {
         const spot = Math.hypot(lx - zcx, lz - zcz) < 7.0;
-        tier = spot ? 3 : 1; gain = spot ? 1.08 : 0.28; rgb = [1.0, 0.66, 0.36]; hex = 0xffa85c;
+        tier = spot ? 3 : 1; gain = spot ? 0.94 : 0.28; rgb = [1.0, 0.66, 0.36]; hex = 0xffa85c;
       } else if (zt === 'mb_grey_basement') {
-        tier = 3; gain = 1.15; rgb = [0.92, 0.95, 1.0]; hex = 0xebf2ff;
+        tier = 3; gain = 0.98; rgb = [0.92, 0.95, 1.0]; hex = 0xebf2ff;
       } else if (zt === 'mb_gold_tile_blood') {
-        tier = 4; gain = 1.45; rgb = [1.0, 0.64, 0.20]; hex = 0xffa333;
+        tier = 4; gain = 1.08; rgb = [1.0, 0.64, 0.20]; hex = 0xffa333;
       } else if (zt === 'suburb_pitfalls' || zt === 'mb_floating_wall_glitch' || zt === 'mb_library_fan_hall' || zt === 'colonnade') {
-        tier = 4; gain = zt === 'suburb_pitfalls' ? 1.55 : 1.28; rgb = [1.0, 0.96, 0.84]; hex = 0xfff5d6;
+        tier = 4; gain = zt === 'suburb_pitfalls' ? 1.12 : 1.02; rgb = [1.0, 0.96, 0.84]; hex = 0xfff5d6;
       } else if (zt === 'poolrooms') {
-        tier = 4; gain = 1.32; rgb = [0.90, 0.98, 1.0]; hex = 0xe6faff;
+        tier = 4; gain = 1.04; rgb = [0.90, 0.98, 1.0]; hex = 0xe6faff;
       } else if (zt === 'mb_van_tunnel') {
         const nearPortal = Math.hypot(lx - (zcx + 3.2), lz - zcz) < 6.0;
-        tier = nearPortal ? 3 : 0; gain = nearPortal ? 1.15 : 0.14; dead = !nearPortal;
+        tier = nearPortal ? 3 : 0; gain = nearPortal ? 1.02 : 0.14; dead = !nearPortal;
         rgb = nearPortal ? [1.0, 0.78, 0.34] : [0.45, 0.42, 0.36]; hex = nearPortal ? 0xffc757 : 0x736b5c;
       } else if (isBlackout && !nearSpawn) {
         tier = 0; gain = 0.16; dead = zt === 'blackout' ? rnd() < 0.82 : rnd() < 0.45;
       } else if (!nearSpawn && (lightWave < -0.78 || (zt === 'huge_pitfall' && lightWave < -0.15))) {
         tier = 1; gain = 0.34; dead = rnd() < 0.20;
       } else if (isManila || isGreen || (!isRed && lightWave > 0.22)) {
-        tier = 4; gain = isGreen ? 1.24 : 1.16; dead = false;
+        tier = 4; gain = isGreen ? 1.04 : 0.98; dead = false;
       } else if (nearSpawn || zt === 'async_archive' || (!isRed && lightWave >= -0.22)) {
-        tier = 3; gain = 0.92; dead = false;
+        tier = 3; gain = 0.86; dead = false;
       } else {
         tier = 2; gain = 0.62; dead = rnd() < 0.06;
       }

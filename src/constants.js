@@ -124,8 +124,8 @@ export const SPEED = {
   KILLER_BASE: 5.2,
   KILLER_CARRY: 4.1,
   KILLER_SLOW: 2.5,
-  STAM_DRAIN: 6.8,     // seconds of sprint from 100% to 0%
-  STAM_REFILL: 6.2,    // seconds to recover from 0% to 100%
+  STAM_DRAIN: 9.2,     // seconds of sprint from 100% to 0% (extended further by chase adrenaline)
+  STAM_REFILL: 4.6,    // seconds to recover from 0% to 100%
   GRAVITY: 21.0,
   JUMP_VEL: 7.1,
   BHOP_BOOST: 0.45,    // air-strafe / timed jump momentum bonus
@@ -151,6 +151,20 @@ export const SURV_COLORS = [
 
 // ---------- Graphics Presets (Balanced so Low & Max give NO unfair gameplay advantage) ----------
 export const GFX_PRESETS = {
+  mobile: {
+    label: 'Mobile (Tối ưu điện thoại)',
+    pixelRatio: 0.72,
+    shadows: false,
+    shadowMapSize: 256,
+    postFX: true,
+    bloom: true,
+    motionBlur: false,
+    crt: true,
+    rtShadow: 0.0,
+    pointLights: 3,
+    dustCount: 120,
+    decalScale: 0.65
+  },
   low: {
     label: 'Thấp (Máy yếu)',
     pixelRatio: 0.85,
@@ -209,40 +223,192 @@ export const GFX_PRESETS = {
   }
 };
 
+export const FOOTAGE_FILTER_PRESETS = {
+  off: {
+    id: 0,
+    label: 'Tắt (Mặc định CRT)',
+    internalScale: 1.0,
+    subResH: 1080,
+    softUpscale: 0.0,
+    taaMix: 0.0,
+    softDefocus: 0.0,
+    bloomBoost: 0.0,
+    bloomThreshold: 0.50,
+    motionBoost: 0.0,
+    caBoost: 0.0,
+    minLensCurve: 0.0,
+    vignetteTarget: null,
+    scanTarget: null,
+    grainTarget: null,
+    autoExpAmt: 0.0,
+    gradeHaze: 0.0,
+    sensorNoise: 0.0,
+    compressAmt: 0.0,
+    disableSharpen: false
+  },
+  clean_low: {
+    id: 1,
+    label: 'Preset 1 — Clean Low-Quality (720p Mềm)',
+    internalScale: 0.68,
+    subResH: 720,
+    softUpscale: 0.72,
+    taaMix: 0.24,
+    softDefocus: 0.24,
+    bloomBoost: 0.24,
+    bloomThreshold: 0.44,
+    motionBoost: 0.14,
+    caBoost: 0.30,
+    minLensCurve: 0.25,
+    vignetteTarget: null,
+    scanTarget: 0.0,
+    grainTarget: 0.30,
+    autoExpAmt: 0.10,
+    gradeHaze: 0.45,
+    sensorNoise: 0.28,
+    compressAmt: 0.16,
+    disableSharpen: true
+  },
+  found_vhs: {
+    id: 2,
+    label: 'Preset 2 — Found Footage / VHS-Lite (540p)',
+    internalScale: 0.56,
+    subResH: 540,
+    softUpscale: 0.85,
+    taaMix: 0.34,
+    softDefocus: 0.30,
+    bloomBoost: 0.34,
+    bloomThreshold: 0.38,
+    motionBoost: 0.28,
+    caBoost: 0.48,
+    minLensCurve: 0.45,
+    vignetteTarget: null,
+    scanTarget: 0.20,
+    grainTarget: 0.52,
+    autoExpAmt: 0.48,
+    gradeHaze: 0.76,
+    sensorNoise: 0.58,
+    compressAmt: 0.46,
+    disableSharpen: true
+  },
+  vod_stream: {
+    id: 3,
+    label: 'Preset 3 — Stream / YouTube VOD Low Bitrate',
+    internalScale: 0.50,
+    subResH: 480,
+    softUpscale: 0.95,
+    taaMix: 0.38,
+    softDefocus: 0.28,
+    bloomBoost: 0.40,
+    bloomThreshold: 0.34,
+    motionBoost: 0.22,
+    caBoost: 0.36,
+    minLensCurve: 0.30,
+    vignetteTarget: null,
+    scanTarget: 0.0,
+    grainTarget: 0.18,
+    autoExpAmt: 0.28,
+    gradeHaze: 0.92,
+    sensorNoise: 0.48,
+    compressAmt: 0.95,
+    disableSharpen: true
+  },
+  hybrid_all: {
+    id: 4,
+    label: 'Preset 4 — Tổng hợp 1+2+3 (Found-Stream Hybrid)',
+    internalScale: 0.50,
+    subResH: 480,
+    softUpscale: 0.95,
+    taaMix: 0.38,
+    softDefocus: 0.32,
+    bloomBoost: 0.42,
+    bloomThreshold: 0.34,
+    motionBoost: 0.28,
+    caBoost: 0.48,
+    minLensCurve: 0.48,
+    vignetteTarget: null,
+    scanTarget: 0.18,
+    grainTarget: 0.50,
+    autoExpAmt: 0.46,
+    gradeHaze: 0.92,
+    sensorNoise: 0.58,
+    compressAmt: 0.95,
+    disableSharpen: true
+  }
+};
+
 export const FX_CONTROLS = [
-  { key: 'renderScale', label: 'Độ phân giải Render', hint: '50% - 150%', type: 'range', min: 0.5, max: 1.5, step: 0.05 },
+  { key: 'renderScale', label: 'Độ phân giải Render', hint: '40% - 150%', type: 'range', min: 0.4, max: 1.5, step: 0.05 },
+  {
+    key: 'footageFilterMode',
+    label: 'Bộ lọc Footage / Stream',
+    hint: 'Low-Res • TAA • Bloom • Nén H.264/VOD',
+    type: 'select',
+    options: [
+      { value: 'off', label: 'Tắt (Mặc định CRT)' },
+      { value: 'clean_low', label: 'Preset 1: Clean Low' },
+      { value: 'found_vhs', label: 'Preset 2: Found / VHS' },
+      { value: 'vod_stream', label: 'Preset 3: Stream / VOD' },
+      { value: 'hybrid_all', label: 'Preset 4: Tổng hợp 1+2+3' }
+    ]
+  },
+  { key: 'footageFilterStrength', label: 'Cường độ lọc Footage', hint: '0% - 200% (100% chuẩn preset)', type: 'range', min: 0, max: 2.0, step: 0.05 },
   { key: 'shadows', label: 'Bóng đổ đèn điểm', hint: 'Đèn pin & đèn trần', type: 'toggle' },
   { key: 'rtShadow', label: 'Shader bóng thời gian thực', hint: 'Cao & Max: bóng chân tường + SSAO', type: 'range', min: 0, max: 1.6, step: 0.05 },
   { key: 'postFX', label: 'Hậu kỳ Post-Processing', hint: 'Tắt hết để tăng FPS', type: 'toggle' },
   { key: 'lensCurve', label: 'Độ cong thấu kính CRT', hint: '0% phẳng - 150% cong sâu', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { key: 'motionBlur', label: 'Motion Blur xoay & chạy', hint: 'Mờ khi xoay camera (trần tới 300%) & chạy', type: 'range', min: 0, max: 3.0, step: 0.05 },
   { key: 'dofBlur', label: 'Mờ cảnh xa (>15m DoF)', hint: 'Xa >15m mờ dần mượt', type: 'range', min: 0, max: 1.5, step: 0.05 },
-  { key: 'bloom', label: 'Bloom quầng sáng đèn', hint: 'Hào quang đèn trần & UI', type: 'range', min: 0, max: 1.6, step: 0.05 },
+  { key: 'bloom', label: 'Bloom quầng sáng đèn', hint: 'Hào quang đèn trần & UI (trần tới 350%)', type: 'range', min: 0, max: 3.5, step: 0.05 },
   { key: 'grain', label: 'Hạt phim sáng (Micro-Grain)', hint: 'Hạt mịn tròn ở vùng sáng', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { key: 'dust', label: 'Hạt bụi 3D không khí', hint: 'Bụi mịn trong hành lang', type: 'toggle' },
   { key: 'vignette', label: 'Vignette tối viền ngoài', hint: 'Viền tối ống kính đậm sâu', type: 'range', min: 0, max: 2.0, step: 0.05 },
-  { key: 'scanlines', label: 'Đường quét CRT & Sắc sai', hint: 'Nhiễu băng VHS', type: 'range', min: 0, max: 1.5, step: 0.05 },
+  { key: 'crtScanlines', label: 'Đường cắt ngang CRT / VHS', hint: 'Tắt sọc ngang & rách băng CRT', type: 'toggle' },
+  { key: 'scanlines', label: 'Cường độ VHS & Sắc sai', hint: 'Sọc ngang, nhiễu băng & sắc sai', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { key: 'brightness', label: 'Độ sáng (Exposure)', hint: '75% - 135%', type: 'range', min: 0.75, max: 1.35, step: 0.05 },
+  { key: 'contrast', label: 'Độ tương phản (Contrast)', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
+  { key: 'gamma', label: 'Gamma', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
+  { key: 'hue', label: 'Tông màu (Hue)', hint: '-35° đến +35°', type: 'range', min: -35, max: 35, step: 1, unit: 'deg' },
+  { key: 'saturation', label: 'Độ bão hoà màu (Saturation)', hint: '65% - 130%', type: 'range', min: 0.65, max: 1.30, step: 0.02 },
+  {
+    key: 'touchControls',
+    label: 'Phím ảo & Vuốt Camera Mobile',
+    hint: 'Tự động (Mobile) • Luôn bật để thử trên PC',
+    type: 'select',
+    options: [
+      { value: 'auto', label: 'Tự động (Mobile)' },
+      { value: 'on', label: 'Luôn bật (Cả trên PC)' },
+      { value: 'off', label: 'Tắt' }
+    ]
+  },
   { key: 'cleanCamHud', label: 'Máy quay thực tế (Ẩn UI)', hint: 'Chỉ chừa viền, thông số & Pin camera', type: 'toggle' }
 ];
 
 export function getPresetDefaultFx(key = 'ultra') {
   const p = GFX_PRESETS[key] || GFX_PRESETS.ultra;
   const isUltra = key === 'ultra';
+  const isMobile = key === 'mobile';
   return {
     renderScale: p.pixelRatio,
+    footageFilterMode: 'off',
+    footageFilterStrength: 1.0,
     shadows: !!p.shadows,
     rtShadow: p.rtShadow ?? 0.0,
     postFX: !!p.postFX,
-    lensCurve: p.crt ? (isUltra ? 1.5 : key === 'med' ? 0.85 : 1.02) : 0.0,
+    lensCurve: p.crt ? (isUltra ? 1.5 : isMobile ? 1.0 : key === 'med' ? 0.85 : 1.02) : 0.0,
     motionBlur: p.motionBlur ? (isUltra ? 1.5 : 1.0) : 0.0,
-    dofBlur: p.postFX ? (key === 'med' ? 0.65 : isUltra ? 1.5 : 1.0) : 0.0,
-    bloom: p.bloom ? (isUltra ? 1.6 : key === 'med' ? 0.80 : 1.10) : 0.0,
-    grain: p.crt ? (isUltra ? 1.5 : key === 'med' ? 0.75 : 1.0) : 0.0,
+    dofBlur: p.postFX && !isMobile ? (key === 'med' ? 0.65 : isUltra ? 1.5 : 1.0) : 0.0,
+    bloom: p.bloom ? (isUltra ? 1.6 : isMobile ? 0.90 : key === 'med' ? 0.80 : 1.10) : 0.0,
+    grain: p.crt ? (isUltra ? 1.5 : isMobile ? 0.70 : key === 'med' ? 0.75 : 1.0) : 0.0,
     dust: key !== 'low',
-    vignette: p.crt ? (isUltra ? 2.0 : key === 'med' ? 1.12 : 1.28) : 0.65,
-    scanlines: p.crt ? (isUltra ? 1.5 : key === 'med' ? 0.75 : 1.0) : 0.0,
-    brightness: isUltra ? 1.35 : 1.0,
+    vignette: p.crt ? (isUltra ? 2.0 : isMobile ? 1.22 : key === 'med' ? 1.12 : 1.28) : 0.65,
+    crtScanlines: !!p.crt && !isMobile,
+    scanlines: p.crt ? (isUltra ? 1.5 : isMobile ? 0.55 : key === 'med' ? 0.75 : 1.0) : 0.0,
+    brightness: isUltra ? 1.35 : isMobile ? 1.10 : 1.0,
+    contrast: 1.0,
+    gamma: 1.0,
+    hue: 0,
+    saturation: 1.0,
+    touchControls: 'auto',
     cleanCamHud: false
   };
 }

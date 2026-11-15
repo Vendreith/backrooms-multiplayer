@@ -22,9 +22,21 @@ import { NetworkManager } from './network.js';
 const $ = (id) => document.getElementById(id);
 
 const preloadScr = $('preloadScr');
+const preloadTag = $('preloadTag');
+const preloadTitle = $('preloadTitle');
 const preloadBar = $('preloadBar');
 const preloadLabel = $('preloadLabel');
 const preloadPct = $('preloadPct');
+
+function setPreloadOverlay(visible, pct = 0, label = '', tag = null, title = null) {
+  if (!preloadScr) return;
+  preloadScr.classList.toggle('hidden', !visible);
+  if (tag && preloadTag) preloadTag.textContent = tag;
+  if (title && preloadTitle) preloadTitle.textContent = title;
+  if (preloadBar) preloadBar.style.width = `${Math.round(Math.max(0, Math.min(1, pct)) * 100)}%`;
+  if (preloadPct) preloadPct.textContent = `${Math.round(Math.max(0, Math.min(1, pct)) * 100)}%`;
+  if (preloadLabel && label) preloadLabel.textContent = label;
+}
 const lobbyScr = $('lobbyScr');
 const pauseScr = $('pauseScr');
 const endScr = $('endScr');
@@ -97,26 +109,52 @@ const beaconPool = [];
 const texStore = {};
 
 // ---------- Application Settings & State ----------
-let currentGfx = localStorage.getItem('br_gfx_v2') || 'ultra';
+function isMobileDevice() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const hasTouch = (navigator.maxTouchPoints || 0) > 0 || (typeof window !== 'undefined' && 'ontouchstart' in window);
+  const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)')?.matches;
+  return /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|Opera Mini/i.test(ua) || (hasTouch && coarse);
+}
+
+const mobileAutoBoot = isMobileDevice();
+let currentGfx = localStorage.getItem('br_gfx_v2') || (mobileAutoBoot ? 'mobile' : 'ultra');
 function loadFxSettings(presetKey) {
   const base = getPresetDefaultFx(presetKey);
   try {
     const saved = JSON.parse(localStorage.getItem('br_fx_v2') || 'null');
-    if (saved && typeof saved === 'object') return { ...base, ...saved };
+    if (saved && typeof saved === 'object') {
+      const merged = { ...base, ...saved };
+      for (const c of FX_CONTROLS) {
+        if (c.type === 'toggle') {
+          if (typeof merged[c.key] !== 'boolean') merged[c.key] = !!base[c.key];
+        } else if (c.type === 'select') {
+          const valid = c.options?.some(o => o.value === merged[c.key]);
+          if (!valid) merged[c.key] = base[c.key];
+        } else if (c.type === 'range') {
+          const n = Number(merged[c.key]);
+          merged[c.key] = Number.isFinite(n) ? Math.min(c.max, Math.max(c.min, n)) : base[c.key];
+        }
+      }
+      return merged;
+    }
   } catch {}
   return base;
 }
 let fxSettings = loadFxSettings(currentGfx);
 const rawSavedFps = localStorage.getItem('br_fps_v2');
-const savedFps = rawSavedFps === null ? 15 : Number(rawSavedFps);
-let fpsCap = FPS_CAPS.includes(savedFps) ? savedFps : 15;
-let aspectMode = localStorage.getItem('br_aspect_v2') === '16:9' ? '16:9' : '4:3';
+const defaultFps = mobileAutoBoot ? 30 : 15;
+const savedFps = rawSavedFps === null ? defaultFps : Number(rawSavedFps);
+let fpsCap = FPS_CAPS.includes(savedFps) ? savedFps : defaultFps;
+const rawSavedAspect = localStorage.getItem('br_aspect_v2');
+let aspectMode = rawSavedAspect === '4:3' ? '4:3' : rawSavedAspect === '16:9' ? '16:9' : (mobileAutoBoot ? '16:9' : '4:3');
 let mouseSens = Number(localStorage.getItem('br_sens_v2') || '1.0');
 let musicVol = Number(localStorage.getItem('br_mvol_v2') || '1.0');
 let sfxVol = Number(localStorage.getItem('br_svol_v2') || '1.0');
 audio.setVolumes(musicVol, sfxVol);
 
 let inMatch = false;
+let warmingMatch = false;
 let matchEnded = false;
 let paused = false;
 let matchTime = 0;
@@ -146,6 +184,56 @@ let flashPitch = 0;
 
 // Movement, Physics, Jump & Bunny-Hop state
 const keys = {};
+let mobJoyX = 0;
+let mobJoyY = 0;
+let mobEdgeSprint = false;
+let mobSprintToggle = false;
+let mobCrouchToggle = false;
+let mobJumpHeld = false;
+let mobUseHeld = false;
+let mobJoyPointerId = null;
+let mobLookPointerId = null;
+let mobLookLastX = 0;
+let mobLookLastY = 0;
+
+function isMobileUiActive() {
+  const mode = fxSettings?.touchControls || 'auto';
+  if (mode === 'off') return false;
+  if (mode === 'on') return true;
+  return currentGfx === 'mobile' || isMobileDevice();
+}
+
+function resetMobileInputs() {
+  mobJoyX = 0;
+  mobJoyY = 0;
+  mobEdgeSprint = false;
+  mobJumpHeld = false;
+  mobUseHeld = false;
+  mobSprintToggle = false;
+  mobCrouchToggle = false;
+  mobJoyPointerId = null;
+  mobLookPointerId = null;
+  const stick = $('mobJoyStick');
+  if (stick) stick.style.transform = 'translate(0px, 0px)';
+  $('mobSprintBtn')?.classList.remove('active');
+  $('mobCrouchBtn')?.classList.remove('active');
+}
+
+function syncMobileUiVisibility() {
+  const mobActive = isMobileUiActive();
+  hud?.classList.toggle('mobile-ui', mobActive);
+  if (!mobActive) {
+    resetMobileInputs();
+  } else {
+    document.body.style.cursor = '';
+    if (document.pointerLockElement) {
+      try { document.exitPointerLock?.(); } catch {}
+    }
+  }
+  if (typeof window !== 'undefined' && renderer) {
+    applyViewportLayout();
+  }
+}
 let hVelX = 0;
 let hVelZ = 0;
 let jumpBuffer = 0;
@@ -205,6 +293,10 @@ function updateFeedDOM(dt) {
 function computeViewportRect(mode = aspectMode) {
   const ww = Math.max(320, window.innerWidth);
   const wh = Math.max(240, window.innerHeight);
+  // In mobile UI wide mode, fill phone screen cleanly (no dark pillarboxes on 20:9 landscape or vertical portrait)
+  if (mode !== '4:3' && isMobileUiActive()) {
+    return { x: 0, y: 0, w: ww, h: wh };
+  }
   const targetRatio = mode === '4:3' ? (4 / 3) : (16 / 9);
   let w = ww;
   let h = Math.round(ww / targetRatio);
@@ -231,16 +323,25 @@ function applyViewportLayout() {
 }
 
 function formatFxVal(ctrl, v) {
-  return ctrl.type === 'toggle' ? (v ? 'Bật' : 'Tắt') : `${Math.round(Number(v) * 100)}%`;
+  if (ctrl.type === 'toggle') return v ? 'Bật' : 'Tắt';
+  if (ctrl.type === 'select') return ctrl.options?.find(o => o.value === v)?.label || String(v || '');
+  if (ctrl.unit === 'deg') return `${Math.round(Number(v) || 0)}°`;
+  return `${Math.round(Number(v) * 100)}%`;
 }
 
 function mountFxTable(container) {
   if (!container) return;
   container.innerHTML = FX_CONTROLS.map((c) => {
-    const ctrlHtml = c.type === 'toggle'
-      ? `<label class="fx-toggle-wrap"><input type="checkbox" data-fx-key="${c.key}" /> <span data-fx-val="${c.key}">Bật</span></label>`
-      : `<input type="range" data-fx-key="${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="1" />`;
-    const topRight = c.type === 'toggle' ? '' : `<span class="fx-val" data-fx-val="${c.key}">100%</span>`;
+    let ctrlHtml;
+    if (c.type === 'toggle') {
+      ctrlHtml = `<label class="fx-toggle-wrap"><input type="checkbox" data-fx-key="${c.key}" /> <span data-fx-val="${c.key}">Bật</span></label>`;
+    } else if (c.type === 'select') {
+      const opts = (c.options || []).map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+      ctrlHtml = `<select data-fx-key="${c.key}">${opts}</select>`;
+    } else {
+      ctrlHtml = `<input type="range" data-fx-key="${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="1" />`;
+    }
+    const topRight = (c.type === 'toggle' || c.type === 'select') ? '' : `<span class="fx-val" data-fx-val="${c.key}">100%</span>`;
     return `<div class="fx-row">
       <div class="fx-row-top">
         <div><div class="fx-label">${esc(c.label)}</div><div class="fx-hint">${esc(c.hint)}</div></div>
@@ -255,7 +356,11 @@ function mountFxTable(container) {
     if (!key) return;
     const ctrl = FX_CONTROLS.find(x => x.key === key);
     if (!ctrl) return;
-    fxSettings[key] = ctrl.type === 'toggle' ? !!e.target.checked : Number(e.target.value);
+    fxSettings[key] = ctrl.type === 'toggle'
+      ? !!e.target.checked
+      : ctrl.type === 'select'
+        ? String(e.target.value)
+        : Number(e.target.value);
     applyFxSettings();
   };
   container.addEventListener('input', onUpdate);
@@ -305,6 +410,8 @@ function applyFxSettings() {
   localStorage.setItem('br_fx_v2', JSON.stringify(fxSettings));
   gfx.applyFx(fxSettings, hemiLight, ambLight);
   hud?.classList.toggle('clean-cam', !!fxSettings.cleanCamHud);
+  hud?.classList.toggle('no-scanlines', fxSettings.crtScanlines === false || Number(fxSettings.scanlines) <= 0.01);
+  syncMobileUiVisibility();
   const preset = GFX_PRESETS[currentGfx] || GFX_PRESETS.ultra;
   localFlash.castShadow = !!fxSettings.shadows;
   if (fxSettings.shadows && preset.shadowMapSize && localFlash.shadow.mapSize.x !== preset.shadowMapSize) {
@@ -422,6 +529,7 @@ const net = new NetworkManager({
 
 // ---------- Match Setup & Teardown ----------
 function clearMatchObjects() {
+  resetMobileInputs();
   for (const id of Object.keys(avatars)) {
     scene.remove(avatars[id].group);
   }
@@ -432,18 +540,158 @@ function clearMatchObjects() {
   if (world) {
     for (const tm of world.trapMeshes) scene.remove(tm);
     for (const fm of world.flareMeshes) scene.remove(fm.group);
+    for (const fpl of (world.flareLightPool || [])) fpl.intensity = 0;
     world.dispose();
     world = null;
   }
 }
 
+async function warmupMatchEffects(amK, me) {
+  window.__BR_WARMUP_DONE = false;
+  setPreloadOverlay(
+    true,
+    0.15,
+    'Xây dựng bản đồ 3D, ánh sáng khu vực & nhân vật...',
+    'PRE-MATCH SHADER & FX WARM-UP',
+    'ĐANG KIỂM THỬ ÁNH SÁNG, VẬT PHẨM & HIỆU ỨNG'
+  );
+  await PreloaderSystem.yieldFrame();
+
+  const px = me ? me.x : map.SPAWN.x;
+  const pz = me ? me.z : map.SPAWN.z;
+  const pyaw = me ? me.yaw : 0;
+  const fwX = -Math.sin(pyaw), fwZ = -Math.cos(pyaw);
+  camera.position.set(px, 1.56, pz);
+  camera.rotation.order = 'YXZ';
+  camera.rotation.set(0, pyaw, 0);
+  camera.updateMatrixWorld(true);
+
+  // Phase 2: Warm Flashlight ON (with 1024 shadow FBO) + Flashlight OFF shader variants
+  setPreloadOverlay(true, 0.35, 'Kiểm thử bật/tắt đèn pin [F] & đổ bóng thời gian thực...');
+  await PreloaderSystem.yieldFrame();
+
+  localFlash.position.set(px, 1.48, pz);
+  localFlashCore.position.set(px, 1.48, pz);
+  localFlashTarget.position.set(px + fwX * 14, 1.4, pz + fwZ * 14);
+  localFlash.visible = true;
+  localFlashCore.visible = true;
+  fpFlashGroup.visible = true;
+  renderer.shadowMap.needsUpdate = true;
+  updateWorldLighting(world, map, camera.position, 0.1, []);
+  try { renderer.compile(scene, camera); } catch {}
+  gfx.update(0.016, { speedRatio: 0.4, panic: 0.15, isKiller: amK, elapsed: 0.1, nearLights: world.lightPool });
+  gfx.render(0.016);
+
+  localFlash.visible = false;
+  localFlashCore.visible = false;
+  fpFlashGroup.visible = false;
+  gfx.render(0.016);
+
+  // Phase 3: Place & compile UV Flare, Bear Trap, Scanner Beacon, Claws, Entity rig & overlays inside camera frustum
+  setPreloadOverlay(true, 0.62, 'Kiểm thử Pháo Sáng UV, bẫy, máy dò Thực thể & vật phẩm...');
+  await PreloaderSystem.yieldFrame();
+
+  const wx = px + fwX * 2.1;
+  const wz = pz + fwZ * 2.1;
+  const warmFlare = spawnFlareMesh(scene, wx, wz, world.flareLightPool?.[0] || null);
+  const warmTrap = spawnTrapMesh(scene, wx + 0.55, wz);
+  ensureBeaconCount(1);
+  if (beaconPool[0]) {
+    beaconPool[0].visible = true;
+    beaconPool[0].position.set(wx - 0.5, 1.4, wz);
+  }
+  fpClaws.setVisible(true);
+  updateFPEntityClaws(fpClaws, 0.016, { elapsed: 0.5, speedRatio: 0.8, swingT: 0.5 });
+
+  // Bring one Entity avatar briefly into frustum so entity PBR + emissive eyes compile cleanly
+  const firstEnt = Object.entries(avatars).find(([id]) => players[id]?.role === 'k');
+  let entBackup = null;
+  if (firstEnt) {
+    const [eid, eav] = firstEnt;
+    const ep = players[eid];
+    entBackup = { av: eav, x: eav.group.position.x, y: eav.group.position.y, z: eav.group.position.z, vis: eav.group.visible };
+    eav.group.visible = true;
+    eav.group.position.set(wx, 0, wz);
+    animateEntity(eav, 0.016, ep || { spd: 5.0, swingT: 0.4 }, 0.5);
+  }
+
+  localFlash.visible = true;
+  localFlashCore.visible = true;
+  fpFlashGroup.visible = true;
+  fearFx.style.background = 'radial-gradient(circle, transparent 42%, rgba(160, 12, 8, 0.88) 100%)';
+  fearFx.style.opacity = '0.3';
+  const scEl = $('scWrap');
+  scEl?.classList.remove('hidden');
+
+  try { renderer.compile(scene, camera); } catch {}
+  gfx.update(0.016, { speedRatio: 0.8, panic: 0.55, isKiller: amK, elapsed: 0.2, nearLights: world.lightPool });
+  gfx.render(0.016);
+
+  // Cleanly remove all temporary warmup geometry & restore entities/overlays
+  scene.remove(warmFlare.group);
+  if (warmFlare.pooled && warmFlare.light) warmFlare.light.intensity = 0;
+  scene.remove(warmTrap);
+  for (const b of beaconPool) b.visible = false;
+  if (entBackup) {
+    entBackup.av.group.position.set(entBackup.x, entBackup.y, entBackup.z);
+    entBackup.av.group.visible = entBackup.vis;
+  }
+  scEl?.classList.add('hidden');
+  fearFx.style.opacity = '0';
+
+  // Phase 4: Warm up post-processing composer passes, lens curvature, color controls & Footage/Stream presets
+  setPreloadOverlay(true, 0.86, 'Kiểm thử hiệu ứng thấu kính, màu sắc & bộ lọc Stream/VOD...');
+  await PreloaderSystem.yieldFrame();
+
+  const savedMode = fxSettings.footageFilterMode;
+  const savedStr = fxSettings.footageFilterStrength;
+  if (savedMode !== 'hybrid_all') {
+    fxSettings.footageFilterMode = 'hybrid_all';
+    fxSettings.footageFilterStrength = 1.0;
+    gfx.applyFx(fxSettings, hemiLight, ambLight);
+    gfx.update(0.016, { turnYawRate: -3.2, speedRatio: 0.6, panic: 0.25, isKiller: amK, elapsed: 0.3, nearLights: world.lightPool });
+    gfx.render(0.016);
+    gfx.render(0.016);
+  }
+  fxSettings.footageFilterMode = savedMode;
+  fxSettings.footageFilterStrength = savedStr;
+  gfx.applyFx(fxSettings, hemiLight, ambLight);
+
+  fpClaws.setVisible(amK);
+  fpFlashGroup.visible = !amK;
+  localFlash.visible = !amK;
+  localFlashCore.visible = !amK;
+  syncFlashlightUI(me);
+
+  gfx.update(0.016, { speedRatio: 0, panic: 0, isKiller: amK, elapsed: 0.0, nearLights: world.lightPool });
+  gfx.render(0.016);
+  gfx.resetMotionHistory();
+
+  setPreloadOverlay(true, 1.0, 'Hoàn tất kiểm thử — Bắt đầu ghi hình!');
+  await PreloaderSystem.yieldFrame();
+  window.__BR_WARMUP_DONE = true;
+}
+
 async function beginMatch(matchSeed, roster, localId) {
+  if (warmingMatch) return;
+  warmingMatch = true;
+  inMatch = false;
   audio.ensureContext();
   clearMatchObjects();
+  setPreloadOverlay(
+    true,
+    0.05,
+    'Khởi tạo bản đồ Backrooms Level 0...',
+    'PRE-MATCH SHADER & FX WARM-UP',
+    'ĐANG KIỂM THỬ ÁNH SÁNG, VẬT PHẨM & HIỆU ỨNG'
+  );
+  lobbyScr.classList.add('hidden');
+  endScr.classList.add('hidden');
+  pauseScr.classList.add('hidden');
+  hud.classList.add('hidden');
 
   seed = matchSeed;
   myId = localId;
-  inMatch = true;
   matchEnded = false;
   paused = false;
   matchTime = 0;
@@ -578,20 +826,30 @@ async function beginMatch(matchSeed, roster, localId) {
   localFlash.visible = !amK;
   localFlashCore.visible = !amK;
 
-  // Compile shaders synchronously once right on match entry (avoids Three r168 compileAsync crash + keeps user gesture for PointerLock)
+  // Visible Pre-Match Effect & Shader Warm-Up Screen: tests lights, flares, traps, items & filters to eliminate first-use hitches
   try {
-    renderer.compile(scene, camera);
-  } catch {}
+    await warmupMatchEffects(amK, me);
+  } finally {
+    warmingMatch = false;
+    setPreloadOverlay(false);
+  }
 
+  matchTime = 0;
+  inMatch = true;
   lobbyScr.classList.add('hidden');
   endScr.classList.add('hidden');
   pauseScr.classList.add('hidden');
   hud.classList.remove('hidden');
+  updateHUD(0, fpsCap || 60);
 
   pushFeed(amK ? 'Bạn là Thực thể Backrooms! Tầm nhìn hạn chế — Hãy săn tìm âm thanh!' : `Băng ghi hình bắt đầu! Sửa ${NEED} máy & theo dây mũi tên dưới sàn để thoát!`, '#f5e69a');
   if (!location.hash.includes('test')) {
-    document.body.style.cursor = 'none';
-    requestLock();
+    if (isMobileUiActive()) {
+      document.body.style.cursor = '';
+    } else {
+      document.body.style.cursor = 'none';
+      requestLock();
+    }
   }
 }
 
@@ -623,6 +881,7 @@ function openPauseMenu() {
   paused = true;
   lastPauseToggleAt = performance.now();
   for (const k in keys) keys[k] = false;
+  resetMobileInputs();
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   document.body.style.cursor = '';
   pauseScr.classList.remove('hidden');
@@ -637,8 +896,12 @@ function closePauseMenu(lock = true) {
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   pauseScr.classList.add('hidden');
   if (inMatch && !matchEnded) {
-    document.body.style.cursor = 'none';
-    if (lock && !location.hash.includes('test')) requestLock();
+    if (isMobileUiActive()) {
+      document.body.style.cursor = '';
+    } else {
+      document.body.style.cursor = 'none';
+      if (lock && !location.hash.includes('test')) requestLock();
+    }
   }
 }
 
@@ -893,7 +1156,8 @@ function handleNetEvent(ev) {
     pushFeed('CẢNH BÁO: Thực thể vừa dùng chiêu định vị người chơi!', '#ff5648');
   } else if (ev.ev === 'flare') {
     if (world) {
-      const fl = spawnFlareMesh(scene, ev.x, ev.z);
+      const freePool = world.flareLightPool?.find(pl => !world.flareMeshes.some(fm => fm.light === pl));
+      const fl = spawnFlareMesh(scene, ev.x, ev.z, freePool || null);
       world.flareMeshes.push(fl);
     }
     audio.playFlareHiss({ x: ev.x, y: 0.2, z: ev.z });
@@ -953,7 +1217,6 @@ function handleNetEvent(ev) {
   } else if (ev.ev === 'end') {
     matchEnded = true;
     inMatch = false;
-    document.body.style.cursor = '';
     document.exitPointerLock?.();
     hud.classList.add('hidden');
     endScr.classList.remove('hidden');
@@ -998,7 +1261,6 @@ function applyHostSnapshot(snap) {
         map.TASKS[idx].p = Math.max(map.TASKS[idx].p, p);
       }
     });
-    syncTaskCabinetLEDs();
   }
 }
 
@@ -1157,30 +1419,52 @@ function updateLocalPlayer(dt, elapsed) {
     return;
   }
 
-  // Movement Input Vector
+  // Movement Input Vector (Keyboard + Mobile Virtual Analog Joystick)
   let inF = 0, inR = 0;
+  let kbdMove = false;
   if (!busyAct) {
-    if (keys[DEF_KB.fwd]) inF += 1;
-    if (keys[DEF_KB.back]) inF -= 1;
-    if (keys[DEF_KB.right]) inR += 1;
-    if (keys[DEF_KB.left]) inR -= 1;
+    if (keys[DEF_KB.fwd]) { inF += 1; kbdMove = true; }
+    if (keys[DEF_KB.back]) { inF -= 1; kbdMove = true; }
+    if (keys[DEF_KB.right]) { inR += 1; kbdMove = true; }
+    if (keys[DEF_KB.left]) { inR -= 1; kbdMove = true; }
+    if (mobJoyX !== 0 || mobJoyY !== 0) {
+      inR += mobJoyX;
+      inF += mobJoyY;
+    }
   }
-  const wishLen = Math.hypot(inF, inR);
+  const wishRaw = Math.hypot(inF, inR);
+  const wishLen = Math.min(1, wishRaw);
   const fwX = -Math.sin(me.yaw), fwZ = -Math.cos(me.yaw);
   const rtX = Math.cos(me.yaw), rtZ = -Math.sin(me.yaw);
-  const wishX = wishLen > 0 ? (fwX * inF + rtX * inR) / wishLen : 0;
-  const wishZ = wishLen > 0 ? (fwZ * inF + rtZ * inR) / wishLen : 0;
+  const wishX = wishRaw > 0 ? (fwX * inF + rtX * inR) / wishRaw : 0;
+  const wishZ = wishRaw > 0 ? (fwZ * inF + rtZ * inR) / wishRaw : 0;
 
-  me.crouch = !isK && (me.state === 'down' || !!keys[DEF_KB.crouch]);
+  // Chase adrenaline boost near monsters: conserves stamina + raises escape sprint speed to lose Entities cleanly
+  let nearestThreatDist = 999;
+  if (!isK) {
+    for (const p of Object.values(players)) {
+      if (p.role === 'k') {
+        const d = Math.hypot(p.x - me.x, p.z - me.z);
+        if (d < nearestThreatDist) nearestThreatDist = d;
+      }
+    }
+  }
+  const chaseProx = !isK && nearestThreatDist < 18
+    ? Math.max(0, Math.min(1, (18 - nearestThreatDist) / 14))
+    : 0;
+
+  me.crouch = !isK && (me.state === 'down' || !!keys[DEF_KB.crouch] || mobCrouchToggle);
   const stamMinUnlock = SPEED.STAM_DRAIN * STAM_EXHAUST_RATIO;
   if (stamExhausted && stam >= stamMinUnlock) {
     stamExhausted = false;
   }
-  const trySprint = !isK && me.state === 'ok' && !me.crouch && !busyAct && !!keys[DEF_KB.sprint] && wishLen > 0;
+  const sprintInput = !!keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint;
+  const trySprint = !isK && me.state === 'ok' && !me.crouch && !busyAct && sprintInput && wishLen > 0;
   const wantSprint = trySprint && !stamExhausted && stam > 0;
 
   if (wantSprint) {
-    stam = Math.max(0, stam - dt);
+    const drainScale = 1.0 - chaseProx * 0.42;
+    stam = Math.max(0, stam - dt * drainScale);
     if (stam <= 0.02) {
       stam = 0;
       if (!stamExhausted) {
@@ -1189,7 +1473,8 @@ function updateLocalPlayer(dt, elapsed) {
       }
     }
   } else {
-    stam = Math.min(SPEED.STAM_DRAIN, stam + dt * (SPEED.STAM_DRAIN / SPEED.STAM_REFILL));
+    const refillScale = 1.0 + chaseProx * 0.25;
+    stam = Math.min(SPEED.STAM_DRAIN, stam + dt * (SPEED.STAM_DRAIN / SPEED.STAM_REFILL) * refillScale);
     if (stamExhausted && stam >= stamMinUnlock) stamExhausted = false;
   }
 
@@ -1202,20 +1487,24 @@ function updateLocalPlayer(dt, elapsed) {
   } else if (me.crouch) {
     groundSpd = SPEED.SURV_CROUCH;
   } else if (wantSprint) {
-    groundSpd = SPEED.SURV_SPRINT;
+    groundSpd = SPEED.SURV_SPRINT * (1.0 + chaseProx * 0.24);
   } else if (thirstT <= 0) {
     groundSpd = SPEED.SURV_THIRSTY;
   } else {
-    groundSpd = SPEED.SURV_WALK;
+    groundSpd = SPEED.SURV_WALK * (1.0 + chaseProx * 0.14);
   }
 
   if (jellyBuffT > 0) groundSpd *= 1.22;
+  if (!kbdMove && !wantSprint && wishLen > 0 && wishLen < 0.99) {
+    groundSpd *= 0.28 + 0.72 * wishLen;
+  }
 
-  // Hold Space continuously OR tap before touchdown for super smooth Bunny-Hopping!
-  if (keys[DEF_KB.jump] && !scState && me.state === 'ok' && !me.crouch && !me.carrying && wishLen > 0.1) {
+  // Hold Space/Jump continuously OR tap before touchdown for super smooth Bunny-Hopping!
+  if ((keys[DEF_KB.jump] || mobJumpHeld) && !scState && me.state === 'ok' && !me.crouch && !me.carrying && wishLen > 0.1) {
     if (jumpBuffer <= 0) jumpBuffer = 0.08;
   }
 
+  const dynBhopCap = SPEED.BHOP_MAX + chaseProx * 1.2;
   const grounded = me.y <= 0.001;
   if (grounded && jumpBuffer > 0 && me.state === 'ok' && !me.crouch && !me.carrying) {
     me.vy = SPEED.JUMP_VEL;
@@ -1226,7 +1515,7 @@ function updateLocalPlayer(dt, elapsed) {
     const curSpd = Math.hypot(hVelX, hVelZ);
     if (wasAirborneT > 0 || curSpd > groundSpd * 0.95) {
       bhopChain++;
-      const boost = Math.min(SPEED.BHOP_MAX, Math.max(groundSpd, curSpd) + SPEED.BHOP_BOOST);
+      const boost = Math.min(dynBhopCap, Math.max(groundSpd, curSpd) + SPEED.BHOP_BOOST);
       if (wishLen > 0.1) {
         hVelX = wishX * boost;
         hVelZ = wishZ * boost;
@@ -1533,7 +1822,19 @@ function updateInteractions(dt, me) {
   }
 
   // Handle hold-E actions; fleeing/stopping ALWAYS saves existing `task.p` intact!
-  const canHold = !!keys[DEF_KB.use] && !!prompt?.hold && (prompt.hold.kind === 'selfUnhook' || me.spd < 1.25);
+  const canHold = (!!keys[DEF_KB.use] || mobUseHeld) && !!prompt?.hold && (prompt.hold.kind === 'selfUnhook' || me.spd < 1.25);
+  const mobUse = $('mobUseBtn');
+  if (mobUse) {
+    const ready = !!(prompt || busyAct);
+    mobUse.classList.toggle('ready', ready);
+    const label = busyAct
+      ? 'ĐANG GIỮ...'
+      : prompt?.text
+        ? prompt.text.replace(/^\[(?:Giữ\s+)?E\]\s*/i, '')
+        : 'TƯƠNG TÁC';
+    const sub = busyAct ? 'Đang làm' : prompt?.hold ? 'Giữ' : prompt?.act ? 'Chạm' : 'E';
+    mobUse.innerHTML = `${esc(label)}<small>${sub}</small>`;
+  }
   if (canHold) {
     if (!busyAct || busyAct.kind !== prompt.hold.kind || busyAct.targetId !== prompt.hold.targetId) {
       const savedP = prompt.hold.kind === 'task' ? (map.TASKS[prompt.hold.taskIdx]?.p || 0) : 0;
@@ -1613,14 +1914,22 @@ function useQuickItem(slotIdx) {
 
 function syncFlashlightUI(me = players[myId]) {
   const btn = $('flashToggleBtn');
-  if (!btn) return;
+  const mFlash = $('mobFlashBtn');
   const isK = me?.role === 'k';
-  btn.classList.toggle('hidden', !!isK || !me);
+  if (btn) btn.classList.toggle('hidden', !!isK || !me);
+  if (mFlash) mFlash.classList.toggle('hidden', !!isK || !me);
   if (!me || isK) return;
   const isOn = !!me.fl;
-  btn.classList.toggle('on', isOn);
-  const st = btn.querySelector('.light-state');
-  if (st) st.textContent = isOn ? 'BẬT' : 'TẮT';
+  if (btn) {
+    btn.classList.toggle('on', isOn);
+    const st = btn.querySelector('.light-state');
+    if (st) st.textContent = isOn ? 'BẬT' : 'TẮT';
+  }
+  if (mFlash) {
+    mFlash.classList.toggle('active', isOn);
+    const sub = mFlash.querySelector('small');
+    if (sub) sub.textContent = isOn ? 'BẬT' : 'TẮT';
+  }
 }
 
 function toggleFlashlight() {
@@ -1773,14 +2082,31 @@ function updateHUD(elapsed, fpsVal) {
       ['4', 'ration', 'Khẩu Phần'],
       ['5', 'flare', 'Pháo UV']
     ];
-    $('invBar').innerHTML = slots.map(([k, id, lbl]) => {
+    $('invBar').innerHTML = slots.map(([k, id, lbl], idx) => {
       const cnt = me.inv?.[id] || 0;
-      return `<div class="inv-slot ${cnt <= 0 ? 'empty' : ''}">
+      return `<div class="inv-slot ${cnt <= 0 ? 'empty' : ''}" data-slot-idx="${idx}">
         <div class="k">[${k}]</div>
         <div class="cnt">${cnt}</div>
         <div>${lbl}</div>
       </div>`;
     }).join('');
+  }
+
+  $('mobSwingBtn')?.classList.toggle('hidden', !isK);
+  $('mobRevealBtn')?.classList.toggle('hidden', !isK);
+  $('mobTrapBtn')?.classList.toggle('hidden', !isK);
+  $('mobSprintBtn')?.classList.toggle('hidden', !!isK);
+  $('mobCrouchBtn')?.classList.toggle('hidden', !!isK);
+  if (isK) {
+    const swSub = $('mobSwingBtn')?.querySelector('small');
+    if (swSub) swSub.textContent = swingCD > 0 ? `${swingCD.toFixed(1)}s` : 'Sẵn sàng';
+    const rvSub = $('mobRevealBtn')?.querySelector('small');
+    if (rvSub) rvSub.textContent = revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'Q';
+    const trSub = $('mobTrapBtn')?.querySelector('small');
+    if (trSub) trSub.textContent = trapCD > 0 ? `${Math.ceil(trapCD)}s` : `${map.TRAPS.length}/${TRAP_MAX}`;
+  } else {
+    $('mobSprintBtn')?.classList.toggle('active', mobSprintToggle);
+    $('mobCrouchBtn')?.classList.toggle('active', mobCrouchToggle);
   }
 }
 
@@ -1865,24 +2191,11 @@ window.addEventListener('keydown', (e) => {
   if (e.code === DEF_KB.light) {
     toggleFlashlight();
   } else if (e.code === DEF_KB.use) {
-    const me = players[myId];
-    if (me) {
-      const prompt = findBestPrompt(me);
-      if (prompt?.act) prompt.act();
-    }
+    triggerLocalUseTap();
   } else if (e.code === DEF_KB.reveal) {
-    const me = players[myId];
-    if (me?.role === 'k' && revealCD <= 0) {
-      revealCD = REVEAL_CD;
-      revealGlobalT = REVEAL_T;
-      sendAction({ act: 'kReveal' });
-    }
+    triggerKillerReveal();
   } else if (e.code === DEF_KB.trap) {
-    const me = players[myId];
-    if (me?.role === 'k' && trapCD <= 0 && map.TRAPS.length < TRAP_MAX) {
-      trapCD = TRAP_CD;
-      sendAction({ act: 'kTrap' });
-    }
+    triggerKillerTrap();
   } else if (e.code === 'Digit1') useQuickItem(0);
   else if (e.code === 'Digit2') useQuickItem(1);
   else if (e.code === 'Digit3') useQuickItem(2);
@@ -1894,11 +2207,58 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+function triggerLocalUseTap() {
+  const me = players[myId];
+  if (!me || !inMatch || paused || matchEnded) return;
+  const prompt = findBestPrompt(me);
+  if (prompt?.act) prompt.act();
+}
+
+function triggerKillerSwing() {
+  const me = players[myId];
+  if (!inMatch || paused || matchEnded || me?.role !== 'k' || swingCD > 0) return;
+  swingCD = 1.75;
+  localSwingT = 1.0;
+  killerSlowT = 0.75;
+  sendAction({ act: 'kSwing' });
+}
+
+function triggerKillerReveal() {
+  const me = players[myId];
+  if (!inMatch || paused || matchEnded || me?.role !== 'k' || revealCD > 0) return;
+  revealCD = REVEAL_CD;
+  revealGlobalT = REVEAL_T;
+  sendAction({ act: 'kReveal' });
+}
+
+function triggerKillerTrap() {
+  const me = players[myId];
+  if (!inMatch || paused || matchEnded || me?.role !== 'k' || trapCD > 0 || !map || map.TRAPS.length >= TRAP_MAX) return;
+  trapCD = TRAP_CD;
+  sendAction({ act: 'kTrap' });
+}
+
+function applyCameraLookDelta(dx, dy, sensScale = 0.0021) {
+  const me = players[myId];
+  if (!me || !inMatch || paused || matchEnded) return;
+  const sens = sensScale * mouseSens;
+  const dYaw = -dx * sens;
+  const dPitch = -dy * sens;
+  me.yaw += dYaw;
+  me.pitch = Math.max(-1.46, Math.min(1.46, me.pitch + dPitch));
+  if (dx !== 0 || dy !== 0) {
+    lastCamTurnAt = performance.now();
+    turnYawRate = THREE.MathUtils.clamp(turnYawRate * 0.38 + dYaw * 52, -18, 18);
+    turnPitchRate = THREE.MathUtils.clamp(turnPitchRate * 0.38 + dPitch * 52, -14, 14);
+  }
+}
+
 window.addEventListener('keyup', (e) => {
   keys[e.code] = false;
 });
 window.addEventListener('blur', () => {
   for (const k in keys) keys[k] = false;
+  resetMobileInputs();
 });
 
 // Anti-Teleport Pointer Lock Mouse Look (centered, unadjusted, warp-spike filtered)
@@ -1909,7 +2269,7 @@ document.addEventListener('pointerlockchange', () => {
     document.body.style.cursor = 'none';
     paused = false;
     pauseScr.classList.add('hidden');
-  } else if (inMatch && !matchEnded && !location.hash.includes('test')) {
+  } else if (inMatch && !matchEnded && !location.hash.includes('test') && !isMobileUiActive()) {
     openPauseMenu();
   } else {
     document.body.style.cursor = '';
@@ -1917,7 +2277,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 document.addEventListener('pointerlockerror', () => {
-  if (inMatch && !paused && !matchEnded) {
+  if (inMatch && !paused && !matchEnded && !isMobileUiActive()) {
     document.body.style.cursor = 'none';
   }
 });
@@ -1938,52 +2298,31 @@ document.addEventListener('mousemove', (e) => {
 
   const cx = Math.max(-140, Math.min(140, mx));
   const cy = Math.max(-140, Math.min(140, my));
-
-  const me = players[myId];
-  if (!me) return;
-
-  const sens = 0.0021 * mouseSens;
-  const dYaw = -cx * sens;
-  const dPitch = -cy * sens;
-
-  me.yaw += dYaw;
-  me.pitch = Math.max(-1.46, Math.min(1.46, me.pitch + dPitch));
-
-  if (cx !== 0 || cy !== 0) {
-    lastCamTurnAt = performance.now();
-    turnYawRate = THREE.MathUtils.clamp(turnYawRate * 0.38 + dYaw * 52, -18, 18);
-    turnPitchRate = THREE.MathUtils.clamp(turnPitchRate * 0.38 + dPitch * 52, -14, 14);
-  }
+  applyCameraLookDelta(cx, cy, 0.0021);
 });
 
 window.addEventListener('mousedown', (e) => {
-  if (!inMatch || paused || matchEnded) return;
-  if (e.target && e.target.closest?.('.screen, button, select, input, a')) return;
+  if (!inMatch || paused || matchEnded || isMobileUiActive()) return;
+  if (e.target && e.target.closest?.('.screen, button, select, input, a, #mobileControls, #mobLookPad, #invBar')) return;
   audio.ensureContext();
   if (document.pointerLockElement !== renderer.domElement) {
     document.body.style.cursor = 'none';
     requestLock();
     return;
   }
-  if (e.button === 0) {
-    const me = players[myId];
-    if (me?.role === 'k' && swingCD <= 0) {
-      swingCD = 1.75;
-      localSwingT = 1.0;
-      killerSlowT = 0.75;
-      sendAction({ act: 'kSwing' });
-    }
-  }
+  if (e.button === 0) triggerKillerSwing();
 });
 
 // ---------- UI Button Bindings ----------
 $('soloSurvBtn').addEventListener('click', () => {
+  if (warmingMatch) return;
   audio.ensureContext();
   net.startSolo($('nameInput').value, false);
   beginMatch((Date.now() % 90000) + 1000, net.roster, net.myId);
 });
 
 $('soloKillBtn').addEventListener('click', () => {
+  if (warmingMatch) return;
   audio.ensureContext();
   net.startSolo($('nameInput').value, true);
   beginMatch((Date.now() % 90000) + 1000, net.roster, net.myId);
@@ -2022,7 +2361,7 @@ $('copyLinkBtn').addEventListener('click', () => {
 $('aiToggle').addEventListener('change', (e) => net.toggleAIEntity(e.target.checked));
 
 $('startGameBtn').addEventListener('click', () => {
-  if (!net.isHost) return;
+  if (warmingMatch || !net.isHost) return;
   const s = (Math.random() * 89999 + 10000) | 0;
   net.broadcast({ t: 'start', seed: s, roster: net.roster });
   beginMatch(s, net.roster, net.myId);
@@ -2076,10 +2415,161 @@ $('flashToggleBtn')?.addEventListener('click', (e) => {
   e.currentTarget.blur();
 });
 
+$('invBar')?.addEventListener('pointerdown', (e) => e.stopPropagation());
+$('invBar')?.addEventListener('click', (e) => {
+  const slot = e.target?.closest?.('[data-slot-idx]');
+  if (!slot || !inMatch || paused || matchEnded) return;
+  e.stopPropagation();
+  audio.ensureContext();
+  useQuickItem(Number(slot.dataset.slotIdx));
+});
+
+function safeSetPointerCapture(el, pointerId) {
+  try {
+    if (el && typeof el.setPointerCapture === 'function') el.setPointerCapture(pointerId);
+  } catch {}
+}
+
+function bindMobileControls() {
+  const zone = $('mobJoyZone');
+  const stick = $('mobJoyStick');
+  const lookPad = $('mobLookPad');
+
+  const updateJoy = (e) => {
+    if (!zone || !stick) return;
+    const r = zone.getBoundingClientRect();
+    const maxR = Math.max(24, r.width * 0.36);
+    let dx = e.clientX - (r.left + r.width * 0.5);
+    let dy = e.clientY - (r.top + r.height * 0.5);
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      const k = maxR / dist;
+      dx *= k;
+      dy *= k;
+    }
+    stick.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    mobJoyX = dx / maxR;
+    mobJoyY = -dy / maxR;
+    mobEdgeSprint = Math.hypot(mobJoyX, mobJoyY) >= 0.86;
+  };
+
+  const endJoy = (e) => {
+    if (e.pointerId !== mobJoyPointerId) return;
+    mobJoyPointerId = null;
+    mobJoyX = 0;
+    mobJoyY = 0;
+    mobEdgeSprint = false;
+    if (stick) stick.style.transform = 'translate(0px, 0px)';
+  };
+
+  if (zone) {
+    zone.addEventListener('pointerdown', (e) => {
+      if (mobJoyPointerId !== null || !inMatch || paused || matchEnded) return;
+      e.preventDefault();
+      e.stopPropagation();
+      audio.ensureContext();
+      mobJoyPointerId = e.pointerId;
+      safeSetPointerCapture(zone, e.pointerId);
+      updateJoy(e);
+    });
+    zone.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== mobJoyPointerId) return;
+      e.preventDefault();
+      updateJoy(e);
+    });
+    zone.addEventListener('pointerup', endJoy);
+    zone.addEventListener('pointercancel', endJoy);
+  }
+
+  if (lookPad) {
+    const endLook = (e) => {
+      if (e.pointerId === mobLookPointerId) mobLookPointerId = null;
+    };
+    lookPad.addEventListener('pointerdown', (e) => {
+      if (mobLookPointerId !== null || !inMatch || paused || matchEnded) return;
+      e.preventDefault();
+      e.stopPropagation();
+      audio.ensureContext();
+      mobLookPointerId = e.pointerId;
+      mobLookLastX = e.clientX;
+      mobLookLastY = e.clientY;
+      safeSetPointerCapture(lookPad, e.pointerId);
+    });
+    lookPad.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== mobLookPointerId) return;
+      e.preventDefault();
+      const dx = e.clientX - mobLookLastX;
+      const dy = e.clientY - mobLookLastY;
+      mobLookLastX = e.clientX;
+      mobLookLastY = e.clientY;
+      applyCameraLookDelta(dx, dy, 0.0052);
+    });
+    lookPad.addEventListener('pointerup', endLook);
+    lookPad.addEventListener('pointercancel', endLook);
+  }
+
+  const bindBtn = (el, onDown, onUp) => {
+    if (!el) return;
+    const release = (e) => {
+      e.stopPropagation();
+      onUp?.();
+    };
+    el.addEventListener('pointerdown', (e) => {
+      if (!inMatch || paused || matchEnded) return;
+      e.preventDefault();
+      e.stopPropagation();
+      audio.ensureContext();
+      safeSetPointerCapture(el, e.pointerId);
+      onDown();
+    });
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+  };
+
+  bindBtn($('mobUseBtn'), () => {
+    mobUseHeld = true;
+    triggerLocalUseTap();
+  }, () => {
+    mobUseHeld = false;
+  });
+  bindBtn($('mobJumpBtn'), () => { mobJumpHeld = true; }, () => { mobJumpHeld = false; });
+  bindBtn($('mobSprintBtn'), () => {
+    mobSprintToggle = !mobSprintToggle;
+    if (mobSprintToggle) mobCrouchToggle = false;
+    $('mobSprintBtn')?.classList.toggle('active', mobSprintToggle);
+    $('mobCrouchBtn')?.classList.toggle('active', mobCrouchToggle);
+  });
+  bindBtn($('mobCrouchBtn'), () => {
+    mobCrouchToggle = !mobCrouchToggle;
+    if (mobCrouchToggle) mobSprintToggle = false;
+    $('mobCrouchBtn')?.classList.toggle('active', mobCrouchToggle);
+    $('mobSprintBtn')?.classList.toggle('active', mobSprintToggle);
+  });
+  bindBtn($('mobFlashBtn'), () => toggleFlashlight());
+  bindBtn($('mobSwingBtn'), () => triggerKillerSwing());
+  bindBtn($('mobRevealBtn'), () => triggerKillerReveal());
+  bindBtn($('mobTrapBtn'), () => triggerKillerTrap());
+
+  $('mobPauseBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!inMatch || matchEnded) return;
+    if (paused) closePauseMenu(true);
+    else openPauseMenu();
+  });
+  $('mobMusicBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    audio.ensureContext();
+    const lbl = audio.nextTrack();
+    pushFeed(`♪ Băng nhạc: ${lbl}`);
+  });
+}
+bindMobileControls();
+
 const exitToLobby = () => {
   inMatch = false;
   paused = false;
   matchEnded = false;
+  resetMobileInputs();
   document.body.style.cursor = '';
   if (document.pointerLockElement) {
     try { document.exitPointerLock?.(); } catch {}
@@ -2130,6 +2620,8 @@ function animate(now) {
     turnPitchRate *= Math.exp(-13.0 * dt);
   }
 
+  if (warmingMatch) return;
+
   if (inMatch && map && world) {
     matchTime += dt;
     updateHostSimulation(dt);
@@ -2159,6 +2651,7 @@ function animate(now) {
       fm.age += dt;
       fm.light.intensity = 3.4 + Math.sin(elapsed * 24 + i) * 0.6;
       if (fm.age >= fm.maxAge) {
+        if (fm.pooled && fm.light) fm.light.intensity = 0;
         scene.remove(fm.group);
         world.flareMeshes.splice(i, 1);
       }
@@ -2262,11 +2755,11 @@ function animate(now) {
       scene.fog.color.lerp(_atmoFogCol, atmLerp);
       hemiLight.color.lerp(_atmoHemiSky, atmLerp);
       hemiLight.groundColor.lerp(_atmoHemiGnd, atmLerp);
-      scene.fog.density = THREE.MathUtils.lerp(0.0165, 0.0084, zl);
+      scene.fog.density = THREE.MathUtils.lerp(0.0165, 0.0088, zl);
       const br = Number(fxSettings.brightness) || 1.0;
-      hemiLight.intensity = THREE.MathUtils.lerp(0.20, 0.64, zl);
-      ambLight.intensity = THREE.MathUtils.lerp(0.08, 0.22, zl);
-      renderer.toneMappingExposure = THREE.MathUtils.lerp(0.95, 1.20, zl) * br * ((atmo.exposure || 1.06) / 1.06);
+      hemiLight.intensity = THREE.MathUtils.lerp(0.20, 0.44, zl);
+      ambLight.intensity = THREE.MathUtils.lerp(0.08, 0.15, zl);
+      renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 1.03, zl) * br * ((atmo.exposure || 1.06) / 1.06);
     } else if (isK) {
       scene.fog.density = FOG_KILLER;
       scene.fog.color.setHex(0x120b05);
@@ -2376,10 +2869,16 @@ async function runSelfTests() {
     'default_settings_ultra_15fps_43_matched'
   );
 
-  for (const k of ['low', 'med', 'high', 'ultra']) {
+  for (const k of ['mobile', 'low', 'med', 'high', 'ultra']) {
     setGraphicsPreset(k);
     assert(scene.fog.density === FOG_SURV || scene.fog.density === FOG_KILLER, `preset_parity_${k}`);
   }
+  setGraphicsPreset('mobile');
+  assert(
+    gfx.mblurPass === null && gfx.rtShadowPass === null && !fxSettings.shadows &&
+    isMobileUiActive() && hud.classList.contains('mobile-ui'),
+    'mobile_preset_lightweight_and_touch_ui'
+  );
   setGraphicsPreset('low');
   assert(fxSettings.rtShadow === 0 && gfx.rtShadowPass === null, 'rt_shadow_off_low');
   setGraphicsPreset('med');
@@ -2579,6 +3078,272 @@ async function runSelfTests() {
   fxSettings.cleanCamHud = false;
   applyFxSettings();
 
+  // Test multi-layer Low-Quality Found-Footage / Stream / VOD filter presets (Clean Low, Found/VHS, VOD Low Bitrate, Hybrid 1+2+3)
+  const modeSelects = document.querySelectorAll('select[data-fx-key="footageFilterMode"]');
+  assert(
+    modeSelects.length === 2 && fxSettings.footageFilterMode === 'off' && fxSettings.footageFilterStrength === 1.0 &&
+    Array.from(modeSelects).every(el => !!el.querySelector('option[value="hybrid_all"]')),
+    'footage_filter_defaults_and_ui_mounted'
+  );
+  for (const mode of ['clean_low', 'found_vhs', 'vod_stream', 'hybrid_all']) {
+    fxSettings.footageFilterMode = mode;
+    fxSettings.footageFilterStrength = 1.0;
+    applyFxSettings();
+    gfx.render(0.016);
+    gfx.render(0.016);
+    assert(
+      !!gfx.savePass &&
+      !!gfx.mblurPass &&
+      gfx.motionBlur.uniforms.get('uTaaMix').value > 0.15 &&
+      gfx.motionBlur.uniforms.get('uSoftDefocus').value > 0.15 &&
+      gfx.crtGrade.uniforms.get('uDisableSharpen').value === 1.0 &&
+      gfx.crtGrade.uniforms.get('uSoftUpscale').value > 0.5,
+      `footage_preset_${mode}_pipeline_active`
+    );
+    if (mode === 'vod_stream') {
+      assert(
+        gfx.crtGrade.uniforms.get('uCompressAmt').value >= 0.9 &&
+        gfx.crtGrade.uniforms.get('uSubResH').value <= 500 &&
+        gfx.bloom.luminanceMaterial.threshold <= 0.35 &&
+        Array.from(modeSelects).every(el => el.value === 'vod_stream'),
+        'footage_vod_stream_compression_bloom_synced'
+      );
+    }
+    if (mode === 'hybrid_all') {
+      assert(
+        gfx.motionBlur.uniforms.get('uTaaMix').value >= 0.35 &&
+        gfx.motionBlur.uniforms.get('uSoftDefocus').value >= 0.28 &&
+        gfx.crtGrade.uniforms.get('uScanlineAmount').value > 0.05 &&
+        gfx.crtGrade.uniforms.get('uGrainAmount').value >= 0.40 &&
+        gfx.crtGrade.uniforms.get('uAutoExpAmt').value >= 0.40 &&
+        gfx.crtGrade.uniforms.get('uSensorNoise').value >= 0.50 &&
+        gfx.crtGrade.uniforms.get('uCaBoost').value >= 0.40 &&
+        gfx.crtGrade.uniforms.get('uCompressAmt').value >= 0.9 &&
+        gfx.crtGrade.uniforms.get('uSubResH').value <= 500 &&
+        gfx.bloom.luminanceMaterial.threshold <= 0.35 &&
+        Array.from(modeSelects).every(el => el.value === 'hybrid_all'),
+        'footage_preset_4_hybrid_combines_123'
+      );
+    }
+  }
+
+  // Lens curvature must remain curved (never flattened out) when footage/stream filters are enabled
+  const savedLensCurve = fxSettings.lensCurve;
+  fxSettings.lensCurve = 1.5;
+  fxSettings.footageFilterMode = 'vod_stream';
+  applyFxSettings();
+  const vodLensVal = gfx.crtGrade.uniforms.get('uLensCurve').value;
+  fxSettings.footageFilterMode = 'hybrid_all';
+  applyFxSettings();
+  const hybLensVal = gfx.crtGrade.uniforms.get('uLensCurve').value;
+  fxSettings.lensCurve = 0;
+  applyFxSettings();
+  const flatBaseMinLensVal = gfx.crtGrade.uniforms.get('uLensCurve').value;
+  assert(
+    vodLensVal >= 1.5 && hybLensVal >= 1.5 && flatBaseMinLensVal >= 0.45,
+    'footage_preset_preserves_lens_curve'
+  );
+  fxSettings.lensCurve = savedLensCurve;
+  fxSettings.footageFilterMode = 'off';
+  fxSettings.footageFilterStrength = 1.0;
+  applyFxSettings();
+  assert(
+    gfx.crtGrade.uniforms.get('uCompressAmt').value === 0 &&
+    gfx.crtGrade.uniforms.get('uDisableSharpen').value === 0 &&
+    gfx.motionBlur.uniforms.get('uTaaMix').value === 0,
+    'footage_filter_restored_off_cleanly'
+  );
+
+  // Color grading controls: Contrast, Gamma, Hue, Saturation (tighter, subtle ranges)
+  const hueInput = document.querySelector('#pauseFxMount input[data-fx-key="hue"]');
+  const satInput = document.querySelector('#pauseFxMount input[data-fx-key="saturation"]');
+  const conInput = document.querySelector('#pauseFxMount input[data-fx-key="contrast"]');
+  assert(
+    ['contrast', 'gamma', 'hue', 'saturation'].every(k =>
+      !!document.querySelector(`#lobbyFxMount [data-fx-key="${k}"]`) &&
+      !!document.querySelector(`#pauseFxMount [data-fx-key="${k}"]`)
+    ) &&
+    Number(conInput?.min) >= 0.75 && Number(conInput?.max) <= 1.30 &&
+    Number(hueInput?.min) >= -45 && Number(hueInput?.max) <= 45 &&
+    Number(satInput?.min) >= 0.5 && Number(satInput?.max) <= 1.4 &&
+    gfx.crtGrade.uniforms.get('uContrast').value === 1.0 &&
+    gfx.crtGrade.uniforms.get('uGamma').value === 1.0 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uHue').value) < 1e-5 &&
+    gfx.crtGrade.uniforms.get('uSaturation').value === 1.0,
+    'color_settings_defaults_and_ui_mounted'
+  );
+  fxSettings.contrast = 1.18;
+  fxSettings.gamma = 0.88;
+  fxSettings.hue = 24;
+  fxSettings.saturation = 1.22;
+  applyFxSettings();
+  assert(
+    Math.abs(gfx.crtGrade.uniforms.get('uContrast').value - 1.18) < 0.01 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uGamma').value - 0.88) < 0.01 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uHue').value - THREE.MathUtils.degToRad(24)) < 0.02 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.22) < 0.01,
+    'color_settings_contrast_gamma_hue_saturation'
+  );
+  fxSettings.contrast = 1.0;
+  fxSettings.gamma = 1.0;
+  fxSettings.hue = 0;
+  fxSettings.saturation = 1.0;
+  applyFxSettings();
+
+  // Toggle for horizontal CRT / VHS cut lines (turns off scanlines & tracking tears while keeping lens curve & CA)
+  assert(
+    !!document.querySelector('#lobbyFxMount input[data-fx-key="crtScanlines"]') &&
+    !!document.querySelector('#pauseFxMount input[data-fx-key="crtScanlines"]') &&
+    fxSettings.crtScanlines === true &&
+    gfx.crtGrade.uniforms.get('uScanlineMask').value === 1.0,
+    'crt_horizontal_scanlines_toggle_mounted'
+  );
+  fxSettings.crtScanlines = false;
+  applyFxSettings();
+  assert(
+    gfx.crtGrade.uniforms.get('uScanlineMask').value === 0.0 &&
+    hud.classList.contains('no-scanlines') &&
+    gfx.crtGrade.uniforms.get('uLensCurve').value >= 1.5,
+    'crt_horizontal_scanlines_can_disable_cleanly'
+  );
+  fxSettings.crtScanlines = true;
+  applyFxSettings();
+
+  // Raised Bloom ceiling (up to 350% with wider halo radius above default 160%)
+  const savedBloomVal = fxSettings.bloom;
+  const bloomCtrl = FX_CONTROLS.find(c => c.key === 'bloom');
+  fxSettings.bloom = 3.5;
+  applyFxSettings();
+  assert(
+    Number(bloomCtrl?.max || 0) >= 3.5 &&
+    Number(document.querySelector('#pauseFxMount input[data-fx-key="bloom"]')?.max || 0) >= 3.5 &&
+    gfx.bloom.intensity > 4.0 &&
+    (gfx.bloom.mipmapBlurPass?.radius || 0) > 0.85,
+    'bloom_raised_ceiling'
+  );
+  fxSettings.bloom = savedBloomVal;
+  applyFxSettings();
+
+  // Bright zones stay distinctly lit without over-exposed whiteout peaks
+  assert(
+    Math.max(...map.LIGHTS.map(l => l.gain || 0)) <= 1.35 &&
+    getZoneAtmosphereAt(map.SPAWN.x, map.SPAWN.z, map).exposure <= 1.08,
+    'bright_zone_peak_glare_controlled'
+  );
+
+  // Pre-match effect warmup verification (clean overlays, zero stray warmup props, pooled flare lights ready)
+  assert(
+    window.__BR_WARMUP_DONE === true &&
+    preloadScr.classList.contains('hidden') &&
+    !hud.classList.contains('hidden') &&
+    world.flareMeshes.length === 0 &&
+    world.trapMeshes.length === 0 &&
+    Array.isArray(world.flareLightPool) &&
+    world.flareLightPool.length >= 2 &&
+    world.flareLightPool.every(pl => pl.intensity === 0),
+    'prematch_warmup_completed_cleanly'
+  );
+
+  // Escape adrenaline boost when running near Entities: faster sprint speed & reduced stamina burn
+  {
+    const meAdr = players[myId];
+    const savedAdr = {
+      x: meAdr.x, z: meAdr.z, y: meAdr.y, vy: meAdr.vy, yaw: meAdr.yaw, spd: meAdr.spd,
+      crouch: meAdr.crouch, state: meAdr.state, stam, stamExhausted, hVelX, hVelZ, camYaw, flashYaw
+    };
+    const savedKillers = Object.values(players)
+      .filter(p => p.role === 'k')
+      .map(p => ({ p, x: p.x, z: p.z }));
+
+    let bestYaw = 0;
+    let bestFreeDist = -1;
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const tx = map.SPAWN.x - Math.sin(a) * 3.5;
+      const tz = map.SPAWN.z - Math.cos(a) * 3.5;
+      const [cx2, cz2] = collide(tx, tz, 0.36, map, false, 0);
+      const d = Math.hypot(cx2 - map.SPAWN.x, cz2 - map.SPAWN.z);
+      if (d > bestFreeDist) { bestFreeDist = d; bestYaw = a; }
+    }
+
+    for (const entry of savedKillers) {
+      entry.p.x = map.SPAWN.x + 120;
+      entry.p.z = map.SPAWN.z + 120;
+    }
+    meAdr.x = map.SPAWN.x; meAdr.z = map.SPAWN.z; meAdr.y = 0; meAdr.vy = 0;
+    meAdr.yaw = bestYaw; camYaw = bestYaw; flashYaw = bestYaw;
+    meAdr.crouch = false; meAdr.state = 'ok';
+    hVelX = 0; hVelZ = 0; stam = SPEED.STAM_DRAIN; stamExhausted = false;
+    keys[DEF_KB.fwd] = true; keys[DEF_KB.sprint] = true;
+    for (let i = 0; i < 3; i++) updateLocalPlayer(0.12, 5.0 + i * 0.12);
+    const spdFar = Math.hypot(hVelX, hVelZ);
+    const stamDropFar = SPEED.STAM_DRAIN - stam;
+
+    if (savedKillers.length > 0) {
+      savedKillers[0].p.x = map.SPAWN.x + 2.5;
+      savedKillers[0].p.z = map.SPAWN.z;
+    }
+    meAdr.x = map.SPAWN.x; meAdr.z = map.SPAWN.z; meAdr.y = 0; meAdr.vy = 0;
+    meAdr.yaw = bestYaw; camYaw = bestYaw; flashYaw = bestYaw;
+    hVelX = 0; hVelZ = 0; stam = SPEED.STAM_DRAIN; stamExhausted = false;
+    for (let i = 0; i < 3; i++) updateLocalPlayer(0.12, 6.0 + i * 0.12);
+    const spdNear = Math.hypot(hVelX, hVelZ);
+    const stamDropNear = SPEED.STAM_DRAIN - stam;
+
+    keys[DEF_KB.fwd] = false; keys[DEF_KB.sprint] = false;
+    for (const entry of savedKillers) {
+      entry.p.x = entry.x; entry.p.z = entry.z;
+    }
+    meAdr.x = savedAdr.x; meAdr.z = savedAdr.z; meAdr.y = savedAdr.y; meAdr.vy = savedAdr.vy;
+    meAdr.yaw = savedAdr.yaw; meAdr.spd = savedAdr.spd; meAdr.crouch = savedAdr.crouch; meAdr.state = savedAdr.state;
+    stam = savedAdr.stam; stamExhausted = savedAdr.stamExhausted;
+    hVelX = savedAdr.hVelX; hVelZ = savedAdr.hVelZ;
+    camYaw = savedAdr.camYaw; flashYaw = savedAdr.flashYaw;
+
+    assert(
+      spdNear > SPEED.SURV_SPRINT && spdNear > spdFar + 0.8 && stamDropNear < stamDropFar,
+      'adrenaline_boost_near_monster'
+    );
+  }
+
+  // Mobile Touch Controls & Swipe Camera test
+  {
+    const meMob = players[myId];
+    const savedGfxMob = currentGfx;
+    const savedTouchMode = fxSettings.touchControls;
+    const savedYawMob = meMob.yaw;
+    const savedPitchMob = meMob.pitch;
+    const savedXMob = meMob.x;
+    const savedZMob = meMob.z;
+
+    setGraphicsPreset('mobile');
+    fxSettings.touchControls = 'on';
+    applyFxSettings();
+    updateHUD(0.1, 60);
+    const activeUiOk = isMobileUiActive() && hud.classList.contains('mobile-ui') &&
+      getComputedStyle($('mobileControls')).display !== 'none' &&
+      getComputedStyle($('mobLookPad')).display !== 'none';
+
+    mobJoyX = 0; mobJoyY = 1.0; mobEdgeSprint = true;
+    hVelX = 0; hVelZ = 0;
+    meMob.yaw = 0; camYaw = 0; flashYaw = 0;
+    const beforeMoveDist = Math.hypot(meMob.x, meMob.z);
+    for (let i = 0; i < 4; i++) updateLocalPlayer(0.08, 7.0 + i * 0.08);
+    const movedByJoy = Math.hypot(meMob.x - savedXMob, meMob.z - savedZMob) > 0.1 || Math.hypot(meMob.x, meMob.z) !== beforeMoveDist;
+    applyCameraLookDelta(60, -25, 0.0052);
+    const lookedBySwipe = Math.abs(meMob.yaw - 0) > 0.25 && meMob.pitch > 0.08;
+
+    resetMobileInputs();
+    meMob.x = savedXMob; meMob.z = savedZMob;
+    meMob.yaw = savedYawMob; meMob.pitch = savedPitchMob;
+    camYaw = savedYawMob; flashYaw = savedYawMob;
+    hVelX = 0; hVelZ = 0;
+    setGraphicsPreset(savedGfxMob);
+    fxSettings.touchControls = savedTouchMode;
+    applyFxSettings();
+    assert(activeUiOk && movedByJoy && lookedBySwipe, 'mobile_joystick_and_swipe_camera_ok');
+  }
+
   gfx.render(0.016);
 
   // Expose live debug handle for automated Playtest/Playwright verification
@@ -2602,6 +3367,11 @@ async function runSelfTests() {
       updateInteractions(0.05, p);
       return t.p;
     },
+    isMobileUiActive,
+    setTouchJoy: (jx = 0, jy = 0, edgeSprint = false) => {
+      mobJoyX = jx; mobJoyY = jy; mobEdgeSprint = !!edgeSprint;
+    },
+    swipeLook: (dx = 0, dy = 0) => applyCameraLookDelta(dx, dy, 0.0052),
     toggleFlashlight,
     setAspectMode,
     setGraphicsPreset,
