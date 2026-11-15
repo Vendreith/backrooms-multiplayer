@@ -1,0 +1,19 @@
+{
+  "name": "backrooms-multiplayer",
+  "version": "1.0.0",
+  "description": "Backrooms Level 0 — Found Footage 3D Co-op / PvP Web Multiplayer (Three.js + Postprocessing + PeerJS)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.4",
+    "postprocessing": "^6.36.3",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}
