@@ -148,7 +148,7 @@ const savedFps = rawSavedFps === null ? defaultFps : Number(rawSavedFps);
 let fpsCap = FPS_CAPS.includes(savedFps) ? savedFps : defaultFps;
 const rawSavedAspect = localStorage.getItem('br_aspect_v2');
 let aspectMode = rawSavedAspect === '4:3' ? '4:3' : rawSavedAspect === '16:9' ? '16:9' : (mobileAutoBoot ? '16:9' : '4:3');
-let mouseSens = Number(localStorage.getItem('br_sens_v2') || '1.0');
+let mouseSens = Number(localStorage.getItem('br_sens_v2') || (mobileAutoBoot ? '1.0' : '0.6'));
 let musicVol = Number(localStorage.getItem('br_mvol_v2') || '1.0');
 let sfxVol = Number(localStorage.getItem('br_svol_v2') || '1.0');
 audio.setVolumes(musicVol, sfxVol);
@@ -740,6 +740,8 @@ async function beginMatch(matchSeed, roster, localId) {
       hookT: HOOK_T,
       hooks: 0,
       hookIdx: -1,
+      selfEscapeLeft: isK ? 0 : 1,
+      escapeGuardT: 0,
       carrying: null,
       swingT: 0,
       reveal: false,
@@ -992,25 +994,90 @@ function processPlayerActionHost(actorId, msg) {
       t.p = Math.max(0, t.p - 0.04);
       broadcastEvent({ ev: 'sfx', kind: 'spark', x: t.x, z: t.z });
     }
+  } else if (msg.act === 'selfEscape') {
+    if (p.role !== 's' || (p.selfEscapeLeft ?? 0) <= 0) return;
+    if (p.state !== 'carried' && p.state !== 'hooked') return;
+    const fromState = p.state;
+    p.selfEscapeLeft = Math.max(0, (p.selfEscapeLeft ?? 1) - 1);
+
+    let carrier = null;
+    if (fromState === 'carried') {
+      for (const k of Object.values(players)) {
+        if (k.role === 'k' && k.carrying === p.id) {
+          k.carrying = null;
+          carrier = k;
+          break;
+        }
+      }
+      if (carrier) {
+        const ctrl = aiControllers.find(c => c.id === carrier.id);
+        if (ctrl) {
+          ctrl.slowT = Math.max(ctrl.slowT || 0, 3.2);
+          ctrl.attackCD = Math.max(ctrl.attackCD || 0, 3.4);
+          ctrl.state = 'PATROL';
+          ctrl.targetId = null;
+          ctrl.targetPos = null;
+          ctrl.path = [];
+        }
+      }
+      const [ux, uz] = collide(p.x, p.z, 0.36, map, false, 0);
+      p.x = ux; p.z = uz;
+    } else if (fromState === 'hooked') {
+      const h = map.HOOKS[p.hookIdx];
+      if (h) {
+        h.occ = null;
+        const [ux, uz] = collide(h.x + 0.65, h.z + 0.45, 0.36, map, false, 0);
+        p.x = ux; p.z = uz;
+      }
+      p.hookIdx = -1;
+    }
+
+    p.state = 'ok';
+    p.hp = 1;
+    p.escapeGuardT = 2.6;
+    broadcastEvent({
+      ev: 'selfEscaped',
+      id: p.id,
+      from: fromState === 'hooked' ? 'hook' : 'carry',
+      killerId: carrier?.id || null,
+      x: p.x,
+      z: p.z
+    });
   } else if (msg.act === 'selfUnhook') {
     const othersAlive = Object.values(players).filter(x => x.id !== p.id && x.role === 's' && x.state !== 'dead' && x.state !== 'escaped').length;
     if (othersAlive === 0 && p.state === 'hooked' && p.hookIdx >= 0) {
       const h = map.HOOKS[p.hookIdx];
-      if (h) h.occ = null;
+      if (h) {
+        h.occ = null;
+        const [ux, uz] = collide(h.x + 0.65, h.z + 0.45, 0.36, map, false, 0);
+        p.x = ux; p.z = uz;
+      }
       p.state = 'ok';
       p.hp = 1;
       p.hookIdx = -1;
+      p.escapeGuardT = 2.6;
       broadcastEvent({ ev: 'unhooked', id: p.id, hookIdx: h ? h.id : 0, x: p.x, z: p.z });
     }
   } else if (msg.act === 'unhook') {
-    const h = map.HOOKS[msg.hookIdx];
-    if (h && h.occ && players[h.occ]) {
-      const victim = players[h.occ];
+    if (p.role !== 's' || p.state !== 'ok') return;
+    let h = map.HOOKS.find(hk => hk.id === msg.hookIdx) || map.HOOKS[msg.hookIdx];
+    let victim = h && h.occ ? players[h.occ] : null;
+    if (!victim) {
+      victim = Object.values(players).find(s => s.id !== p.id && s.role === 's' && s.state === 'hooked' && Math.hypot(s.x - p.x, s.z - p.z) < 3.4);
+      if (victim && victim.hookIdx >= 0) h = map.HOOKS[victim.hookIdx];
+    }
+    const anchorX = h ? h.x : victim?.x;
+    const anchorZ = h ? h.z : victim?.z;
+    if (victim && victim.state === 'hooked' && Math.hypot(p.x - anchorX, p.z - anchorZ) < 3.4) {
+      const [ux, uz] = collide(anchorX + 0.65, anchorZ + 0.45, 0.36, map, false, 0);
       victim.state = 'ok';
       victim.hp = 1;
       victim.hookIdx = -1;
-      h.occ = null;
-      broadcastEvent({ ev: 'unhooked', id: victim.id, hookIdx: h.id, x: h.x, z: h.z });
+      victim.x = ux;
+      victim.z = uz;
+      victim.escapeGuardT = 2.2;
+      if (h) h.occ = null;
+      broadcastEvent({ ev: 'unhooked', id: victim.id, rescuerId: p.id, hookIdx: h ? h.id : 0, x: ux, z: uz });
     }
   } else if (msg.act === 'revive') {
     const t = players[msg.targetId];
@@ -1075,6 +1142,7 @@ function processPlayerActionHost(actorId, msg) {
 }
 
 function applyKillerHit(killer, victim) {
+  if ((victim.escapeGuardT || 0) > 0) return;
   victim.hp--;
   if (victim.hp <= 0) {
     victim.state = 'down';
@@ -1172,14 +1240,56 @@ function handleNetEvent(ev) {
   } else if (ev.ev === 'hooked') {
     audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, false);
     const v = players[ev.id];
+    if (v) { v.state = 'hooked'; v.hookIdx = ev.hookIdx; v.x = ev.x; v.z = ev.z; }
+    const hk = map?.HOOKS?.[ev.hookIdx];
+    if (hk) hk.occ = ev.id;
     pushFeed(`${v?.name || 'Đồng đội'} bị treo lên móc!`, '#ff8838');
   } else if (ev.ev === 'hookDeath') {
     audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, true);
     const v = players[ev.id];
+    if (v) {
+      if (v.hookIdx >= 0 && map?.HOOKS?.[v.hookIdx]) map.HOOKS[v.hookIdx].occ = null;
+      v.state = 'dead';
+      v.hookIdx = -1;
+    }
     pushFeed(`${v?.name || 'Đồng đội'} đã hy sinh...`, '#ff3028');
   } else if (ev.ev === 'unhooked') {
     const v = players[ev.id];
-    pushFeed(`${v?.name || 'Đồng đội'} đã được cứu!`, '#4ed884');
+    if (ev.hookIdx >= 0 && map?.HOOKS?.[ev.hookIdx]) map.HOOKS[ev.hookIdx].occ = null;
+    if (v) {
+      v.state = 'ok'; v.hp = 1; v.hookIdx = -1;
+      if (typeof ev.x === 'number' && typeof ev.z === 'number') { v.x = ev.x; v.z = ev.z; }
+    }
+    if (ev.id === myId) {
+      busyAct = null;
+      stam = Math.max(stam, SPEED.STAM_DRAIN * 0.5);
+      stamExhausted = false;
+      pushFeed('Bạn đã được đồng đội giải cứu khỏi móc! Chạy ngay!', '#4ed884');
+    } else {
+      pushFeed(`${v?.name || 'Đồng đội'} đã được cứu!`, '#4ed884');
+    }
+  } else if (ev.ev === 'selfEscaped') {
+    const v = players[ev.id];
+    if (ev.hookIdx >= 0 && map?.HOOKS?.[ev.hookIdx]) map.HOOKS[ev.hookIdx].occ = null;
+    if (v) {
+      v.state = 'ok'; v.hp = 1; v.hookIdx = -1;
+      v.selfEscapeLeft = Math.max(0, (v.selfEscapeLeft ?? 1) - (net.isHost ? 0 : 1));
+      if (typeof ev.x === 'number' && typeof ev.z === 'number') { v.x = ev.x; v.z = ev.z; }
+    }
+    audio.playHookClang({ x: ev.x || 0, y: 1.5, z: ev.z || 0 }, false);
+    if (ev.id === myId) {
+      busyAct = null;
+      stam = Math.max(stam, SPEED.STAM_DRAIN * 0.55);
+      stamExhausted = false;
+      pushFeed('Bạn đã TỰ GIẢI THOÁT thành công (hết lượt tự thoát)! Chạy ngay!', '#4ed884');
+    } else if (ev.killerId === myId) {
+      killerSlowT = Math.max(killerSlowT, 3.2);
+      swingCD = Math.max(swingCD, 2.8);
+      if (players[myId]) players[myId].carrying = null;
+      pushFeed(`${v?.name || 'Nạn nhân'} vừa vùng thoát khỏi tay bạn!`, '#ff9442');
+    } else {
+      pushFeed(`${v?.name || 'Đồng đội'} vừa tự giải thoát khỏi Quái!`, '#4ed884');
+    }
   } else if (ev.ev === 'trapPlaced') {
     if (world) world.trapMeshes.push(spawnTrapMesh(scene, ev.x, ev.z));
   } else if (ev.ev === 'trapSprung') {
@@ -1240,13 +1350,15 @@ function applyHostSnapshot(snap) {
       p.yaw = sp.yaw; p.pitch = sp.pitch; p.spd = sp.spd;
     } else {
       // Authoritative state sync for local client
+      const prevState = p.state;
       p.hp = sp.hp;
       p.state = sp.state;
       p.carrying = sp.carrying;
       p.hookIdx = sp.hookIdx;
       p.hooks = sp.hooks;
+      p.selfEscapeLeft = sp.selfEscapeLeft ?? (p.role === 's' ? 1 : 0);
       p.inv = sp.inv;
-      if (sp.state === 'carried' || sp.state === 'hooked') {
+      if (sp.state === 'carried' || sp.state === 'hooked' || prevState === 'carried' || prevState === 'hooked') {
         p.x = sp.x; p.z = sp.z;
       }
     }
@@ -1254,6 +1366,14 @@ function applyHostSnapshot(snap) {
     p.fl = sp.fl;
     p.swingT = sp.swingT;
     p.reveal = sp.reveal;
+  }
+  if (map?.HOOKS) {
+    for (const h of map.HOOKS) h.occ = null;
+    for (const pl of Object.values(players)) {
+      if (pl.state === 'hooked' && pl.hookIdx >= 0 && map.HOOKS[pl.hookIdx]) {
+        map.HOOKS[pl.hookIdx].occ = pl.id;
+      }
+    }
   }
   if (snap.tasks) {
     snap.tasks.forEach((p, idx) => {
@@ -1334,6 +1454,7 @@ function updateHostSimulation(dt) {
   // Update downed bleed timers, hook sacrifice timers, carried positions & traps
   for (const p of Object.values(players)) {
     if (p.swingT > 0) p.swingT = Math.max(0, p.swingT - dt * 2.8);
+    if (p.escapeGuardT > 0) p.escapeGuardT = Math.max(0, p.escapeGuardT - dt);
     if (p.role !== 's') continue;
 
     if (p.state === 'down') {
@@ -1416,6 +1537,9 @@ function updateLocalPlayer(dt, elapsed) {
     fpFlashGroup.visible = false;
     camera.position.set(me.x, me.state === 'hooked' ? 2.05 : 1.35, me.z);
     camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+    if (me.state === 'carried' || me.state === 'hooked') {
+      updateInteractions(dt, me);
+    }
     return;
   }
 
@@ -1738,31 +1862,64 @@ function findBestPrompt(me) {
   }
 
   // Survivor Prompts
-  // 0. Solo self-unhook struggle safeguard (when no living teammates exist)
+  if (me.state === 'carried') {
+    if ((me.selfEscapeLeft ?? 1) > 0) {
+      return {
+        critical: true,
+        text: '[Giữ E] Tự giải thoát khỏi Quái (1 lần)',
+        hold: { kind: 'selfEscape', targetId: 'self', duration: 1.4, critical: true, onDone: () => sendAction({ act: 'selfEscape' }) }
+      };
+    }
+    return { critical: true, text: 'Đã hết tự giải thoát — Chờ đồng đội giải cứu!' };
+  }
   if (me.state === 'hooked') {
+    if ((me.selfEscapeLeft ?? 1) > 0) {
+      return {
+        critical: true,
+        text: '[Giữ E] Tự giải thoát khỏi Móc (1 lần)',
+        hold: { kind: 'selfEscape', targetId: 'self', duration: 1.8, critical: true, onDone: () => sendAction({ act: 'selfEscape' }) }
+      };
+    }
     const othersAlive = Object.values(players).filter(x => x.id !== myId && x.role === 's' && x.state !== 'dead' && x.state !== 'escaped').length;
     if (othersAlive === 0) {
       return {
+        critical: true,
         text: '[Giữ E] Tự vùng vẫy thoát khỏi Móc',
-        hold: { kind: 'selfUnhook', targetId: 'self', duration: 2.6, onDone: () => sendAction({ act: 'selfUnhook' }) }
+        hold: { kind: 'selfUnhook', targetId: 'self', duration: 2.6, critical: true, onDone: () => sendAction({ act: 'selfUnhook' }) }
+      };
+    }
+    return { critical: true, text: 'Đang bị treo trên móc — Chờ đồng đội đến cứu!' };
+  }
+  if (me.state !== 'ok') return null;
+
+  // 1. Rescue Hooked teammate (checks both hook slot and live teammate coords)
+  for (const h of map.HOOKS) {
+    if (h.occ && players[h.occ]?.state === 'hooked' && Math.hypot(me.x - h.x, me.z - h.z) < 2.75) {
+      const vicName = players[h.occ]?.name || 'đồng đội';
+      return {
+        critical: true,
+        text: `[Giữ E] Giải cứu ${vicName} trên móc`,
+        hold: { kind: 'unhook', targetId: h.id, duration: UNHOOK_T, critical: true, onDone: () => sendAction({ act: 'unhook', hookIdx: h.id }) }
       };
     }
   }
-  // 1. Rescue Hooked teammate
-  for (const h of map.HOOKS) {
-    if (h.occ && Math.hypot(me.x - h.x, me.z - h.z) < 2.5) {
+  for (const s of Object.values(players)) {
+    if (s.id !== myId && s.role === 's' && s.state === 'hooked' && Math.hypot(me.x - s.x, me.z - s.z) < 2.75) {
+      const hkIdx = s.hookIdx >= 0 ? s.hookIdx : 0;
       return {
-        text: '[Giữ E] Giải cứu đồng đội trên móc',
-        hold: { kind: 'unhook', targetId: h.id, duration: UNHOOK_T, onDone: () => sendAction({ act: 'unhook', hookIdx: h.id }) }
+        critical: true,
+        text: `[Giữ E] Giải cứu ${s.name} trên móc`,
+        hold: { kind: 'unhook', targetId: hkIdx, duration: UNHOOK_T, critical: true, onDone: () => sendAction({ act: 'unhook', hookIdx: hkIdx }) }
       };
     }
   }
   // 2. Revive Downed teammate
   for (const s of Object.values(players)) {
-    if (s.id !== myId && s.state === 'down' && Math.hypot(me.x - s.x, me.z - s.z) < 2.3) {
+    if (s.id !== myId && s.state === 'down' && Math.hypot(me.x - s.x, me.z - s.z) < 2.45) {
       return {
+        critical: true,
         text: `[Giữ E] Sơ cứu ${s.name}`,
-        hold: { kind: 'revive', targetId: s.id, duration: 4.5, onDone: () => sendAction({ act: 'revive', targetId: s.id }) }
+        hold: { kind: 'revive', targetId: s.id, duration: 4.5, critical: true, onDone: () => sendAction({ act: 'revive', targetId: s.id }) }
       };
     }
   }
@@ -1817,15 +1974,17 @@ function updateInteractions(dt, me) {
   if (prompt && !busyAct) {
     pBox.textContent = prompt.text;
     pBox.classList.remove('hidden');
+    pBox.classList.toggle('force-show', !!prompt.critical);
   } else {
     pBox.classList.add('hidden');
+    pBox.classList.remove('force-show');
   }
 
   // Handle hold-E actions; fleeing/stopping ALWAYS saves existing `task.p` intact!
-  const canHold = (!!keys[DEF_KB.use] || mobUseHeld) && !!prompt?.hold && (prompt.hold.kind === 'selfUnhook' || me.spd < 1.25);
+  const canHold = (!!keys[DEF_KB.use] || mobUseHeld) && !!prompt?.hold && (prompt.hold.kind === 'selfEscape' || prompt.hold.kind === 'selfUnhook' || me.spd < 1.25);
   const mobUse = $('mobUseBtn');
   if (mobUse) {
-    const ready = !!(prompt || busyAct);
+    const ready = !!(prompt?.hold || prompt?.act || busyAct);
     mobUse.classList.toggle('ready', ready);
     const label = busyAct
       ? 'ĐANG GIỮ...'
@@ -1853,6 +2012,7 @@ function updateInteractions(dt, me) {
 
   if (busyAct) {
     aWrap.classList.remove('hidden');
+    aWrap.classList.toggle('force-show', !!busyAct.critical);
     if (busyAct.kind === 'task') {
       const t = map.TASKS[busyAct.taskIdx];
       const inc = dt / TASK_TIME;
@@ -1865,7 +2025,8 @@ function updateInteractions(dt, me) {
       if (busyAct.prog >= 1) busyAct = null;
     } else {
       busyAct.prog += dt / busyAct.duration;
-      $('actLabel').textContent = busyAct.kind === 'unhook' ? 'Đang tháo móc...'
+      $('actLabel').textContent = busyAct.kind === 'unhook' ? 'Đang giải cứu đồng đội...'
+        : busyAct.kind === 'selfEscape' ? 'Đang vùng vẫy tự giải thoát...'
         : busyAct.kind === 'selfUnhook' ? 'Đang vùng thoát khỏi móc...'
         : busyAct.kind === 'revive' ? 'Đang sơ cứu...'
         : 'Đang gỡ bẫy...';
@@ -1877,6 +2038,7 @@ function updateInteractions(dt, me) {
     }
   } else {
     aWrap.classList.add('hidden');
+    aWrap.classList.remove('force-show');
   }
 }
 
@@ -2028,7 +2190,15 @@ function updateHUD(elapsed, fpsVal) {
       const d = Math.hypot(tg.x - me.x, tg.z - me.z);
       if (d < nearestD) { nearestD = d; nearestTgt = tg; nearestAng = Math.atan2(-(tg.x - me.x), -(tg.z - me.z)); }
     }
-    if (nearestD < Infinity) {
+    const hookedMate = Object.values(players).find(p => p.role === 's' && p.id !== myId && (p.state === 'hooked' || p.state === 'down' || p.state === 'carried'));
+    if (hookedMate) {
+      const md = Math.hypot(hookedMate.x - me.x, hookedMate.z - me.z);
+      const mAng = Math.atan2(-(hookedMate.x - me.x), -(hookedMate.z - me.z));
+      const mRel = Math.atan2(Math.sin(mAng - me.yaw), Math.cos(mAng - me.yaw));
+      const mArr = Math.abs(mRel) < 0.55 ? '↑ THẲNG' : mRel > 0.55 && mRel < 2.4 ? '← TRÁI' : mRel < -0.55 && mRel > -2.4 ? '→ PHẢI' : '↓ SAU';
+      const stTxt = hookedMate.state === 'hooked' ? 'BỊ TREO' : hookedMate.state === 'carried' ? 'BỊ BẮT' : 'GỤC';
+      hintLbl = `CỨU ${hookedMate.name} (${stTxt}): ${Math.round(md)}m (${mArr})`;
+    } else if (nearestD < Infinity) {
       const rel = Math.atan2(Math.sin(nearestAng - me.yaw), Math.cos(nearestAng - me.yaw));
       const arrow = Math.abs(rel) < 0.55 ? '↑ THẲNG' : rel > 0.55 && rel < 2.4 ? '← TRÁI' : rel < -0.55 && rel > -2.4 ? '→ PHẢI' : '↓ SAU';
       const tSym = !repairDone && nearestTgt?.code ? ` ${nearestTgt.code} ${nearestTgt.symbol}` : '';
@@ -2038,7 +2208,7 @@ function updateHUD(elapsed, fpsVal) {
       <div class="mission-title"><span style="white-space:nowrap">NHIỆM VỤ</span><span style="text-align:right;font-size:10px">${zoneLabel}</span></div>
       <div class="mission-step ${repairDone ? 'done' : 'active'}">${repairDone ? '✓' : '1.'} Sửa ${NEED} Tủ Điện (${doneCount}/${NEED}) — Giữ [E]</div>
       <div class="mission-step ${repairDone ? 'active' : ''}">2. Theo dây mũi tên sàn → Cổng Bắc / Nam</div>
-      <div class="mission-hint">${hintLbl || 'Theo dây mũi tên trên sàn để tìm máy'} • [M] Đổi nhạc</div>`;
+      <div class="mission-hint" ${hookedMate ? 'style="color:#ff9c42;"' : ''}>${hintLbl || 'Theo dây mũi tên trên sàn để tìm máy'} • [M] Đổi nhạc</div>`;
   }
 
   // Team list with distinct survivor colors ONLY (hide all Entity / Killer rows from POV HUD!)
@@ -2047,11 +2217,12 @@ function updateHUD(elapsed, fpsVal) {
     const st = p.state === 'escaped' ? 'THOÁT'
       : p.state === 'dead' ? 'CHẾT'
       : p.state === 'hooked' ? 'BỊ MÓC'
+      : p.state === 'carried' ? 'BỊ BẮT'
       : p.state === 'down' ? 'GỤC'
       : p.hp === 1 ? 'THƯƠNG' : 'KHỎE';
     return `<div class="team-row" style="border-left-color:${col};">
       <span>${esc(p.name)}</span>
-      <span style="color:${p.hp === 1 || p.state === 'down' ? '#ff7a6e' : '#e6d27a'};">${st}</span>
+      <span style="color:${p.hp === 1 || p.state === 'down' || p.state === 'hooked' || p.state === 'carried' ? '#ff7a6e' : '#e6d27a'};">${st}</span>
     </div>`;
   }).join('');
   $('teamList').innerHTML = teamHtml;
@@ -2110,14 +2281,52 @@ function updateHUD(elapsed, fpsVal) {
   }
 }
 
-// ---------- Visual Wall-Through Reveal / Scan / Flare Markers ----------
+// ---------- Visual Wall-Through Reveal / Hooked Teammate / Scan / Flare Markers ----------
 function ensureBeaconCount(n) {
   while (beaconPool.length < n) {
-    const m = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.28, 0),
-      new THREE.MeshBasicMaterial({ color: 0xff3628, wireframe: true, depthTest: false, transparent: true, opacity: 0.9 })
-    );
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff3628,
+      wireframe: true,
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.94
+    });
+    const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.32, 0), mat);
     m.renderOrder = 999;
+
+    const silMat = new THREE.MeshBasicMaterial({
+      color: 0xff8c28,
+      wireframe: true,
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.72
+    });
+    const silhouette = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.28, 1.85, 8, 1, true), silMat);
+    silhouette.position.y = -0.35;
+    silhouette.renderOrder = 999;
+
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff8c28,
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.85
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.036, 6, 18), ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = -0.25;
+    ring.renderOrder = 999;
+
+    m.add(silhouette, ring);
+    m.userData = { silhouette, ring };
     scene.add(m);
     beaconPool.push(m);
   }
@@ -2129,6 +2338,17 @@ function updateRevealMarkers(elapsed) {
   const targets = [];
 
   if (me.role === 's') {
+    // Always highlight hooked / carried / downed teammates through walls across the ENTIRE map
+    for (const p of Object.values(players)) {
+      if (p.role !== 's' || p.id === myId) continue;
+      if (p.state === 'hooked') {
+        targets.push({ x: p.x, y: 1.55, z: p.z, color: 0xff8c28, silhouette: true, pulse: true });
+      } else if (p.state === 'carried') {
+        targets.push({ x: p.x, y: 1.45, z: p.z, color: 0xff4c30, silhouette: true, pulse: true });
+      } else if (p.state === 'down') {
+        targets.push({ x: p.x, y: 0.9, z: p.z, color: 0xffe066, silhouette: true, pulse: false });
+      }
+    }
     // Show Entity outline during EMF Scanner OR if any Entity steps near an active UV Flare!
     for (const k of Object.values(players)) {
       if (k.role !== 'k') continue;
@@ -2140,30 +2360,61 @@ function updateRevealMarkers(elapsed) {
           }
         }
       }
-      if (scanT > 0 || illuminatedByFlare) targets.push({ x: k.x, z: k.z, color: 0x48d0f5 });
+      if (scanT > 0 || illuminatedByFlare) targets.push({ x: k.x, y: 1.4, z: k.z, color: 0x48d0f5, silhouette: false, pulse: false });
     }
     if (vhsRevealT > 0) {
       for (const tg of (map.exitsOpen ? map.EXITS : map.TASKS.filter(t => !t.done))) {
-        targets.push({ x: tg.x, z: tg.z, color: map.exitsOpen ? 0x38f288 : 0xffe066 });
+        targets.push({ x: tg.x, y: 1.4, z: tg.z, color: map.exitsOpen ? 0x38f288 : 0xffe066, silhouette: false, pulse: false });
       }
     }
   } else if (me.reveal || revealGlobalT > 0) {
     // Killer sees Survivor outlines during Reveal [Q]
     for (const p of Object.values(players)) {
       if (p.role === 's' && p.state !== 'dead' && p.state !== 'escaped') {
-        targets.push({ x: p.x, z: p.z, color: 0xff3628 });
+        targets.push({ x: p.x, y: 1.4, z: p.z, color: 0xff3628, silhouette: true, pulse: false });
       }
     }
   }
 
+  // Clamp far-plane projection inside camera.far so wall-through hooked highlights stay visible across the entire 471m map
+  const maxProxyDist = Math.max(24, (camera.far || FAR_SURV) * 0.78);
   ensureBeaconCount(targets.length);
   for (let i = 0; i < beaconPool.length; i++) {
     const b = beaconPool[i];
     if (i < targets.length) {
+      const tg = targets[i];
+      const bobY = (tg.y ?? 1.4) + Math.sin(elapsed * 4) * 0.14;
+      const dx = tg.x - camera.position.x;
+      const dy = bobY - camera.position.y;
+      const dz = tg.z - camera.position.z;
+      const dist = Math.hypot(dx, dy, dz);
+      let px = tg.x, py = bobY, pz = tg.z;
+      let sc = 1.0;
+      if (dist > maxProxyDist) {
+        const s = maxProxyDist / dist;
+        px = camera.position.x + dx * s;
+        py = camera.position.y + dy * s;
+        pz = camera.position.z + dz * s;
+        sc = tg.silhouette ? 1.35 : 1.0;
+      }
       b.visible = true;
-      b.position.set(targets[i].x, 1.4 + Math.sin(elapsed * 4) * 0.15, targets[i].z);
+      b.position.set(px, py, pz);
       b.rotation.y = elapsed * 2.5;
-      b.material.color.setHex(targets[i].color);
+      b.scale.setScalar(sc);
+      b.material.color.setHex(tg.color);
+
+      const sil = b.userData?.silhouette;
+      const ring = b.userData?.ring;
+      if (sil) {
+        sil.visible = !!tg.silhouette;
+        sil.material.color.setHex(tg.color);
+      }
+      if (ring) {
+        ring.visible = !!tg.silhouette;
+        ring.material.color.setHex(tg.color);
+        const pScale = tg.pulse ? (1.0 + 0.25 * Math.sin(elapsed * 5.2)) : 1.0;
+        ring.scale.setScalar(pScale);
+      }
     } else {
       b.visible = false;
     }
@@ -2851,7 +3102,14 @@ async function runSelfTests() {
   animateEntity(ent, 0.016, { spd: 5.2, swingT: 0.5 }, 1.2);
 
   const surv = buildSurvivorAvatar(2);
-  assert(surv && surv.group, 'survivor_colored_avatar');
+  let survHasBoxChild = false;
+  surv?.group?.traverse(n => {
+    if (n.isMesh && n.geometry?.type === 'BoxGeometry') survHasBoxChild = true;
+  });
+  assert(
+    surv && surv.group && (!surv.model || Math.abs(surv.model.rotation.y) < 1e-5) && !survHasBoxChild,
+    'survivor_colored_avatar_faces_forward_without_box'
+  );
 
   fpClaws.setVisible(true);
   updateFPEntityClaws(fpClaws, 0.016, { elapsed: 1.5, speedRatio: 0.5, swingT: 0.45 });
@@ -2862,10 +3120,14 @@ async function runSelfTests() {
   const prevFpsCap = fpsCap;
   const prevAspect = aspectMode;
   assert(
-    currentGfx === 'ultra' && fpsCap === 15 && aspectMode === '4:3' &&
-    fxSettings.rtShadow === 1.6 && fxSettings.lensCurve === 1.5 && fxSettings.motionBlur === 1.5 &&
-    fxSettings.dofBlur === 1.5 && fxSettings.bloom === 1.6 && fxSettings.grain === 1.5 &&
-    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && fxSettings.brightness === 1.35,
+    currentGfx === 'ultra' && fpsCap === 15 && aspectMode === '4:3' && Math.abs(mouseSens - 0.6) < 0.01 &&
+    fxSettings.footageFilterMode === 'found_vhs' && Math.abs(fxSettings.footageFilterStrength - 0.35) < 0.01 &&
+    fxSettings.rtShadow === 1.6 && fxSettings.lensCurve === 1.5 && fxSettings.motionBlur === 3.0 &&
+    fxSettings.dofBlur === 1.5 && fxSettings.bloom === 3.5 && fxSettings.grain === 1.5 &&
+    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && fxSettings.brightness === 1.35 &&
+    Math.abs(fxSettings.contrast - 1.02) < 0.005 && Math.abs(fxSettings.gamma - 1.04) < 0.005 &&
+    fxSettings.hue === 0 && Math.abs(fxSettings.saturation - 1.09) < 0.005 &&
+    fxSettings.cleanCamHud === true && fxSettings.touchControls === 'auto',
     'default_settings_ultra_15fps_43_matched'
   );
 
@@ -2876,6 +3138,8 @@ async function runSelfTests() {
   setGraphicsPreset('mobile');
   assert(
     gfx.mblurPass === null && gfx.rtShadowPass === null && !fxSettings.shadows &&
+    !fxSettings.cleanCamHud && fxSettings.footageFilterMode === 'off' &&
+    fxSettings.bloom === 0.90 && fxSettings.brightness === 1.10 &&
     isMobileUiActive() && hud.classList.contains('mobile-ui'),
     'mobile_preset_lightweight_and_touch_ui'
   );
@@ -3061,7 +3325,8 @@ async function runSelfTests() {
     'all_29_scene_textures_loaded'
   );
 
-  // Test Realistic Clean Camcorder HUD mode (hides gameplay UI, keeps viewfinder frame, camera stats & battery)
+  // Test Realistic Clean Camcorder HUD mode (default ON on PC Ultra; hides gameplay UI, keeps viewfinder frame, camera stats & battery)
+  const savedCleanCam = fxSettings.cleanCamHud;
   fxSettings.cleanCamHud = true;
   applyFxSettings();
   updateHUD(0.1, fpsCap || 60);
@@ -3077,11 +3342,15 @@ async function runSelfTests() {
   );
   fxSettings.cleanCamHud = false;
   applyFxSettings();
+  assert(getComputedStyle($('missionBox')).display !== 'none', 'clean_cam_hud_can_disable_cleanly');
 
-  // Test multi-layer Low-Quality Found-Footage / Stream / VOD filter presets (Clean Low, Found/VHS, VOD Low Bitrate, Hybrid 1+2+3)
+  // Test multi-layer Low-Quality Found-Footage / Stream / VOD filter presets (PC Ultra defaults to Found/VHS 35%)
+  const savedFilterMode = fxSettings.footageFilterMode;
+  const savedFilterStrength = fxSettings.footageFilterStrength;
   const modeSelects = document.querySelectorAll('select[data-fx-key="footageFilterMode"]');
   assert(
-    modeSelects.length === 2 && fxSettings.footageFilterMode === 'off' && fxSettings.footageFilterStrength === 1.0 &&
+    modeSelects.length === 2 &&
+    savedFilterMode === 'found_vhs' && Math.abs(savedFilterStrength - 0.35) < 0.01 &&
     Array.from(modeSelects).every(el => !!el.querySelector('option[value="hybrid_all"]')),
     'footage_filter_defaults_and_ui_mounted'
   );
@@ -3153,8 +3422,16 @@ async function runSelfTests() {
     gfx.motionBlur.uniforms.get('uTaaMix').value === 0,
     'footage_filter_restored_off_cleanly'
   );
+  fxSettings.footageFilterMode = savedFilterMode;
+  fxSettings.footageFilterStrength = savedFilterStrength;
+  fxSettings.cleanCamHud = savedCleanCam;
+  applyFxSettings();
 
-  // Color grading controls: Contrast, Gamma, Hue, Saturation (tighter, subtle ranges)
+  // Color grading controls: Contrast, Gamma, Hue, Saturation (tighter, subtle ranges; Ultra defaults match PC screenshot)
+  const savedColorCon = fxSettings.contrast;
+  const savedColorGam = fxSettings.gamma;
+  const savedColorHue = fxSettings.hue;
+  const savedColorSat = fxSettings.saturation;
   const hueInput = document.querySelector('#pauseFxMount input[data-fx-key="hue"]');
   const satInput = document.querySelector('#pauseFxMount input[data-fx-key="saturation"]');
   const conInput = document.querySelector('#pauseFxMount input[data-fx-key="contrast"]');
@@ -3166,10 +3443,10 @@ async function runSelfTests() {
     Number(conInput?.min) >= 0.75 && Number(conInput?.max) <= 1.30 &&
     Number(hueInput?.min) >= -45 && Number(hueInput?.max) <= 45 &&
     Number(satInput?.min) >= 0.5 && Number(satInput?.max) <= 1.4 &&
-    gfx.crtGrade.uniforms.get('uContrast').value === 1.0 &&
-    gfx.crtGrade.uniforms.get('uGamma').value === 1.0 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uContrast').value - 1.02) < 0.01 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uGamma').value - 1.04) < 0.01 &&
     Math.abs(gfx.crtGrade.uniforms.get('uHue').value) < 1e-5 &&
-    gfx.crtGrade.uniforms.get('uSaturation').value === 1.0,
+    Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.09) < 0.01,
     'color_settings_defaults_and_ui_mounted'
   );
   fxSettings.contrast = 1.18;
@@ -3184,10 +3461,10 @@ async function runSelfTests() {
     Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.22) < 0.01,
     'color_settings_contrast_gamma_hue_saturation'
   );
-  fxSettings.contrast = 1.0;
-  fxSettings.gamma = 1.0;
-  fxSettings.hue = 0;
-  fxSettings.saturation = 1.0;
+  fxSettings.contrast = savedColorCon;
+  fxSettings.gamma = savedColorGam;
+  fxSettings.hue = savedColorHue;
+  fxSettings.saturation = savedColorSat;
   applyFxSettings();
 
   // Toggle for horizontal CRT / VHS cut lines (turns off scanlines & tracking tears while keeping lens curve & CA)
@@ -3330,7 +3607,7 @@ async function runSelfTests() {
     const beforeMoveDist = Math.hypot(meMob.x, meMob.z);
     for (let i = 0; i < 4; i++) updateLocalPlayer(0.08, 7.0 + i * 0.08);
     const movedByJoy = Math.hypot(meMob.x - savedXMob, meMob.z - savedZMob) > 0.1 || Math.hypot(meMob.x, meMob.z) !== beforeMoveDist;
-    applyCameraLookDelta(60, -25, 0.0052);
+    applyCameraLookDelta(100, -40, 0.0052);
     const lookedBySwipe = Math.abs(meMob.yaw - 0) > 0.25 && meMob.pitch > 0.08;
 
     resetMobileInputs();
@@ -3342,6 +3619,102 @@ async function runSelfTests() {
     fxSettings.touchControls = savedTouchMode;
     applyFxSettings();
     assert(activeUiOk && movedByJoy && lookedBySwipe, 'mobile_joystick_and_swipe_camera_ok');
+  }
+
+  // Self-Escape (1 time per match when caught/carried or hooked by Entity)
+  {
+    const meEsc = players[myId];
+    const ctrl0 = aiControllers[0];
+    const killer0 = ctrl0 ? players[ctrl0.id] : null;
+    const savedState = {
+      x: meEsc.x, z: meEsc.z, state: meEsc.state, hp: meEsc.hp,
+      selfEscapeLeft: meEsc.selfEscapeLeft, hookIdx: meEsc.hookIdx, escapeGuardT: meEsc.escapeGuardT,
+      kCarry: killer0?.carrying, kSlow: ctrl0?.slowT, kSt: ctrl0?.state
+    };
+
+    meEsc.state = 'carried';
+    meEsc.hp = 0;
+    meEsc.selfEscapeLeft = 1;
+    if (killer0) killer0.carrying = myId;
+    const carryPrompt = findBestPrompt(meEsc);
+    assert(
+      carryPrompt?.hold?.kind === 'selfEscape' && carryPrompt.critical === true,
+      'caught_self_escape_prompt_available_once'
+    );
+    keys[DEF_KB.use] = true;
+    updateInteractions(0.9, meEsc);
+    updateInteractions(0.9, meEsc);
+    keys[DEF_KB.use] = false;
+    updateInteractions(0.05, meEsc);
+    assert(
+      meEsc.state === 'ok' && meEsc.hp === 1 && meEsc.selfEscapeLeft === 0 &&
+      (!killer0 || killer0.carrying === null) && (!ctrl0 || ctrl0.slowT >= 2.5),
+      'survivor_one_time_self_escape_frees_and_stuns_entity'
+    );
+
+    // Second catch in same match MUST NOT allow a second self-escape
+    meEsc.state = 'carried';
+    const secondCatchPrompt = findBestPrompt(meEsc);
+    assert(!secondCatchPrompt?.hold, 'second_catch_no_more_self_escape');
+
+    // Restore clean player/killer state
+    meEsc.x = savedState.x; meEsc.z = savedState.z; meEsc.state = savedState.state; meEsc.hp = savedState.hp;
+    meEsc.selfEscapeLeft = savedState.selfEscapeLeft; meEsc.hookIdx = savedState.hookIdx; meEsc.escapeGuardT = 0;
+    if (killer0) killer0.carrying = savedState.kCarry ?? null;
+    if (ctrl0) { ctrl0.slowT = savedState.kSlow ?? 0; ctrl0.state = savedState.kSt ?? 'PATROL'; }
+    busyAct = null;
+    updateInteractions(0.05, meEsc);
+  }
+
+  // Map-Wide Wall-Through Highlight for Hooked Teammates + Teammate Rescue Mechanics
+  {
+    const meRes = players[myId];
+    const savedResX = meRes.x, savedResZ = meRes.z, savedResState = meRes.state;
+    // Find a distant hook (>140m away beyond FAR_SURV=115m) to prove map-wide wall-through highlight works
+    let farHook = map.HOOKS.find(h => Math.hypot(h.x - meRes.x, h.z - meRes.z) > 140) || map.HOOKS[map.HOOKS.length - 1];
+    const mateId = '__TEST_MATE__';
+    players[mateId] = {
+      id: mateId, name: 'DongDoi', role: 's', colorIdx: 2, isAI: false,
+      x: farHook.x, y: 0, z: farHook.z, vy: 0, yaw: 0, pitch: 0, spd: 0,
+      crouch: false, fl: true, hp: 1, state: 'hooked',
+      bleed: BLEED, hookT: HOOK_T, hooks: 1, hookIdx: farHook.id,
+      selfEscapeLeft: 1, escapeGuardT: 0, carrying: null, swingT: 0, reveal: false, inv: {}
+    };
+    farHook.occ = mateId;
+
+    camera.position.set(meRes.x, 1.62, meRes.z);
+    updateRevealMarkers(2.5);
+    const activeBeacon = beaconPool[0];
+    const beaconDistToCam = activeBeacon ? activeBeacon.position.distanceTo(camera.position) : 999;
+    assert(
+      !!activeBeacon && activeBeacon.visible &&
+      activeBeacon.userData?.silhouette?.visible === true &&
+      activeBeacon.material?.fog === false &&
+      beaconDistToCam < camera.far,
+      'hooked_teammate_highlighted_across_entire_map'
+    );
+
+    // Move next to hooked teammate and complete teammate rescue
+    meRes.x = farHook.x + 1.0; meRes.z = farHook.z; meRes.spd = 0; meRes.state = 'ok';
+    const rescuePrompt = findBestPrompt(meRes);
+    assert(rescuePrompt?.hold?.kind === 'unhook' && rescuePrompt.critical === true, 'teammate_rescue_prompt_available');
+    keys[DEF_KB.use] = true;
+    updateInteractions(UNHOOK_T * 0.6, meRes);
+    updateInteractions(UNHOOK_T * 0.6, meRes);
+    keys[DEF_KB.use] = false;
+    updateInteractions(0.05, meRes);
+    assert(
+      players[mateId].state === 'ok' && players[mateId].hp === 1 && farHook.occ === null,
+      'teammate_rescue_unhooks_cleanly'
+    );
+
+    delete players[mateId];
+    farHook.occ = null;
+    meRes.x = savedResX; meRes.z = savedResZ; meRes.state = savedResState;
+    busyAct = null;
+    updateRevealMarkers(2.6);
+    updateInteractions(0.05, meRes);
+    updateHUD(players[myId]);
   }
 
   gfx.render(0.016);

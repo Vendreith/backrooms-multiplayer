@@ -92,7 +92,7 @@ export const MAXP = 5;
 
 export const NHOOK = 10;
 export const HOOK_T = 120;
-export const UNHOOK_T = 8;
+export const UNHOOK_T = 3.5;
 
 export const REVEAL_T = 6;
 export const REVEAL_CD = 45;
@@ -389,27 +389,27 @@ export function getPresetDefaultFx(key = 'ultra') {
   const isMobile = key === 'mobile';
   return {
     renderScale: p.pixelRatio,
-    footageFilterMode: 'off',
-    footageFilterStrength: 1.0,
+    footageFilterMode: isUltra ? 'found_vhs' : 'off',
+    footageFilterStrength: isUltra ? 0.35 : 1.0,
     shadows: !!p.shadows,
     rtShadow: p.rtShadow ?? 0.0,
     postFX: !!p.postFX,
     lensCurve: p.crt ? (isUltra ? 1.5 : isMobile ? 1.0 : key === 'med' ? 0.85 : 1.02) : 0.0,
-    motionBlur: p.motionBlur ? (isUltra ? 1.5 : 1.0) : 0.0,
+    motionBlur: p.motionBlur ? (isUltra ? 3.0 : 1.0) : 0.0,
     dofBlur: p.postFX && !isMobile ? (key === 'med' ? 0.65 : isUltra ? 1.5 : 1.0) : 0.0,
-    bloom: p.bloom ? (isUltra ? 1.6 : isMobile ? 0.90 : key === 'med' ? 0.80 : 1.10) : 0.0,
+    bloom: p.bloom ? (isUltra ? 3.5 : isMobile ? 0.90 : key === 'med' ? 0.80 : 1.10) : 0.0,
     grain: p.crt ? (isUltra ? 1.5 : isMobile ? 0.70 : key === 'med' ? 0.75 : 1.0) : 0.0,
     dust: key !== 'low',
     vignette: p.crt ? (isUltra ? 2.0 : isMobile ? 1.22 : key === 'med' ? 1.12 : 1.28) : 0.65,
     crtScanlines: !!p.crt && !isMobile,
     scanlines: p.crt ? (isUltra ? 1.5 : isMobile ? 0.55 : key === 'med' ? 0.75 : 1.0) : 0.0,
     brightness: isUltra ? 1.35 : isMobile ? 1.10 : 1.0,
-    contrast: 1.0,
-    gamma: 1.0,
+    contrast: isUltra ? 1.02 : 1.0,
+    gamma: isUltra ? 1.04 : 1.0,
     hue: 0,
-    saturation: 1.0,
+    saturation: isUltra ? 1.09 : 1.0,
     touchControls: 'auto',
-    cleanCamHud: false
+    cleanCamHud: isUltra
   };
 }
 

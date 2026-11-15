@@ -2035,7 +2035,8 @@ export function buildSurvivorAvatar(colorIdx = 0) {
 
   if (cachedSoldierGLTF) {
     const model = SkeletonUtils.clone(cachedSoldierGLTF.scene);
-    model.rotation.y = Math.PI;
+    // Align soldier's front (-Z) directly with player look yaw so facing teammates see each other's visors cleanly
+    model.rotation.y = 0;
     model.traverse((n) => {
       if (n.isMesh) {
         n.castShadow = true;
@@ -2048,12 +2049,6 @@ export function buildSurvivorAvatar(colorIdx = 0) {
       }
     });
     g.add(model);
-
-    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.44, 0.18), suitMat);
-    pack.position.set(0, 1.24, 0.22);
-    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), new THREE.MeshBasicMaterial({ color: cfg.hex, toneMapped: false }));
-    beacon.position.set(0, 1.54, 0.22);
-    g.add(pack, beacon);
 
     const mixer = new THREE.AnimationMixer(model);
     const actions = {};
@@ -2072,7 +2067,6 @@ export function buildSurvivorAvatar(colorIdx = 0) {
 
   const body = new THREE.Group();
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.62, 0.28), suitMat); torso.position.y = 1.12;
-  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.40, 0.16), trimMat); pack.position.set(0, 1.15, 0.20);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10), suitMat); head.position.y = 1.60;
   const visor = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.14), visorMat); visor.position.set(0, 1.60, -0.12);
   const legGeo = new THREE.BoxGeometry(0.16, 0.72, 0.18);
@@ -2087,7 +2081,7 @@ export function buildSurvivorAvatar(colorIdx = 0) {
   const flashTarget = new THREE.Object3D();
   flashTarget.position.set(0.24, 1.25, -8);
 
-  body.add(torso, pack, head, visor, lLeg, rLeg, lArm, rArm);
+  body.add(torso, head, visor, lLeg, rLeg, lArm, rArm);
   g.add(body, flash, flashTarget);
   flash.target = flashTarget;
 
@@ -2098,13 +2092,14 @@ export function animateSurvivor(av, dt, p, elapsed) {
   const spd = p.spd || 0;
   const crouch = !!p.crouch;
   const down = p.state === 'down';
+  const carried = p.state === 'carried';
   const hooked = p.state === 'hooked';
   const air = (p.y || 0) > 0.08;
 
-  if (av.flash) av.flash.visible = !!p.fl && p.state !== 'dead';
+  if (av.flash) av.flash.visible = !!p.fl && p.state !== 'dead' && !hooked && !carried;
 
   if (av.kind === 'rig') {
-    const targetClip = down ? 'Idle' : spd > 5.8 ? 'Run' : spd > 0.4 ? 'Walk' : 'Idle';
+    const targetClip = (down || hooked || carried) ? 'Idle' : spd > 5.8 ? 'Run' : spd > 0.4 ? 'Walk' : 'Idle';
     if (av.activeClip !== targetClip && av.actions[targetClip]) {
       const next = av.actions[targetClip];
       const prev = av.actions[av.activeClip];
@@ -2113,19 +2108,19 @@ export function animateSurvivor(av, dt, p, elapsed) {
       av.activeClip = targetClip;
     }
     av.mixer.update(dt * (spd > 5.8 ? 1.25 : 1.0));
-    av.model.position.y = hooked ? 0.45 : down ? 0.12 : crouch ? -0.32 : 0;
-    av.model.rotation.x = down ? -Math.PI / 2.2 : crouch ? 0.28 : air ? -0.1 : 0;
+    av.model.position.y = hooked ? 0.68 : carried ? 0.88 : down ? 0.18 : crouch ? -0.32 : 0;
+    av.model.rotation.x = hooked ? -0.14 : carried ? -Math.PI / 2.3 : down ? -Math.PI / 2.2 : crouch ? -0.22 : air ? -0.1 : 0;
     return;
   }
 
   const phase = elapsed * (spd > 5.8 ? 12 : 7.5);
-  const swing = air ? 0.55 : Math.min(0.85, spd * 0.13);
+  const swing = (air || hooked || carried) ? 0.45 : Math.min(0.85, spd * 0.13);
   av.lLeg.rotation.x = Math.sin(phase) * swing;
   av.rLeg.rotation.x = -Math.sin(phase) * swing;
   av.lArm.rotation.x = -Math.sin(phase) * swing * 0.7;
   av.rArm.rotation.x = Math.sin(phase) * swing * 0.7;
-  av.body.position.y = down ? -0.55 : crouch ? -0.35 : 0;
-  av.body.rotation.x = down ? -1.25 : crouch ? 0.35 : 0;
+  av.body.position.y = hooked ? 0.68 : carried ? 0.85 : down ? -0.55 : crouch ? -0.35 : 0;
+  av.body.rotation.x = hooked ? -0.14 : carried ? -1.35 : down ? -1.25 : crouch ? -0.25 : 0;
 }
 
 /**

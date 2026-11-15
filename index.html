@@ -211,13 +211,15 @@
     #hud.clean-cam .hud-top-center,
     #hud.clean-cam .hud-team,
     #hud.clean-cam .crosshair,
-    #hud.clean-cam .prompt-box,
-    #hud.clean-cam .action-bar-wrap,
+    #hud.clean-cam .prompt-box:not(.force-show),
+    #hud.clean-cam .action-bar-wrap:not(.force-show),
     #hud.clean-cam .sc-wrap,
     #hud.clean-cam .hud-light-btn,
     #hud.clean-cam .hud-vitals,
     #hud.clean-cam .hud-inv,
     #hud.clean-cam .hud-feed { display: none !important; }
+    #hud.clean-cam .prompt-box.force-show:not(.hidden),
+    #hud.clean-cam .action-bar-wrap.force-show:not(.hidden) { display: block !important; }
 
     .hud-top-center {
       position: absolute; top: 26px; left: 50%; transform: translateX(-50%);
