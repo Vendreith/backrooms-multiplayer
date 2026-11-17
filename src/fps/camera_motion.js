@@ -17,4 +17,4 @@ export class HumanCamera {
     Object.assign(this.out,{x:sway,y:breathing+w*p.drift*.45*Math.sin(t*.63),pitch:w*(p.pitch*breath+p.drift*.24*posture),roll:w*(p.roll*Math.sin(t*.57+1)+p.drift*.2*posture),breath:breath*w,weight:w,breathing,sway,mode});return this.out;
   }
 }
-export function boundedLocomotion({x=0,y=0,z=0,pitch=0,roll=0},intensity=1){const scale=Math.max(0,Math.min(3,Number.isFinite(intensity)?intensity:1));const limit=(v,max)=>max*Math.tanh(v/max);return{x:limit(x*scale,.24),y:limit(y*scale,.35),z:limit(z*scale,.05),pitch:limit(pitch*scale,.055),roll:limit(roll*scale,.07),scale};}
+export function boundedLocomotion({x=0,y=0,z=0,pitch=0,yaw=0,roll=0},intensity=1){const scale=Math.max(0,Math.min(3,Number.isFinite(intensity)?intensity:1));const limit=(v,max)=>max*Math.tanh(v/max);return{x:limit(x*scale,.26),y:limit(y*scale,.35),z:limit(z*scale,.05),pitch:limit(pitch*scale,.068),yaw:limit(yaw*scale,.045),roll:limit(roll*scale,.078),scale};}

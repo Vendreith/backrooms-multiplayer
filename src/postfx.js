@@ -751,12 +751,14 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float r2 = dot(pOpt, pOpt);
   float r4 = r2 * r2;
 
-  // 1. Strongly Curved Wide-Angle CRT/Camcorder Barrel Lens (16:9 & extreme 4:3 CRT modes)
+  // 1. Strongly Curved Wide-Angle CRT/Camcorder Barrel Lens (0-150% classic CRT, 150-300% extreme fisheye bodycam)
   float scanAmt = max(uScanlineAmount, 0.0);
-  float curveScale = max(uLensCurve, 0.0);
-  float baseZoom = mix(1.0, mix(0.76, 0.70, uIs43), clamp(curveScale, 0.0, 1.0));
+  float curveScale = clamp(uLensCurve, 0.0, 3.0);
+  float extraCurve = clamp((curveScale - 1.5) / 1.5, 0.0, 1.0);
+  float baseZoom = mix(1.0, mix(0.76, 0.70, uIs43), clamp(curveScale, 0.0, 1.0)) - extraCurve * mix(0.30, 0.32, uIs43);
   float lensPow = mix(0.66, 1.06, uIs43) * mix(1.0, 0.48, uIsKiller) * curveScale;
-  vec2 cuv = mix(uv, vec2(0.5) + p * (baseZoom + r2 * lensPow + r4 * lensPow * 0.58), clamp(curveScale, 0.0, 1.0));
+  float r4Term = r4 * lensPow * (0.58 + extraCurve * 0.45);
+  vec2 cuv = mix(uv, vec2(0.5) + p * (baseZoom + r2 * lensPow + r4Term), clamp(curveScale, 0.0, 1.0));
 
   // Rounded physical camcorder / CRT glass monitor mask
   vec2 edgeBox = abs(cuv - vec2(0.5)) * 2.0;
@@ -1688,7 +1690,7 @@ export class GraphicsManager {
       const userVig = Math.max(0, this.fx.vignette);
 
       const effLens = fMix01 > 0.01 && (fPreset.minLensCurve || 0) > 0
-        ? Math.max(userLens, THREE.MathUtils.lerp(userLens, Math.min(1.5, fPreset.minLensCurve * (1 + (fOver - 1) * 0.2)), fMix01))
+        ? Math.max(userLens, THREE.MathUtils.lerp(userLens, Math.min(3.0, fPreset.minLensCurve * (1 + (fOver - 1) * 0.2)), fMix01))
         : userLens;
       const effScan = fMix01 > 0.01 && fPreset.scanTarget !== null
         ? THREE.MathUtils.lerp(userScan, fPreset.scanTarget * Math.max(0.25, userScan / 1.5) * Math.min(fOver, 1.65), fMix01)

@@ -601,7 +601,7 @@ export const FX_CONTROLS = [
   { group: 'footage', key: 'baseGrain', label: 'Grain cơ bản (Nhiễu toàn màn hình)', hint: 'Hạt nhiễu nền luôn xuất hiện đều toàn khung (0% = tắt)', type: 'range', min: 0, max: 2.0, step: 0.05 },
   { group: 'footage', key: 'grain', label: 'Hạt phim sáng (Micro-Grain)', hint: 'Hạt mịn tròn ở vùng sáng', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { group: 'footage', key: 'bloom', label: 'Bloom quầng sáng đèn', hint: 'Hào quang đèn trần & UI (trần tới 350%)', type: 'range', min: 0, max: 3.5, step: 0.05 },
-  { group: 'footage', key: 'lensCurve', label: 'Độ cong thấu kính CRT', hint: '0% phẳng - 150% cong sâu', type: 'range', min: 0, max: 1.5, step: 0.05 },
+  { group: 'footage', key: 'lensCurve', label: 'Độ cong thấu kính CRT', hint: '0% phẳng - 150% CRT sâu - 300% mắt cá cực đại', type: 'range', min: 0, max: 3.0, step: 0.05 },
   { group: 'footage', key: 'crtScanlines', label: 'Đường cắt ngang CRT / VHS', hint: 'Tắt sọc ngang & rách băng CRT', type: 'toggle' },
   { group: 'footage', key: 'scanlines', label: 'Cường độ VHS & Sắc sai', hint: 'Sọc ngang, nhiễu băng & sắc sai', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { group: 'footage', key: 'vignette', label: 'Vignette tối viền ngoài', hint: 'Viền tối ống kính đậm sâu', type: 'range', min: 0, max: 2.0, step: 0.05 },
@@ -611,7 +611,7 @@ export const FX_CONTROLS = [
   { group: 'footage', key: 'contrast', label: 'Độ tương phản (Contrast)', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
   { group: 'footage', key: 'gamma', label: 'Gamma', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
   { group: 'footage', key: 'hue', label: 'Tông màu (Hue)', hint: '-35° đến +35°', type: 'range', min: -35, max: 35, step: 1, unit: 'deg' },
-  { group: 'footage', key: 'saturation', label: 'Độ bão hoà màu (Saturation)', hint: '65% - 130%', type: 'range', min: 0.65, max: 1.30, step: 0.02 },
+  { group: 'footage', key: 'saturation', label: 'Độ bão hoà màu (Saturation)', hint: '65% - 130%', type: 'range', min: 0.65, max: 1.30, step: 0.01 },
 
   // ---- GROUP 2: Adaptive Exposure ----
   {
@@ -633,7 +633,7 @@ export const FX_CONTROLS = [
   { group: 'exposure', key: 'eyeAdaptBrightSpeed', label: 'Tốc độ thích nghi Sáng (Dark → Bright)', hint: '0.2s nhanh - 2.5s chói dịu dần', type: 'range', min: 0.2, max: 2.5, step: 0.05, unit: 'sec' },
   { group: 'exposure', key: 'eyeAdaptDarkSpeed', label: 'Tốc độ thích nghi Tối (Bright → Dark)', hint: '0.5s - 6.0s dần thấy chi tiết trong tối', type: 'range', min: 0.5, max: 6.0, step: 0.1, unit: 'sec' },
   { group: 'exposure', key: 'eyeAdaptComp', label: 'Bù phơi sáng (Exposure Comp)', hint: '-1.5 EV tối hơn → +1.5 EV sáng hơn', type: 'range', min: -1.5, max: 1.5, step: 0.05, unit: 'ev' },
-  { group: 'exposure', key: 'eyeAdaptMinExp', label: 'Giới hạn Phơi sáng Tối thiểu (Min)', hint: 'Chặn tối gắt dưới nắng (20% - 100%)', type: 'range', min: 0.20, max: 1.00, step: 0.05 },
+  { group: 'exposure', key: 'eyeAdaptMinExp', label: 'Giới hạn Phơi sáng Tối thiểu (Min)', hint: 'Chặn tối gắt dưới nắng (20% - 100%)', type: 'range', min: 0.20, max: 1.00, step: 0.01 },
   { group: 'exposure', key: 'eyeAdaptMaxExp', label: 'Giới hạn Phơi sáng Tối đa (Max)', hint: 'Giới hạn khuếch đại hầm tối (100% - 400%)', type: 'range', min: 1.00, max: 4.00, step: 0.10 },
 
   // ---- GROUP 3: Rendering & Performance ----
@@ -718,10 +718,8 @@ export function getPresetDefaultFx(key = 'ultra') {
   const isHigh = key === 'high';
   const isMobile = key === 'mobile';
   const aaMode = key === 'low' ? 'off' : (isMobile || key === 'med') ? 'fxaa' : isUltra ? 'msaa' : 'smaa';
-  const eyePresetKey = key === 'low' ? 'off' : isMobile ? 'subtle' : isUltra ? 'custom' : 'cinematic';
-  const ep = isUltra
-    ? { enabled: true, strength: 2.0, brightSpeed: 0.60, darkSpeed: 6.0, comp: 0.15, minExp: 0.65, maxExp: 4.0 }
-    : EYE_ADAPT_PRESETS[eyePresetKey];
+  const eyePresetKey = key === 'low' ? 'off' : isMobile ? 'subtle' : isUltra ? 'dramatic' : 'cinematic';
+  const ep = EYE_ADAPT_PRESETS[eyePresetKey];
   const distMeters = key === 'low' ? 50 : (isMobile || key === 'med') ? 100 : isHigh ? 200 : 800;
   const waterQ = (key === 'low' || isMobile) ? 'low' : key === 'med' ? 'med' : isHigh ? 'high' : 'ultra';
   return {
@@ -730,8 +728,8 @@ export function getPresetDefaultFx(key = 'ultra') {
     renderDistance: distMeters,
     aaMode,
     footageFilterMode: isUltra ? 'soft_dreamcam' : 'off',
-    footageFilterStrength: 1.0,
-    upscaleSoftness: isUltra ? 1.2 : 0.65,
+    footageFilterStrength: isUltra ? 0.95 : 1.0,
+    upscaleSoftness: isUltra ? 1.0 : 0.65,
     halation: isUltra ? 2.5 : 0.25,
     clarity: isUltra ? 1.0 : 0.0,
     shadows: !!p.shadows,
@@ -742,18 +740,18 @@ export function getPresetDefaultFx(key = 'ultra') {
     lensCurve: p.crt ? (isUltra ? 1.5 : isMobile ? 1.0 : key === 'med' ? 0.85 : 1.02) : 0.0,
     motionBlur: p.motionBlur ? (isUltra ? 3.0 : 1.0) : 0.0,
     dofBlur: p.postFX && !isMobile ? (key === 'med' ? 0.65 : isUltra ? 1.5 : 1.0) : 0.0,
-    bloom: p.bloom ? (isUltra ? 2.3 : isMobile ? 0.90 : key === 'med' ? 0.80 : 1.10) : 0.0,
-    baseGrain: key === 'low' ? 0.0 : isMobile ? 0.65 : key === 'med' ? 0.75 : isUltra ? 0.35 : 0.85,
+    bloom: p.bloom ? (isUltra ? 2.1 : isMobile ? 0.90 : key === 'med' ? 0.80 : 1.10) : 0.0,
+    baseGrain: key === 'low' ? 0.0 : isMobile ? 0.65 : key === 'med' ? 0.75 : isUltra ? 0.25 : 0.85,
     grain: p.crt ? (isUltra ? 1.5 : isMobile ? 0.70 : key === 'med' ? 0.75 : 1.0) : 0.0,
     dust: key !== 'low',
     vignette: p.crt ? (isUltra ? 2.0 : isMobile ? 1.22 : key === 'med' ? 1.12 : 1.28) : 0.65,
     crtScanlines: !!p.crt && !isMobile,
     scanlines: p.crt ? (isUltra ? 1.5 : isMobile ? 0.55 : key === 'med' ? 0.75 : 1.0) : 0.0,
-    brightness: isUltra ? 0.80 : isMobile ? 1.10 : 1.0,
+    brightness: isUltra ? 1.05 : isMobile ? 1.10 : 1.0,
     contrast: 1.0,
-    gamma: 1.0,
+    gamma: isUltra ? 1.04 : 1.0,
     hue: 0,
-    saturation: isUltra ? 1.05 : 1.0,
+    saturation: isUltra ? 1.17 : 1.0,
     eyeAdaptPreset: eyePresetKey,
     eyeAdaptEnabled: ep.enabled,
     eyeAdaptStrength: ep.strength,
@@ -763,12 +761,12 @@ export function getPresetDefaultFx(key = 'ultra') {
     eyeAdaptMinExp: ep.minExp,
     eyeAdaptMaxExp: ep.maxExp,
     ...FPS_DEFAULTS,
-    idleMotion: 'natural',
-    movementShake: 1,
+    idleMotion: isUltra ? 'footage' : 'natural',
+    movementShake: isUltra ? 1.6 : 1,
     handheldTremor: 1,
     verticalBob: 1,
     reducedMotion: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
-    autoBhop: false,
+    autoBhop: isUltra,
     touchControls: 'auto',
     cleanCamHud: isUltra
   };

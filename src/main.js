@@ -290,7 +290,7 @@ function loadFpsPreferences() {
 }
 function saveFpsPreferences() { localStorage.setItem('br_fps_preferences_v1', JSON.stringify(Object.fromEntries(FPS_SETTING_KEYS.map(k => [k, fxSettings[k]])))); }
 const rawSavedFps = localStorage.getItem('br_fps_v2');
-const defaultFps = mobileAutoBoot ? 30 : 60;
+const defaultFps = mobileAutoBoot ? 30 : 15;
 const savedFps = rawSavedFps === null ? defaultFps : Number(rawSavedFps);
 let fpsCap = FPS_CAPS.includes(savedFps) ? savedFps : defaultFps;
 const rawSavedAspect = localStorage.getItem('br_aspect_v2');
@@ -409,6 +409,75 @@ let camBobY = 0;
 let camSwayX = 0;
 let camRoll = 0;
 let camNod = 0;
+let runNoiseClock = 0;
+let runStepCount = 0;
+let runJoltX = 0, runJoltXVel = 0;
+let runJoltY = 0, runJoltYVel = 0;
+let runJoltYaw = 0, runJoltYawVel = 0;
+let runJoltPitch = 0, runJoltPitchVel = 0;
+let prevEffSwayX = 0, prevEffBobY = 0, prevEffPitch = 0, prevEffYaw = 0;
+const runShakeOut = { x: 0, y: 0, yaw: 0, pitch: 0, roll: 0 };
+function _runHash(n, s = 0) {
+  const v = Math.sin(n * 127.1 + s * 311.7 + 19.3) * 43758.5453;
+  return (v - Math.floor(v)) * 2 - 1;
+}
+function smoothRunNoise(t, s = 0) {
+  const i = Math.floor(t);
+  const f = t - i;
+  const u = f * f * (3 - 2 * f);
+  return _runHash(i, s) * (1 - u) + _runHash(i + 1, s) * u;
+}
+function resetRunShakeState() {
+  runNoiseClock = 0;
+  runStepCount = 0;
+  runJoltX = runJoltXVel = 0;
+  runJoltY = runJoltYVel = 0;
+  runJoltYaw = runJoltYawVel = 0;
+  runJoltPitch = runJoltPitchVel = 0;
+  prevEffSwayX = prevEffBobY = prevEffPitch = prevEffYaw = 0;
+  runShakeOut.x = runShakeOut.y = runShakeOut.yaw = runShakeOut.pitch = runShakeOut.roll = 0;
+}
+function fadeRunShake(kFade) {
+  for (const k of ['x', 'y', 'yaw', 'pitch', 'roll']) runShakeOut[k] += (0 - runShakeOut[k]) * kFade;
+  runJoltX *= (1 - kFade); runJoltY *= (1 - kFade); runJoltYaw *= (1 - kFade); runJoltPitch *= (1 - kFade);
+  runJoltXVel *= (1 - kFade); runJoltYVel *= (1 - kFade); runJoltYawVel *= (1 - kFade); runJoltPitchVel *= (1 - kFade);
+}
+function triggerRunStepShake(footSign, wantSprint, isCrouch, isK) {
+  runStepCount++;
+  const seedX = ((Math.random() - 0.5) * 2.0) * 0.55 + _runHash(runStepCount, 7) * 0.45;
+  const seedY = ((Math.random() - 0.5) * 2.0) * 0.55 + _runHash(runStepCount, 23) * 0.45;
+  const joltGain = isK ? 0.55 : wantSprint ? 1.05 : isCrouch ? 0.12 : 0.34;
+  runJoltXVel += (footSign * 0.10 + seedX * 0.26) * joltGain;
+  runJoltYVel += (-0.14 + seedY * 0.20) * joltGain;
+  runJoltYawVel += (seedX * 0.16 + footSign * 0.04) * joltGain;
+  runJoltPitchVel += (seedY * 0.14 - 0.06) * joltGain;
+}
+function updateRunCameraShake(dt, isCrouch, vBobScale) {
+  runNoiseClock += dt * (4.6 + smoothSprintMix * 6.4) * smoothMoveMix;
+  const sub = dt > 0.032 ? 2 : 1;
+  const hdt = dt / sub;
+  for (let i = 0; i < sub; i++) {
+    runJoltXVel += (-92.0 * runJoltX - 12.8 * runJoltXVel) * hdt;
+    runJoltX = THREE.MathUtils.clamp(runJoltX + runJoltXVel * hdt, -0.06, 0.06);
+    runJoltYVel += (-118.0 * runJoltY - 14.5 * runJoltYVel) * hdt;
+    runJoltY = THREE.MathUtils.clamp(runJoltY + runJoltYVel * hdt, -0.06, 0.06);
+    runJoltYawVel += (-98.0 * runJoltYaw - 13.2 * runJoltYawVel) * hdt;
+    runJoltYaw = THREE.MathUtils.clamp(runJoltYaw + runJoltYawVel * hdt, -0.032, 0.032);
+    runJoltPitchVel += (-112.0 * runJoltPitch - 14.0 * runJoltPitchVel) * hdt;
+    runJoltPitch = THREE.MathUtils.clamp(runJoltPitch + runJoltPitchVel * hdt, -0.035, 0.035);
+  }
+  const orgAmp = (0.28 + 0.88 * smoothSprintMix) * smoothMoveMix * (isCrouch ? 0.35 : 1.0);
+  const nLR = smoothRunNoise(runNoiseClock, 11) * 0.65 + smoothRunNoise(runNoiseClock * 2.17 + 4.3, 19) * 0.35;
+  const nUD = smoothRunNoise(runNoiseClock * 1.19 + 1.9, 31) * 0.65 + smoothRunNoise(runNoiseClock * 2.41 + 9.2, 43) * 0.35;
+  const nYaw = smoothRunNoise(runNoiseClock * 1.07 + 3.1, 59) * 0.68 + smoothRunNoise(runNoiseClock * 2.31 + 2.7, 71) * 0.32;
+  const nPit = smoothRunNoise(runNoiseClock * 1.29 + 5.7, 83) * 0.68 + smoothRunNoise(runNoiseClock * 2.53 + 6.4, 97) * 0.32;
+  runShakeOut.x = runJoltX * 0.55 + nLR * 0.015 * orgAmp;
+  runShakeOut.y = (runJoltY * 0.60 + nUD * 0.017 * orgAmp) * vBobScale;
+  runShakeOut.yaw = runJoltYaw * 0.55 + nYaw * 0.009 * orgAmp;
+  runShakeOut.pitch = (runJoltPitch * 0.58 + nPit * 0.010 * orgAmp) * vBobScale;
+  runShakeOut.roll = (nLR * 0.008 + runJoltX * 0.18) * orgAmp;
+  return runShakeOut;
+}
 let zoneLightSmooth = 0.55;
 const _atmoFogCol = new THREE.Color(0x161207);
 const _atmoHemiSky = new THREE.Color(0xf6df82);
@@ -1831,6 +1900,7 @@ async function beginMatch(matchSeed, roster, localId) {
   shakeXRate = 0;
   shakeYRate = 0;
   zoneLightSmooth = getZoneLuminanceAt(me ? me.x : map.SPAWN.x, me ? me.z : map.SPAWN.z, map);
+  resetRunShakeState();
   {
     const a0 = getZoneAtmosphereAt(me ? me.x : map.SPAWN.x, me ? me.z : map.SPAWN.z, map);
     scene.fog.color.setHex(a0.fogHex ?? 0x161207);
@@ -2425,6 +2495,7 @@ function handleNetEvent(ev) {
     Object.assign(p,{x:ev.x,y:ev.y,z:ev.z,vy:0,spd:0,sliding:false,crouch:false,grounded:true,yaw:0,pitch:0});
     if(ev.id===myId){
       hVelX=hVelZ=jumpBuffer=bhopChain=camBobY=camSwayX=camNod=camRoll=camRollPan=stepSpring=stepSpringVel=stepPulseT=landTrauma=smoothMoveMix=smoothSprintMix=0;
+      resetRunShakeState();
       camYaw=camPitch=localSwingT=0;movementAssist.reset();humanCamera.reset();handheldCamera.reset();camForeZ=previousForwardSpeed=stepPhase=stepDist=0;stepFootSign=1;weaponSystem.clearInput();for(const key in keys)keys[key]=false;
       camera.position.set(p.x,1.62,p.z);camera.rotation.set(0,0,0);gfx.resetMotionHistory();gfx.exposurePass?.requestReset(1);renderer.toneMappingExposure=1;
       let fade=document.getElementById('pitFade');if(!fade){fade=document.createElement('div');fade.id='pitFade';fade.style.cssText='position:fixed;inset:0;background:#000;pointer-events:none;z-index:9999;opacity:0;transition:opacity .65s';document.body.append(fade);}fade.style.transition='none';fade.style.opacity='1';setTimeout(()=>{fade.style.transition='opacity .65s';fade.style.opacity='0';},150);
@@ -3109,6 +3180,7 @@ function updateLocalPlayer(dt, elapsed) {
     camSwayX += (0 - camSwayX) * kFade;
     camRoll += (0 - camRoll) * kFade;
     camNod += (0 - camNod) * kFade;
+    fadeRunShake(kFade);
     shakeXRate = 0;
     shakeYRate = 0;
   } else {
@@ -3311,6 +3383,7 @@ function updateLocalPlayer(dt, elapsed) {
       stepPulseT = 1.0;
       stepPulseAmp = isK ? 1.24 : wantSprint ? 1.44 : me.crouch ? 0.34 : 0.68;
       landTrauma = Math.min(0.65, landTrauma + (isK ? 0.30 : wantSprint ? 0.26 : 0.12));
+      triggerRunStepShake(stepFootSign, wantSprint, me.crouch, isK);
       audio.playFootstep(me, wantSprint, me.crouch || (tactical && sprintInput), isK, terrain.inWater ? 'water' : getSurfaceAt(me.x, me.z, map));
     }
   }
@@ -3361,12 +3434,14 @@ function updateLocalPlayer(dt, elapsed) {
   camSwayX += (tgtSwayX - camSwayX) * camK;
   camRoll += (tgtRoll - camRoll) * camK;
   camNod += (tgtNod - camNod) * camK;
+  const rs = updateRunCameraShake(dt, me.crouch, Math.max(0, Math.min(2.5, Number(fxSettings.verticalBob ?? 1))));
 
   // Feed active running bob/jolt camera velocity into motion blur (cleanly zero when halted!)
   const invShakeDt = 1 / Math.max(dt, 0.004);
   const moveBlurGate = THREE.MathUtils.clamp((me.spd - 0.55) / 3.0, 0, 1);
-  shakeXRate = ((camSwayX - prevSwayX) * 1.25 * invShakeDt) * moveBlurGate;
-  shakeYRate = (((camBobY - prevBobY) * 1.35 + (camNod - prevNod) * 3.6) * invShakeDt) * moveBlurGate;
+  shakeXRate = (((camSwayX + rs.x - prevEffSwayX) * 1.25 + (rs.yaw - prevEffYaw) * 0.9) * invShakeDt) * moveBlurGate;
+  shakeYRate = (((camBobY + rs.y - prevEffBobY) * 1.35 + (prevEffPitch - (-camNod + rs.pitch)) * 3.6) * invShakeDt) * moveBlurGate;
+  prevEffSwayX = camSwayX + rs.x; prevEffBobY = camBobY + rs.y; prevEffPitch = -camNod + rs.pitch; prevEffYaw = rs.yaw;
   }
 
   // Heavy smooth found-footage Camera Pan Delay Curve (weighted camcorder gimbal inertia without stretching motion blur beyond mouse stop)
@@ -3382,13 +3457,13 @@ function updateLocalPlayer(dt, elapsed) {
   const handheld=handheldCamera.update(dt,{mode:fxSettings.idleMotion,intensity:fxSettings.handheldTremor,reduced:fxSettings.reducedMotion,ads,inspect:['INSPECTING','FLEX_LOOP'].includes(weaponSystem.view.animation.state)});
   const cameraMotionScale = (fxSettings.reducedMotion ? .08 : 1) * (1 - ads * .98) * movementProfile.cameraIntensity;
   const moveShake=Math.max(0,Math.min(3,Number(fxSettings.movementShake) || 0));
-  const locomotion=boundedLocomotion({x:camSwayX,y:camBobY,z:camForeZ,pitch:-camNod,roll:camRoll+(tactical?0:camRollPan)+(me.sliding?.035:0)},cameraMotionScale*moveShake);
+  const locomotion=boundedLocomotion({x:camSwayX+runShakeOut.x,y:camBobY+runShakeOut.y,z:camForeZ,pitch:-camNod+runShakeOut.pitch,yaw:runShakeOut.yaw,roll:camRoll+runShakeOut.roll+(tactical?0:camRollPan)+(me.sliding?.035:0)},cameraMotionScale*moveShake);
   shakeXRate *= cameraMotionScale*moveShake;shakeYRate *= cameraMotionScale*moveShake;
   eyeH = movementAssist.cameraHeight(eyeH, dt);
   const sideOffset = locomotion.x + natural.x+handheld.x,foreOffset=locomotion.z+handheld.z;
   camera.position.set(me.x + Math.cos(camYaw) * sideOffset+Math.sin(camYaw)*foreOffset, eyeH + me.y + locomotion.y + natural.y+handheld.y, me.z - Math.sin(camYaw) * sideOffset+Math.cos(camYaw)*foreOffset);
   camera.position.y=Math.min(camera.position.y,classicCeilingAt(map,camera.position.x,camera.position.z,me.y,.08)-Math.max(.06,camera.near*1.4));
-  camera.rotation.set(camPitch + locomotion.pitch + natural.pitch+handheld.pitch, camYaw + locomotion.x*.055+handheld.yaw, locomotion.roll + natural.roll+handheld.roll, 'YXZ');
+  camera.rotation.set(camPitch + locomotion.pitch + natural.pitch+handheld.pitch, camYaw + locomotion.x*.055+locomotion.yaw+handheld.yaw, locomotion.roll + natural.roll+handheld.roll, 'YXZ');
   if(import.meta.env.DEV&&new URLSearchParams(location.search).has('cameradebug')){
     let d=document.getElementById('cameraDiagnostic');if(!d){d=document.createElement('pre');d.id='cameraDiagnostic';d.style.cssText='position:fixed;left:12px;top:65px;z-index:900;color:#fff;background:#000c;padding:12px;pointer-events:none;font:12px monospace';document.body.append(d);}
     d.textContent=`Idle: ${natural.mode}  blend ${natural.weight.toFixed(3)}\nBreath ${(natural.breathing*1000).toFixed(2)} mm  sway ${(natural.sway*1000).toFixed(2)} mm\nPitch ${(natural.pitch*180/Math.PI).toFixed(3)}°  roll ${(natural.roll*180/Math.PI).toFixed(3)}°\nApplied position ${camera.position.toArray().map(v=>v.toFixed(4)).join(', ')}\nApplied rotation ${[camera.rotation.x,camera.rotation.y,camera.rotation.z].map(v=>v.toFixed(5)).join(', ')}\nMovement shake ${(moveShake*100).toFixed(0)}%\nTremor ${(Math.hypot(handheld.fine.pitch,handheld.fine.yaw)*180/Math.PI).toFixed(4)}° | cutoff ${handheld.cutoffHz.toFixed(1)}Hz`;
@@ -4428,7 +4503,7 @@ const bindSfx = (el) => el?.addEventListener('input', (e) => {
 bindSfx($('sfxSlider'));
 bindSfx($('pauseSfx'));
 
-const resetFxToPreset = () => setGraphicsPreset(currentGfx, true);
+const resetFxToPreset = () => { localStorage.removeItem('br_fps_preferences_v1'); setGraphicsPreset(currentGfx, true); };
 $('lobbyResetFxBtn')?.addEventListener('click', resetFxToPreset);
 $('pauseResetFxBtn')?.addEventListener('click', resetFxToPreset);
 
@@ -5093,28 +5168,28 @@ async function runSelfTests() {
   const prevFpsCap = fpsCap;
   const prevAspect = aspectMode;
   assert(
-    currentGfx === 'ultra' && fpsCap === defaultFps && aspectMode === '4:3' && Math.abs(mouseSens - 1.0) < 0.01 &&
-    fxSettings.footageFilterMode === 'soft_dreamcam' && Math.abs(fxSettings.footageFilterStrength - 1.0) < 0.01 &&
-    Math.abs(fxSettings.upscaleSoftness - 1.2) < 0.01 && Math.abs(fxSettings.halation - 2.5) < 0.01 &&
+    currentGfx === 'ultra' && fpsCap === 15 && aspectMode === '4:3' && Math.abs(mouseSens - 1.0) < 0.01 &&
+    fxSettings.footageFilterMode === 'soft_dreamcam' && Math.abs(fxSettings.footageFilterStrength - 0.95) < 0.01 &&
+    Math.abs(fxSettings.upscaleSoftness - 1.0) < 0.01 && Math.abs(fxSettings.halation - 2.5) < 0.01 &&
     Math.abs(fxSettings.clarity - 1.0) < 0.01 &&
     fxSettings.rtShadow === 1.6 && fxSettings.lensCurve === 1.5 && fxSettings.crtScanlines === true &&
-    fxSettings.motionBlur === 3.0 && fxSettings.dofBlur === 1.5 && Math.abs(fxSettings.bloom - 2.3) < 0.01 &&
-    Math.abs(fxSettings.baseGrain - 0.35) < 0.01 && fxSettings.grain === 1.5 &&
-    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && Math.abs(fxSettings.brightness - 0.80) < 0.01 &&
-    Math.abs(fxSettings.contrast - 1.00) < 0.005 && Math.abs(fxSettings.gamma - 1.00) < 0.005 &&
-    fxSettings.hue === 0 && Math.abs(fxSettings.saturation - 1.05) < 0.005 &&
-    fxSettings.eyeAdaptPreset === 'custom' && fxSettings.eyeAdaptEnabled === true &&
-    Math.abs(fxSettings.eyeAdaptStrength - 2.0) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptBrightSpeed - 0.60) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptDarkSpeed - 6.0) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptComp - 0.15) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptMinExp - 0.65) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptMaxExp - 4.0) < 0.01 &&
+    fxSettings.motionBlur === 3.0 && fxSettings.dofBlur === 1.5 && Math.abs(fxSettings.bloom - 2.1) < 0.01 &&
+    Math.abs(fxSettings.baseGrain - 0.25) < 0.01 && fxSettings.grain === 1.5 &&
+    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && Math.abs(fxSettings.brightness - 1.05) < 0.01 &&
+    Math.abs(fxSettings.contrast - 1.00) < 0.005 && Math.abs(fxSettings.gamma - 1.04) < 0.005 &&
+    fxSettings.hue === 0 && Math.abs(fxSettings.saturation - 1.17) < 0.005 &&
+    fxSettings.eyeAdaptPreset === 'dramatic' && fxSettings.eyeAdaptEnabled === true &&
+    Math.abs(fxSettings.eyeAdaptStrength - 1.45) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptBrightSpeed - 1.05) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptDarkSpeed - 3.30) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptComp - 0.05) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptMinExp - 0.34) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptMaxExp - 3.10) < 0.01 &&
     fxSettings.renderDistPreset === '800' && fxSettings.renderDistance === 800 &&
     Math.abs(fxSettings.renderScale - 1.5) < 0.01 && fxSettings.aaMode === 'msaa' &&
     fxSettings.shadows === true && fxSettings.waterQuality === 'ultra' && fxSettings.cloudQuality === 'ultra' &&
     fxSettings.postFX === true && fxSettings.dust === true &&
-    fxSettings.cleanCamHud === true && fxSettings.touchControls === 'auto',
+    fxSettings.movementProfile === 'backrooms' && fxSettings.autoBhop === true && fxSettings.idleMotion === 'footage' && Math.abs(fxSettings.movementShake - 1.6) < 0.01 && Math.abs(fxSettings.handheldTremor - 1.0) < 0.01 && Math.abs(fxSettings.verticalBob - 1.0) < 0.01 && !fxSettings.reducedMotion && fxSettings.cleanCamHud === true && fxSettings.touchControls === 'auto',
     'default_settings_ultra_15fps_43_matched'
   );
 
@@ -5233,6 +5308,24 @@ async function runSelfTests() {
     shakeVelY > 0 && shakeVelY < 0.022,
     'running_shake_motion_blur_active'
   );
+  resetRunShakeState();
+  smoothMoveMix = 1; smoothSprintMix = 1;
+  const runSamples = [];
+  for (let rsIdx = 0; rsIdx < 10; rsIdx++) {
+    triggerRunStepShake(rsIdx % 2 === 0 ? 1 : -1, true, false, false);
+    updateRunCameraShake(0.05, false, 1.0);
+    runSamples.push({ x: runShakeOut.x, y: runShakeOut.y, yaw: runShakeOut.yaw, pitch: runShakeOut.pitch });
+  }
+  const spanX = Math.max(...runSamples.map(s => s.x)) - Math.min(...runSamples.map(s => s.x));
+  const spanY = Math.max(...runSamples.map(s => s.y)) - Math.min(...runSamples.map(s => s.y));
+  const spanYaw = Math.max(...runSamples.map(s => s.yaw)) - Math.min(...runSamples.map(s => s.yaw));
+  const spanPitch = Math.max(...runSamples.map(s => s.pitch)) - Math.min(...runSamples.map(s => s.pitch));
+  assert(
+    spanX > 0.005 && spanY > 0.005 && spanYaw > 0.003 && spanPitch > 0.003,
+    'organic_random_running_shake_multiaxis'
+  );
+  smoothMoveMix = 0; smoothSprintMix = 0;
+  resetRunShakeState();
   gfx.update(0.016, { turnYawRate: -16.0, turnPitchRate: 0.4, speedRatio: 0.9, panic: 0.2, isKiller: false, elapsed: 1.0, nearLights: world.lightPool });
   gfx.update(0.016, { turnYawRate: -16.0, turnPitchRate: 0.4, speedRatio: 0.9, panic: 0.2, isKiller: false, elapsed: 1.02, nearLights: world.lightPool });
   gfx.render(0.016);
@@ -5337,7 +5430,13 @@ async function runSelfTests() {
   );
   fxSettings.cleanCamHud = false;
   applyFxSettings();
-  assert(getComputedStyle($('missionBox')).display !== 'none', 'clean_cam_hud_can_disable_cleanly');
+  assert(
+    !hud.classList.contains('clean-cam') &&
+    getComputedStyle($('vitalsBox')).display !== 'none' &&
+    getComputedStyle($('invBar')).display !== 'none' &&
+    (inClassicPresentation(map.classic, players[myId].x, players[myId].z) || getComputedStyle($('missionBox')).display !== 'none'),
+    'clean_cam_hud_can_disable_cleanly'
+  );
 
   // Test multi-layer Low-Quality Found-Footage / Stream / VOD filter presets (PC Ultra defaults to Soft Upscale / Dreamcam 100%)
   const savedFilterMode = fxSettings.footageFilterMode;
@@ -5349,7 +5448,7 @@ async function runSelfTests() {
     modeSelects.length === 2 &&
     softnessSliders.length === 2 &&
     halationSliders.length === 2 &&
-    savedFilterMode === 'soft_dreamcam' && Math.abs(savedFilterStrength - 1.0) < 0.01 &&
+    savedFilterMode === 'soft_dreamcam' && Math.abs(savedFilterStrength - 0.95) < 0.01 &&
     Array.from(modeSelects).every(el => !!el.querySelector('option[value="hybrid_all"]') && !!el.querySelector('option[value="soft_dreamcam"]')),
     'footage_filter_defaults_and_ui_mounted'
   );
@@ -5410,6 +5509,9 @@ async function runSelfTests() {
 
   // Lens curvature must remain curved (never flattened out) when footage/stream filters are enabled
   const savedLensCurve = fxSettings.lensCurve;
+  fxSettings.lensCurve = 3.0;
+  applyFxSettings();
+  const extremeLensVal = gfx.crtGrade.uniforms.get('uLensCurve').value;
   fxSettings.lensCurve = 1.5;
   fxSettings.footageFilterMode = 'vod_stream';
   applyFxSettings();
@@ -5421,6 +5523,8 @@ async function runSelfTests() {
   applyFxSettings();
   const flatBaseMinLensVal = gfx.crtGrade.uniforms.get('uLensCurve').value;
   assert(
+    Number(FX_CONTROLS.find(c => c.key === 'lensCurve')?.max || 0) >= 3.0 &&
+    Math.abs(extremeLensVal - 3.0) < 0.01 &&
     vodLensVal >= 1.5 && hybLensVal >= 1.5 && flatBaseMinLensVal >= 0.45,
     'footage_preset_preserves_lens_curve'
   );
@@ -5512,9 +5616,9 @@ async function runSelfTests() {
     const baseGrainSliders = document.querySelectorAll('input[data-fx-key="baseGrain"]');
     assert(
       baseGrainSliders.length === 2 &&
-      Math.abs(savedBaseGrain - 0.35) < 0.01 &&
+      Math.abs(savedBaseGrain - 0.25) < 0.01 &&
       Array.from(baseGrainSliders).every(el => Number(el.min) === 0 && Number(el.max) >= 2.0) &&
-      Math.abs(gfx.crtGrade.uniforms.get('uBaseGrain').value - 0.35) < 0.01,
+      Math.abs(gfx.crtGrade.uniforms.get('uBaseGrain').value - 0.25) < 0.01,
       'base_grain_ui_and_default_mounted'
     );
     fxSettings.footageFilterMode = 'off';
@@ -5544,7 +5648,7 @@ async function runSelfTests() {
     const bloomIdx = gfx.composer?.passes?.indexOf(gfx.bloomPass) ?? -1;
     assert(
       passIdx >= 1 && (bloomIdx < 0 || passIdx < bloomIdx) &&
-      document.querySelectorAll('#pauseFxMount .fx-group-head').length === FX_GROUPS.length &&
+      document.querySelectorAll('#pauseFxMount .fx-group-head, #pauseFxMount .fps-settings-details').length === FX_GROUPS.length &&
       gfx.exposurePass._adaptMat.uniforms.uBrightTau.value < gfx.exposurePass._adaptMat.uniforms.uDarkTau.value,
       'v7_eye_adaptation_gpu_pass_and_presets'
     );
@@ -5604,9 +5708,9 @@ async function runSelfTests() {
     Number(hueInput?.min) >= -45 && Number(hueInput?.max) <= 45 &&
     Number(satInput?.min) >= 0.5 && Number(satInput?.max) <= 1.4 &&
     Math.abs(gfx.crtGrade.uniforms.get('uContrast').value - 1.00) < 0.01 &&
-    Math.abs(gfx.crtGrade.uniforms.get('uGamma').value - 1.00) < 0.01 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uGamma').value - 1.04) < 0.01 &&
     Math.abs(gfx.crtGrade.uniforms.get('uHue').value) < 1e-5 &&
-    Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.05) < 0.01,
+    Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.17) < 0.01,
     'color_settings_defaults_and_ui_mounted'
   );
   fxSettings.contrast = 1.18;
@@ -6569,7 +6673,7 @@ async function runPoolV5Audit(){
       window.__FPS = {
         info, weapons: weaponSystem, movement: movementAssist, camera, renderer, scene, net,
         cameraMotion(){return {idle:{...humanCamera.out},handheld:structuredClone(handheldCamera.out),base:[camPitch,camYaw],locomotion:[camBobY,camSwayX,camNod,camRoll]};},
-        resetCamera(){humanCamera.reset();handheldCamera.reset();camForeZ=previousForwardSpeed=stepPhase=stepDist=0;stepFootSign=1;camBobY=camSwayX=camNod=camRoll=camRollPan=stepSpring=stepSpringVel=stepPulseT=smoothMoveMix=smoothSprintMix=0;},
+        resetCamera(){humanCamera.reset();handheldCamera.reset();camForeZ=previousForwardSpeed=stepPhase=stepDist=0;stepFootSign=1;camBobY=camSwayX=camNod=camRoll=camRollPan=stepSpring=stepSpringVel=stepPulseT=smoothMoveMix=smoothSprintMix=0;resetRunShakeState();},
         world(){return world;},gfx,
         freeze(value) { fpsReviewFrozen = value; },
         input(code, value) { keys[code] = value; },

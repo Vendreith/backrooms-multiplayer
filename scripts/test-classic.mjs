@@ -16,7 +16,7 @@ test('exact occlusion blocks a thin wall, and a genuinely unlit cell has no ambi
 test('three idle presets are perceptibly different and bounded across a minute; locomotion independent',()=>{
   const ranges=[];for(const mode of['subtle','natural','footage']){const c=new HumanCamera();let min=9,max=-9;for(let i=0;i<3600;i++){const o=c.update(1/60,{mode});if(i>180){min=Math.min(min,o.y);max=Math.max(max,o.y);}assert(Math.abs(o.pitch)<.012);assert(Math.abs(o.roll)<.012);assert(Math.abs(o.x)<.037);}ranges.push(max-min);}
   assert(ranges[0]>.007&&ranges[0]<.015);assert(ranges[1]>ranges[0]*2.5);assert(ranges[2]>ranges[1]*1.8);
-  assert(Object.values(boundedLocomotion({x:1,y:-1,pitch:1,roll:1},0)).every(v=>v===0));const strong=boundedLocomotion({x:1,y:-1,pitch:1,roll:1},2);assert(strong.x<=.24&&strong.y>=-.35&&strong.roll<=.13&&strong.pitch<=.11);
+  assert(Object.values(boundedLocomotion({x:1,y:-1,pitch:1,roll:1},0)).every(v=>v===0));const strong=boundedLocomotion({x:1,y:-1,pitch:1,yaw:1,roll:1},2);assert(strong.x<=.26&&strong.y>=-.35&&Math.abs(strong.yaw)<=.045&&strong.roll<=.13&&strong.pitch<=.11);
 });
 test('pit bridge cannot snap a falling player up from under the deck; respawn changes only that player',()=>{
   const c=buildClassicLayout(2026),p=c.pits[1],x=(p.x0+p.x1)/2,z=(p.z0+p.z1)/2;assert(!classicPitAt(c,x,z,0));assert(classicPitAt(c,x,z,-5));
