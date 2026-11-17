@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 // ---------- Procedural Level Generators for All 20 Iconic Backrooms Realms ----------
 // Generates rich, massive (518m-900m) headless `map` objects tailored to each Level's
 // signature liminal space: pools + water slides, colossal skies/horizons/plains, repeating
@@ -5,9 +11,10 @@
 
 import { SpatialGrid2D } from '../engine.js';
 import { LEVEL_CATALOG } from './catalog.js';
-import { initTerrainIndex } from './terrain.js';
+import { initTerrainIndex, getTerrainAt } from './terrain.js';
 import { populateLevelLoreProps } from './level_populator.js';
 import { buildPoolroomsWorld } from './poolrooms_world.js';
+import { rasterizePoolroomsNavigation } from './poolrooms_v4_world.js';
 
 function mulberry32(seed) {
   let a = seed | 0;
@@ -282,6 +289,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
   let TASK_POS = null;
   let POOL_K_SPAWN = null;
   let PUMPS = null;
+  let poolArchitecture = null;
   let POOL_ZONES = null;
   let POOL_ARCH = null;
   let LIGHT_VOLUMES = [];
@@ -294,10 +302,11 @@ export function genSubLevelMap(levelId, seed = 2026) {
   // =========================================================================
   if (arch === 'poolrooms') {
     const poolRes = buildPoolroomsWorld({
-      gN, gC, wallH, rnd,
+      gN, gC, wallH, rnd, seed,
       RECTS, WALLS, WATER_RECTS, PLATFORMS, RAMPS, SLIDES,
       PROPS, ANIM_PROPS, LIGHTS, CRAWL_WALLS: []
     });
+    poolArchitecture = poolRes;
     PUMPS = poolRes.PUMPS;
     POOL_ZONES = poolRes.POOL_ZONES;
     POOL_ARCH = poolRes.POOL_ARCH || [];
@@ -310,72 +319,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     meta.atria = poolRes.atria;
     meta.customPoolrooms = true;
 
-    // Rasterize navigation grids cleanly from carved architecture so A* & K_SPAWN route through all 10 zones
-    hEdges = Array.from({ length: gN + 1 }, () => new Uint8Array(gN).fill(0));
-    vEdges = Array.from({ length: gN }, () => new Uint8Array(gN + 1).fill(0));
-    cellSolid = Array.from({ length: gN }, () => new Uint8Array(gN).fill(0));
-    waterCells = Array.from({ length: gN }, () => new Uint8Array(gN).fill(0));
-
-    for (let r = 0; r < gN; r++) {
-      for (let c = 0; c < gN; c++) {
-        if (r < 3 || r >= gN - 3 || c < 3 || c >= gN - 3) {
-          cellSolid[r][c] = 1;
-          continue;
-        }
-        const cx = (c + 0.5) * gC;
-        const cz = (r + 0.5) * gC;
-        for (let i = 0; i < RECTS.length; i++) {
-          const b = RECTS[i];
-          if (!b.crawl && cx >= b.x0 && cx <= b.x1 && cz >= b.z0 && cz <= b.z1) {
-            cellSolid[r][c] = 1;
-            break;
-          }
-        }
-        let inW = false;
-        for (let i = 0; i < WATER_RECTS.length; i++) {
-          const w = WATER_RECTS[i];
-          if (cx >= w.x0 && cx <= w.x1 && cz >= w.z0 && cz <= w.z1) {
-            inW = true;
-            break;
-          }
-        }
-        if (inW) {
-          let dryPlat = false;
-          for (let i = 0; i < PLATFORMS.length; i++) {
-            const p = PLATFORMS[i];
-            if (p.y > -0.1 && cx >= p.x0 && cx <= p.x1 && cz >= p.z0 && cz <= p.z1) {
-              dryPlat = true;
-              break;
-            }
-          }
-          if (!dryPlat) waterCells[r][c] = 1;
-        }
-      }
-    }
-    for (let i = 0; i < RECTS.length; i++) {
-      const b = RECTS[i];
-      const val = b.crawl ? 3 : 1;
-      const rEdge0 = Math.max(1, Math.ceil((b.z0 - 0.5) / gC));
-      const rEdge1 = Math.min(gN - 1, Math.floor((b.z1 + 0.5) / gC));
-      const c0 = Math.max(0, Math.floor((b.x0 + 0.8) / gC));
-      const c1 = Math.min(gN - 1, Math.floor((b.x1 - 0.8) / gC));
-      for (let r = rEdge0; r <= rEdge1; r++) {
-        const ez = r * gC;
-        if (ez >= b.z0 - 0.3 && ez <= b.z1 + 0.3) {
-          for (let c = c0; c <= c1; c++) if (hEdges[r][c] !== 1) hEdges[r][c] = val;
-        }
-      }
-      const cEdge0 = Math.max(1, Math.ceil((b.x0 - 0.5) / gC));
-      const cEdge1 = Math.min(gN - 1, Math.floor((b.x1 + 0.5) / gC));
-      const r0 = Math.max(0, Math.floor((b.z0 + 0.8) / gC));
-      const r1 = Math.min(gN - 1, Math.floor((b.z1 - 0.8) / gC));
-      for (let c = cEdge0; c <= cEdge1; c++) {
-        const ex = c * gC;
-        if (ex >= b.x0 - 0.3 && ex <= b.x1 + 0.3) {
-          for (let r = r0; r <= r1; r++) if (vEdges[r][c] !== 1) vEdges[r][c] = val;
-        }
-      }
-    }
+    // Navigation is rasterised after the collision grid below.
   }
 
   // =========================================================================
@@ -768,10 +712,17 @@ export function genSubLevelMap(levelId, seed = 2026) {
 
   const wallGrid = new SpatialGrid2D(Math.max(4, gC));
   wallGrid.build(RECTS);
+  if (poolArchitecture) {
+    ({ hEdges, vEdges, cellSolid, waterCells } = rasterizePoolroomsNavigation({
+      ...poolArchitecture, gridN: gN, cellSize: gC, worldSpan: span,
+      wallGrid, PLATFORMS, RAMPS, SLIDES, WATER_RECTS
+    }));
+  }
 
   // Sample walkable SPOTS + scatter survival supplies & patrol waypoints
   for (let r = 2; r < gN - 2; r += 2) {
     for (let c = 2; c < gN - 2; c += 2) {
+      if (cellSolid?.[r]?.[c]) continue;
       const sx = (c + 0.5) * gC;
       const sz = (r + 0.5) * gC;
       const near = wallGrid.queryNear(sx, sz, 1.4);
@@ -784,12 +735,15 @@ export function genSubLevelMap(levelId, seed = 2026) {
     }
   }
 
-  for (let i = 0; i < 42 && SPOTS.length; i++) {
-    const sp = SPOTS[(rnd() * SPOTS.length) | 0];
+  const supplyContext=poolArchitecture?{...poolArchitecture,WATER_RECTS,PLATFORMS,RAMPS,SLIDES}:null;
+  if(supplyContext)initTerrainIndex(supplyContext);
+  const supplySpots=poolArchitecture?SPOTS.filter(sp=>!poolArchitecture._poolCellGrid.queryNear(sp.x,sp.z,0).some(c=>c.art&&sp.x>=c.x0&&sp.x<=c.x1&&sp.z>=c.z0&&sp.z<=c.z1)&&!getTerrainAt(sp.x,sp.z,supplyContext,0).inWater):SPOTS;
+  for (let i = 0; i < 42 && supplySpots.length; i++) {
+    const sp = supplySpots[(rnd() * supplySpots.length) | 0];
     if (sp) WATERS.push({ id: i, x: sp.x, z: sp.z, taken: false });
   }
-  for (let i = 0; i < 12 && SPOTS.length; i++) {
-    const sp = SPOTS[(rnd() * SPOTS.length) | 0];
+  for (let i = 0; i < 12 && supplySpots.length; i++) {
+    const sp = supplySpots[(rnd() * supplySpots.length) | 0];
     if (sp) FLARES.push({ id: i, x: sp.x, z: sp.z, taken: false });
   }
 
@@ -833,22 +787,91 @@ export function genSubLevelMap(levelId, seed = 2026) {
     K_SPAWN = { x: Math.min(span - 20, Math.max(20, mid + 35)), z: Math.min(span - 20, Math.max(20, mid - 25)), y: 0 };
   }
 
-  const ENTITY_ROUTES = meta.customPoolrooms
-    ? [[
-        { x: K_SPAWN.x, z: K_SPAWN.z },
-        { x: 535, z: 126 }, // Zone D Sunken Cathedral
-        { x: 315, z: 126 }, // Zone B Grand Atrium
-        { x: 286, z: 368 }, // Zone E Slide Basin
-        { x: 114, z: 320 }, // Zone C Shallow Labyrinth
-        { x: 108, z: 534 }, // Zone H Maintenance
-        { x: 435, z: 540 }  // Zone J Drainage Vault
-      ]]
-    : [[
-        { x: K_SPAWN.x, z: K_SPAWN.z },
-        { x: span * 0.72, z: span * 0.35 },
-        { x: END_POS.x - 16, z: END_POS.z - 16 },
-        { x: span * 0.28, z: span * 0.68 }
-      ]];
+  const isWaterEnt = cfg.entity?.behavior === 'water_only';
+  const candidateSpots = (isWaterEnt && WATER_RECTS.length)
+    ? (() => {
+        const wSpots = SPOTS.filter(sp => WATER_RECTS.some(w => sp.x >= w.x0 + 2 && sp.x <= w.x1 - 2 && sp.z >= w.z0 + 2 && sp.z <= w.z1 - 2));
+        return wSpots.length >= 6 ? wSpots : SPOTS;
+      })()
+    : SPOTS;
+
+  const pickSectorSpot = (fracX, fracZ, minFromSpawn = 68, avoidPts = []) => {
+    const tx = span * fracX;
+    const tz = span * fracZ;
+    let best = null;
+    let bestScore = Infinity;
+    for (let i = 0; i < candidateSpots.length; i++) {
+      const sp = candidateSpots[i];
+      if (Math.hypot(sp.x - SPAWN.x, sp.z - SPAWN.z) < minFromSpawn) continue;
+      let tooClose = false;
+      for (const ap of avoidPts) {
+        if (ap && Math.hypot(sp.x - ap.x, sp.z - ap.z) < 55) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+      const d = Math.hypot(sp.x - tx, sp.z - tz);
+      if (d < bestScore) { bestScore = d; best = sp; }
+    }
+    if (best) return { x: best.x, z: best.z };
+    // Relax avoidPts constraint if sub-level layout is tight
+    bestScore = Infinity;
+    for (let i = 0; i < candidateSpots.length; i++) {
+      const sp = candidateSpots[i];
+      if (Math.hypot(sp.x - SPAWN.x, sp.z - SPAWN.z) < minFromSpawn * 0.72) continue;
+      const d = Math.hypot(sp.x - tx, sp.z - tz);
+      if (d < bestScore) { bestScore = d; best = sp; }
+    }
+    return best ? { x: best.x, z: best.z } : { x: K_SPAWN.x, z: K_SPAWN.z };
+  };
+
+  const k1 = pickSectorSpot(0.76, 0.28, 72, [K_SPAWN]);
+  const k2 = pickSectorSpot(0.32, 0.78, 78, [K_SPAWN, k1]);
+
+  const ENTITY_ROUTES = meta.customPoolrooms && poolArchitecture
+    ? poolArchitecture.ENTITY_ROUTES
+    : meta.customPoolrooms
+    ? [
+        [
+          { x: K_SPAWN.x, z: K_SPAWN.z },
+          { x: 535, z: 126 }, // Zone D Sunken Cathedral
+          { x: 315, z: 126 }, // Zone B Grand Atrium
+          { x: 286, z: 368 }, // Zone E Slide Basin
+          { x: 114, z: 320 }, // Zone C Shallow Labyrinth
+          { x: 108, z: 534 }, // Zone H Maintenance
+          { x: 435, z: 540 }  // Zone J Drainage Vault
+        ],
+        [
+          k1,
+          pickSectorSpot(0.84, 0.62, 72, []),
+          pickSectorSpot(0.62, 0.84, 72, []),
+          { x: 435, z: 540 }
+        ],
+        [
+          k2,
+          pickSectorSpot(0.18, 0.76, 72, []),
+          pickSectorSpot(0.16, 0.44, 72, []),
+          { x: 286, z: 368 }
+        ]
+      ]
+    : [
+        [
+          { x: K_SPAWN.x, z: K_SPAWN.z },
+          pickSectorSpot(0.72, 0.35, 58, []),
+          { x: Math.max(24, END_POS.x - 16), z: Math.max(24, END_POS.z - 16) },
+          pickSectorSpot(0.28, 0.68, 58, [])
+        ],
+        [
+          k1,
+          pickSectorSpot(0.82, 0.72, 72, []),
+          pickSectorSpot(0.55, 0.45, 62, []),
+          pickSectorSpot(0.74, 0.20, 68, [])
+        ],
+        [
+          k2,
+          pickSectorSpot(0.22, 0.36, 70, []),
+          pickSectorSpot(0.66, 0.80, 72, []),
+          { x: Math.max(24, END_POS.x - 18), z: Math.max(24, END_POS.z - 18) }
+        ]
+      ];
 
   const mapObj = {
     levelId,
@@ -865,6 +888,18 @@ export function genSubLevelMap(levelId, seed = 2026) {
     RECTS, WALLS, wallGrid, hEdges, vEdges, cellSolid,
     WATER_RECTS, PLATFORMS, RAMPS, SLIDES, SPIRAL_SLIDES,
     POOL_ZONES, POOL_ARCH, LIGHT_VOLUMES, PUMPS,
+    POOL_CELLS: poolArchitecture?.POOL_CELLS,
+    customPoolrooms:!!poolArchitecture,
+    peaceful:!!cfg.peaceful,
+    SPAWN_POINTS: poolArchitecture?.SPAWN_POINTS,
+    POOL_GRAPH: poolArchitecture?.POOL_GRAPH,
+    POOL_DECOR:poolArchitecture?.POOL_DECOR,
+    POOL_DECOR_CLUSTERS:poolArchitecture?.POOL_DECOR_CLUSTERS,
+    POOL_WATERPARK:poolArchitecture?.POOL_WATERPARK,
+      POOL_SKY_WINDOWS:poolArchitecture?.POOL_SKY_WINDOWS,
+    _poolCellGrid: poolArchitecture?._poolCellGrid,
+    architectureVersion: poolArchitecture?.architectureVersion,
+    baseFloorY: poolArchitecture?.baseFloorY || 0,
     HOUSES, TOWERS, FURNITURE, TREES, WHEAT, PIPES, DECO_BLOCKS, PROPS, ANIM_PROPS,
     LIGHTS, TASKS, PORTALS,
     HOOKS: [], EXITS: [], TRAPS: [], ENTRANCES: [],

@@ -6,7 +6,19 @@
   "scripts": {
     "dev": "vite --open",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "check:legal": "node scripts/verify-legal-compliance.mjs",
+    "check:tactical": "node scripts/test-tactical.mjs",
+    "check:fps": "node scripts/test-fps.mjs",
+    "check:poolrooms": "node scripts/validate-poolrooms.mjs",
+    "check:poolrooms:art": "node scripts/audit-poolrooms-art.mjs",
+    "check:poolrooms:richness": "node scripts/validate-poolrooms-richness.mjs",
+    "check:poolrooms:attractions": "node scripts/validate-poolrooms-attractions.mjs",
+    "check:poolrooms:sky": "node scripts/validate-poolrooms-sky.mjs",
+    "check:classic": "node scripts/test-classic.mjs",
+    "check:handheld": "node scripts/test-handheld.mjs",
+    "check:environment": "node --experimental-loader ./scripts/map-test-loader.mjs scripts/test-environment.mjs",
+    "check:runtime": "node scripts/check-runtime.mjs"
   },
   "dependencies": {
     "peerjs": "^1.5.4",

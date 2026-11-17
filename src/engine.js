@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith. All rights reserved (Original Engine & Code).
+ * Licensing information: see LICENSE.md
+ * Third-party notices: see THIRD_PARTY_NOTICES.md
+ */
+
 /**
  * Clean 3D Found-Footage Engine & WebRTC P2P Core.
  * Contains only runtime-active modules (Three.js + PMNDRS Postprocessing + PeerJS).
@@ -8,24 +14,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
-  Effect,
-  EffectAttribute,
-  EffectComposer,
-  RenderPass,
-  EffectPass,
-  SavePass,
-  BloomEffect,
-  VignetteEffect,
-  NoiseEffect,
-  BlendFunction
-} from 'postprocessing';
-import { Peer } from 'peerjs';
-
-export {
-  THREE,
-  GLTFLoader,
-  SkeletonUtils,
-  BufferGeometryUtils,
+  Pass,
   Effect,
   EffectAttribute,
   EffectComposer,
@@ -36,6 +25,35 @@ export {
   VignetteEffect,
   NoiseEffect,
   BlendFunction,
+  SMAAEffect,
+  SMAAPreset,
+  EdgeDetectionMode,
+  PredicationMode,
+  FXAAEffect
+} from 'postprocessing';
+import { Peer } from 'peerjs';
+
+export {
+  THREE,
+  GLTFLoader,
+  SkeletonUtils,
+  BufferGeometryUtils,
+  Pass,
+  Effect,
+  EffectAttribute,
+  EffectComposer,
+  RenderPass,
+  EffectPass,
+  SavePass,
+  BloomEffect,
+  VignetteEffect,
+  NoiseEffect,
+  BlendFunction,
+  SMAAEffect,
+  SMAAPreset,
+  EdgeDetectionMode,
+  PredicationMode,
+  FXAAEffect,
   Peer
 };
 
@@ -55,7 +73,15 @@ export class PreloaderSystem {
   }
 
   static yieldFrame() {
-    return new Promise(resolve => requestAnimationFrame(resolve));
+    // Occluded windows (headless review, minimized desktop app) stall rAF and
+    // would hang the preloader. Either callback settles the same frame yield;
+    // normal gameplay still advances by compositor-locked rAF.
+    return new Promise(resolve => {
+      let settled = false;
+      const done = () => { if (!settled) { settled = true; resolve(); } };
+      requestAnimationFrame(done);
+      setTimeout(done, 120);
+    });
   }
 
   async runAll(onProgress = () => {}) {
@@ -133,27 +159,29 @@ export class SpatialGrid2D {
 }
 
 /**
- * WebRTC ICE config (multi-STUN + TURN relays) for cross-network browser multiplayer.
+ * WebRTC ICE config (public STUN + optional TURN relay via environment config) for cross-network browser multiplayer.
+ * Credentials are never hardcoded in public client bundles; inject VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL at build time if a custom TURN relay is needed.
  */
-const METERED_RELAY = {
-  username: 'e07241262509f7010002b8d2',
-  credential: 'LTVELjLJXWi0nSmu'
-};
+const TURN_USERNAME = typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_TURN_USERNAME || '') : '';
+const TURN_CREDENTIAL = typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_TURN_CREDENTIAL || '') : '';
 
 export const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
   { urls: 'stun:stun.relay.metered.ca:80' },
-  {
-    urls: [
-      'turn:global.relay.metered.ca:80',
-      'turn:global.relay.metered.ca:80?transport=tcp',
-      'turn:global.relay.metered.ca:443',
-      'turns:global.relay.metered.ca:443?transport=tcp'
-    ],
-    ...METERED_RELAY
-  }
+  ...(TURN_USERNAME && TURN_CREDENTIAL
+    ? [{
+        urls: [
+          'turn:global.relay.metered.ca:80',
+          'turn:global.relay.metered.ca:80?transport=tcp',
+          'turn:global.relay.metered.ca:443',
+          'turns:global.relay.metered.ca:443?transport=tcp'
+        ],
+        username: TURN_USERNAME,
+        credential: TURN_CREDENTIAL
+      }]
+    : [])
 ];
 
 export const PEER_OPTS = {

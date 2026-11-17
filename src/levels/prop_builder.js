@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 // ---------- Batched Compound Prop & Architectural Builder for 20 Backrooms Levels ----------
 // Stamps hundreds of lore-accurate multi-part props (hospital beds, desks/PCs, cars, trees,
 // silos, windmills, stalactites, hotel chandeliers, streetlamps, torii gates, etc.) into

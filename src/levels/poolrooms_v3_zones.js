@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 // ============================================================
 // LEVEL 37 V3 EXPANSION: ZONES K THROUGH AN (30 NEW INTERCONNECTED ZONES)
 // - 22 Compact Labyrinth Zones (K..AF)

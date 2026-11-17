@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith. All rights reserved (Original Engine & Code).
+ * Licensing information: see LICENSE.md
+ * Third-party notices: see THIRD_PARTY_NOTICES.md
+ */
+
 // ---------- 3D World Mesh Builder for Level 0 Entrances & All 20 Sub-Levels ----------
 // Uses BufferGeometryUtils merging + InstancedMesh + GPU Sky Dome Shader + animated Water
 // so 500m-900m worlds render smoothly at high FPS on both PC & Mobile presets.
@@ -6,6 +12,12 @@ import { THREE, BufferGeometryUtils } from '../engine.js';
 import { GFX_PRESETS } from '../constants.js';
 import { getLevelMaterials } from './level_textures.js';
 import { buildPropsBatched, updateAnimatedProps } from './prop_builder.js';
+import { createPoolArtGeometry } from './poolrooms_art_mesh.js';
+import { createPoolOptics } from './poolrooms_optics.js';
+import {buildPoolDecor} from './poolrooms_decor_mesh.js';
+import {createPoolDaylight} from './poolrooms_daylight.js';
+import {createTubeWater} from './poolrooms_tube_water.js';
+import {createTubeMaterial} from './poolrooms_tube_material.js';
 
 function reg(disposables, item) {
   if (item) disposables.push(item);
@@ -17,6 +29,43 @@ function mergeList(geoms) {
   const g = BufferGeometryUtils.mergeGeometries(geoms, false);
   for (const x of geoms) x.dispose();
   return g;
+}
+
+// Split globally merged static geometry into spatial batches. Materials and the
+// water shader remain shared; every client selects visible batches locally.
+function partitionPoolGeometry(root, disposables, skipMesh, size = 32) {
+  const chunks = [];
+  for (const mesh of [...root.children]) {
+    if (!mesh.isMesh || mesh.isInstancedMesh || mesh === skipMesh || mesh.geometry?.attributes?.position?.count < 500 || mesh.position.lengthSq() > .001) continue;
+    const source = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+    const positions = source.attributes.position, buckets = new Map();
+    for (let i = 0; i < positions.count; i += 3) {
+      const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3;
+      const z = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3;
+      const key = `${Math.floor(x / size)},${Math.floor(z / size)}`;
+      if (!buckets.has(key)) buckets.set(key, []); buckets.get(key).push(i, i + 1, i + 2);
+    }
+    root.remove(mesh);
+    for (const indices of buckets.values()) {
+      const geom = reg(disposables, new THREE.BufferGeometry());
+      for (const [name, attribute] of Object.entries(source.attributes)) {
+        const data = new attribute.array.constructor(indices.length * attribute.itemSize);
+        let offset = 0;
+        for (const i of indices) for (let k = 0; k < attribute.itemSize; k++) data[offset++] = attribute.array[i * attribute.itemSize + k];
+        geom.setAttribute(name, new THREE.BufferAttribute(data, attribute.itemSize, attribute.normalized));
+      }
+      geom.computeBoundingBox(); geom.computeBoundingSphere();
+      const part = new THREE.Mesh(geom, mesh.material); part.name = 'pool-static-chunk';
+      part.userData.decorative=!!mesh.userData.decorative;
+      part.userData.gpuEvicted=true;
+      part.userData.bounds = geom.boundingBox; root.add(part); chunks.push(part);
+    }
+    if (source !== mesh.geometry) source.dispose();
+    const originalIndex=disposables.indexOf(mesh.geometry);
+    if(originalIndex>=0)disposables.splice(originalIndex,1);
+    mesh.geometry.dispose();
+  }
+  return chunks;
 }
 
 function makeTiledBox(dx, dy, dz, tileSize = 4.0) {
@@ -374,7 +423,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     mistBase.rotation.x = -Math.PI * 0.5;
     mistBase.position.set(span * 0.5, -18, span * 0.5);
     root.add(mistBase);
-  } else {
+  } else if (map.architectureVersion !== 4) {
     const baseY = cfg.archetype === 'ocean' ? -0.82 : isPoolrooms ? -2.85 : -0.02;
     const fSeg = isPoolrooms ? 136 : 1;
     const floorGeo = reg(disposables, new THREE.PlaneGeometry(span, span, fSeg, fSeg));
@@ -391,7 +440,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     }
   }
 
-  if (!cfg.isOutdoor) {
+  if (!cfg.isOutdoor && map.architectureVersion !== 4) {
     const cSeg = isPoolrooms ? 136 : 1;
     const ceilGeo = reg(disposables, new THREE.PlaneGeometry(span, span, cSeg, cSeg));
     if (isPoolrooms) {
@@ -410,6 +459,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
   // 3. Batch Walls, Structural Blocks & Poolrooms V3 Architectural Modules (Arches, Round Columns, Vaults, Curves, Tubes, Spiral Slides, Glass, Light Shafts)
   const tileUnit = isPoolrooms ? 2.4 : 4.5;
   const wallGeoms = [];
+  const tubeGeoms = [];
   const mintGeoms = [];
   const bedGeoms = [];
   const ceilVaultGeoms = [];
@@ -440,7 +490,26 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
       list.push(g);
     };
     for (const item of map.POOL_ARCH) {
-      if (item.kind === 'arch') {
+      if(item.render===false)continue;
+      const artGeometry=createPoolArtGeometry(item,THREE);
+      if(artGeometry){
+        if(item.kind==='tube_union')tubeGeoms.push(artGeometry);
+        else if(item.glass)glassGeoms.push(artGeometry);
+        else if(item.kind==='glow_panel')glowGeoms.push(tagGeomColor(artGeometry,[(item.hex>>16&255)/255,(item.hex>>8&255)/255,(item.hex&255)/255]));
+        else wallGeoms.push(artGeometry);
+      } else if (item.kind === 'portal_frame') {
+        const r = item.span / 2, spring = 2.05, rise = Math.min(1.0, r * .65), rim = .22;
+        const shape = new THREE.Shape();
+        // A single U-shaped contour, open at floor level. A hole touching the
+        // outer boundary makes Earcut fill the doorway on some triangulations.
+        shape.moveTo(-r-rim,0);shape.lineTo(-r-rim,spring+rise+rim);
+        shape.lineTo(r+rim,spring+rise+rim);shape.lineTo(r+rim,0);shape.lineTo(r,0);shape.lineTo(r,spring);
+        shape.absellipse(0,spring,r,rise,0,Math.PI,false,0);shape.lineTo(-r,0);shape.closePath();
+        const geom = new THREE.ExtrudeGeometry(shape,{depth:.28,bevelEnabled:false,curveSegments:20});
+        geom.setIndex(Array.from({length:geom.attributes.position.count},(_,i)=>i));
+        const uv=geom.attributes.uv;for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getX(i)/2.4,uv.getY(i)/2.4);
+        geom.translate(0,item.y0||0,-.14);geom.rotateY(item.rotY||0);geom.translate(item.x,0,item.z);wallGeoms.push(geom);
+      } else if (item.kind === 'arch') {
         const span = item.span || 3.2;
         const h = item.h || 4.0;
         const pierW = item.pierW || 0.72;
@@ -449,7 +518,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         const rotY = item.rotY || 0;
         const R = span * 0.5;
         const archRise = Math.min(R, Math.max(0.6, h - 0.85));
-        const straightH = Math.max(0.35, h - archRise);
+        const straightH = item.springHeight ?? Math.max(0.35, h - archRise);
         const totalW = span + pierW * 2;
         // Left & Right Tiled Piers
         pushArchPart(wallGeoms, pierW, straightH + archRise, depth, -(R + pierW * 0.5), y0 + (straightH + archRise) * 0.5, 0, 0, item.x, item.z, rotY);
@@ -511,8 +580,8 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
       } else if (item.kind === 'ceil_vault') {
         const cx = (item.x0 + item.x1) * 0.5;
         const cz = (item.z0 + item.z1) * 0.5;
-        const dx = Math.max(1.0, item.x1 - item.x0);
-        const dz = Math.max(1.0, item.z1 - item.z0);
+        const dx = Math.max(0.015, item.x1 - item.x0);
+        const dz = Math.max(0.015, item.z1 - item.z0);
         const cy = item.y ?? 4.2;
         const slab = makeTiledBox(dx, 0.32, dz, 4.8);
         slab.translate(cx, cy + 0.16, cz);
@@ -693,6 +762,8 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
   }
 
   const mergedW = reg(disposables, mergeList(wallGeoms));
+  const mergedTubes=reg(disposables,mergeList(tubeGeoms));
+  if(mergedTubes){applyPoolroomsIndirectBounce(mergedTubes,map,false);const mesh=new THREE.Mesh(mergedTubes,reg(disposables,createTubeMaterial(mats.wallMat)));mesh.name='continuous-ceramic-tunnel-shells';root.add(mesh);}
   if (mergedW) {
     if (isPoolrooms) applyPoolroomsIndirectBounce(mergedW, map, false);
     root.add(new THREE.Mesh(mergedW, mats.wallMat));
@@ -717,8 +788,10 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         const dx = Math.max(1, w.x1 - w.x0);
         const dz = Math.max(1, w.z1 - w.z0);
         const bedY = w.bedY ?? -0.95;
-        const g = makeTiledBox(dx, 0.34, dz, 2.4);
-        g.translate((w.x0 + w.x1) * 0.5, bedY - 0.17, (w.z0 + w.z1) * 0.5);
+        if(w.shape==='tube')continue; // The curved shell owns the submerged bed.
+        const g = w.shape==='ellipse' ? createPoolArtGeometry({...w,kind:'basin_bed'},THREE) : makeTiledBox(dx, 0.34, dz, 2.4);
+        if(w.shape!=='ellipse')g.translate((w.x0 + w.x1) * 0.5, bedY - 0.17, (w.z0 + w.z1) * 0.5);
+        if(w.shape==='ellipse'){const p=g.attributes.position,n=g.attributes.normal,u=g.attributes.uv;for(let i=0;i<u.count;i++)u.setXY(i,(Math.abs(n.getX(i))>.7?p.getZ(i):p.getX(i))/2.4,(Math.abs(n.getY(i))>.7?p.getZ(i):p.getY(i))/2.4);}
         bedGeoms.push(g);
         // Subtle mint ceramic pool coping trim if basin is bordered cleanly
         if (!w.noCoping && dx >= 6 && dz >= 6) {
@@ -826,6 +899,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
       const slideGeoms = [];
       const railGeoms = [];
       for (const s of map.SLIDES) {
+        if(s.render===false)continue;
         const dx = Math.max(0.8, s.x1 - s.x0);
         const dz = Math.max(0.8, s.z1 - s.z0);
         const rise = s.y1 - s.y0;
@@ -896,7 +970,8 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         const dz = Math.max(1, w.z1 - w.z0);
         const segX = Math.min(18, Math.max(4, Math.ceil(dx / 6.0)));
         const segZ = Math.min(18, Math.max(4, Math.ceil(dz / 6.0)));
-        const raw = new THREE.PlaneGeometry(dx, dz, segX, segZ);
+        if(w.shape==='tube'){const g=createTubeWater(w,THREE,map);g.setAttribute('aZoneTemp',new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(w.temp??0.25),1));wGeoms.push(g);continue;}
+        const raw = w.shape==='ellipse' ? new THREE.CircleGeometry(1,80).scale(w.rx,w.rz,1) : new THREE.PlaneGeometry(dx, dz, segX, segZ);
         const g = raw.toNonIndexed();
         raw.dispose();
         g.rotateX(-Math.PI * 0.5);
@@ -937,7 +1012,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         const width = Math.max(0.6, (item.width || 2.8) - 0.56);
         const dir = item.ccw ? -1 : 1;
         const angStart = item.angStart ?? 0;
-        const segN = Math.max(20, Math.round(turns * 20));
+        const segN = item.waterSegments || Math.max(20, Math.round(turns * 20));
         const totAng = turns * Math.PI * 2 * dir;
         const totalDrop = yTop - yBot;
         const chordLen = (Math.abs(totAng) * rad) / segN + 0.24;
@@ -1015,56 +1090,59 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
             varying float vRipple;
             void main() {
               vec2 uv = vWorldPos.xz;
-              // Calm indoor pool micro-ripples (never choppy ocean waves)
-              float nx = cos(uv.x * 1.15 + uTime * 1.3) * 0.045 + cos((uv.x - uv.y) * 1.9 - uTime * 1.7) * 0.030;
-              float nz = sin(uv.y * 1.05 - uTime * 1.15) * 0.045 + sin((uv.x + uv.y) * 1.75 + uTime * 1.5) * 0.030;
+              float dist = length(cameraPosition - vWorldPos);
+              float rippleAtten = 1.0 - smoothstep(10.0, 48.0, dist);
+              // Calm indoor pool micro-ripples attenuated over distance to prevent subpixel specular shimmer
+              float nx = (cos(uv.x * 1.15 + uTime * 1.3) * 0.045 + cos((uv.x - uv.y) * 1.9 - uTime * 1.7) * 0.030) * mix(0.32, 1.0, rippleAtten);
+              float nz = (sin(uv.y * 1.05 - uTime * 1.15) * 0.045 + sin((uv.x + uv.y) * 1.75 + uTime * 1.5) * 0.030) * mix(0.32, 1.0, rippleAtten);
               vec3 N = normalize(vec3(nx, 1.0, nz));
               vec3 V = normalize(cameraPosition - vWorldPos);
               float NdotV = max(dot(N, V), 0.0);
               float fresnel = pow(1.0 - NdotV, 4.2) * 0.16;
 
-              // View-refracted floor coordinates reveal submerged 15x15cm ceramic mosaic & caustics
+              // View-refracted floor coordinates with fwidth() screen-space derivative antialiasing on submerged mosaic
               vec2 refUV = uv - (V.xz / max(abs(V.y), 0.24)) * clamp(vBedDepth * 0.28, 0.06, 0.52) + N.xz * 0.12;
               vec2 tileCoord = refUV / 0.15;
               vec2 fTile = fract(tileCoord);
+              vec2 tileFw = clamp(fwidth(tileCoord), vec2(0.015), vec2(0.45));
               vec2 idTile = floor(tileCoord);
               float tileRnd = fract(sin(dot(idTile, vec2(12.9898, 78.233))) * 43758.5453);
-              float groutX = smoothstep(0.06, 0.13, fTile.x) * (1.0 - smoothstep(0.87, 0.94, fTile.x));
-              float groutZ = smoothstep(0.06, 0.13, fTile.y) * (1.0 - smoothstep(0.87, 0.94, fTile.y));
-              float tileMask = groutX * groutZ;
-              float subTileVis = exp(-max(0.0, vBedDepth - 0.15) * 0.62);
+              float groutX = smoothstep(0.08 - tileFw.x, 0.13 + tileFw.x, fTile.x) * (1.0 - smoothstep(0.87 - tileFw.x, 0.92 + tileFw.x, fTile.x));
+              float groutZ = smoothstep(0.08 - tileFw.y, 0.13 + tileFw.y, fTile.y) * (1.0 - smoothstep(0.87 - tileFw.y, 0.92 + tileFw.y, fTile.y));
+              float tileMask = mix(groutX * groutZ, 0.86, smoothstep(0.26, 0.68, max(tileFw.x, tileFw.y)));
+              float subTileVis = exp(-max(0.0, vBedDepth - 0.15) * 0.62) * (1.0 - smoothstep(0.32, 0.78, max(tileFw.x, tileFw.y)));
 
               float c1 = sin(refUV.x * 2.35 + uTime * 1.35 + sin(refUV.y * 1.75 - uTime * 0.95));
               float c2 = cos(refUV.y * 2.25 - uTime * 1.25 + cos(refUV.x * 1.85 + uTime * 1.15));
               float c3 = sin((refUV.x - refUV.y) * 3.1 - uTime * 1.65);
-              float caustics = pow(max(0.0, (c1 * c2 * 0.7 + c3 * 0.3) * 0.5 + 0.5), 2.4);
+              float caustics = pow(max(0.0, (c1 * c2 * 0.7 + c3 * 0.3) * 0.5 + 0.5), 2.4) * mix(0.45, 1.0, rippleAtten);
 
               // Reference vibrant mint -> turquoise -> cyan -> deep aquatic teal gradient
               float depthT = clamp((vBedDepth - 0.28) / 2.1, 0.0, 1.0);
-              vec3 shallowMint = vec3(0.420, 0.855, 0.765);
-              vec3 clearTurq = vec3(0.200, 0.785, 0.740);
-              vec3 aquaticCyan = vec3(0.115, 0.655, 0.700);
-              vec3 mediumTeal = vec3(0.075, 0.460, 0.560);
-              vec3 deepTeal = vec3(0.045, 0.275, 0.390);
+              vec3 shallowMint = vec3(0.360, 0.580, 0.500);
+              vec3 clearTurq = vec3(0.180, 0.500, 0.440);
+              vec3 aquaticCyan = vec3(0.100, 0.380, 0.370);
+              vec3 mediumTeal = vec3(0.060, 0.280, 0.310);
+              vec3 deepTeal = vec3(0.030, 0.140, 0.180);
 
               vec3 waterBody = mix(shallowMint, clearTurq, smoothstep(0.0, 0.35, depthT));
               waterBody = mix(waterBody, aquaticCyan, smoothstep(0.25, 0.62, depthT));
               waterBody = mix(waterBody, mix(mediumTeal, deepTeal, vZoneTemp), smoothstep(0.55, 1.0, depthT));
 
-              vec3 bedTileCol = mix(vec3(0.065, 0.295, 0.330), waterBody * (1.12 + tileRnd * 0.11), tileMask);
+              vec3 bedTileCol = mix(waterBody * 0.97, waterBody * (1.0 + tileRnd * 0.02), tileMask);
               vec3 col = mix(waterBody, bedTileCol, subTileVis * 0.82);
-              col += vec3(0.58, 0.96, 0.92) * caustics * mix(0.32, 0.11, depthT);
+              col += vec3(0.58, 0.96, 0.92) * caustics * mix(0.12, 0.05, depthT);
 
-              // Restrained specular glint & soft mint-ivory ceiling reflection (never opaque grey/white)
+              // Restrained distance-filtered specular glint & soft mint-ivory ceiling reflection (never opaque grey/white)
               vec3 L = normalize(vec3(0.35, 0.90, 0.25));
               vec3 H = normalize(L + V);
-              float spec = pow(max(dot(N, H), 0.0), 56.0) * 0.18;
+              float specExp = mix(56.0, 16.0, smoothstep(8.0, 44.0, dist));
+              float spec = pow(max(dot(N, H), 0.0), specExp) * 0.16 * mix(0.55, 1.0, rippleAtten);
               vec3 reflCol = mix(vec3(0.48, 0.88, 0.86), vec3(0.84, 0.93, 0.89), (1.0 - vZoneTemp) * 0.48);
               col = mix(col, reflCol, clamp(fresnel, 0.0, 0.20));
-              col += vec3(0.82, 0.97, 0.95) * (spec + min(0.20, vRipple * 3.8));
+              col += vec3(0.82, 0.97, 0.95) * (spec + min(0.18, vRipple * 3.4));
 
               // Seamless exponential squared fog matching THREE.FogExp2
-              float dist = length(cameraPosition - vWorldPos);
               float fogF = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
               col = mix(col, uFogColor, clamp(fogF, 0.0, 1.0));
 
@@ -1360,10 +1438,75 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     animItems.push({ mesh, baseY: 0.42, phase: w.id * 0.6 });
   }
 
+  const heroLightPool=[];
+  if(isPoolrooms&&map.POOL_CELLS?.some(c=>c.art))for(let i=0;i<2;i++){
+    const light=new THREE.SpotLight(0xffffff,0,90,.7,.65,2);light.castShadow=!!gfx.shadows;
+    light.shadow.mapSize.set(1024,1024);light.shadow.camera.near=.3;light.shadow.camera.far=90;light.shadow.bias=-.00015;light.shadow.normalBias=.02;light.shadow.radius=3;light.shadow.autoUpdate=false;
+    root.add(light,light.target);heroLightPool.push(light);
+  }
+  const decor=isPoolrooms?buildPoolDecor(root,map,gfx,disposables):null;
+  const spatialChunks = partitionPoolGeometry(root, disposables, skyDome?.mesh, map.architectureVersion >= 4 ? 32 : 56);
+  if(isPoolrooms&&spatialChunks.length){waterMeshes.length=0;waterMeshes.push(...spatialChunks.filter(m=>m.material===poolWaterMat));}
+  for(const mesh of spatialChunks){mesh.castShadow=!!gfx.shadows&&!mesh.material.transparent;mesh.receiveShadow=!!gfx.shadows&&!mesh.material.transparent;}
+  const optics=isPoolrooms&&poolWaterMat&&map.POOL_CELLS?.some(c=>c.art)?createPoolOptics(scene,root,map,poolWaterMat,gfxKey,disposables):null;
+  const daylight=isPoolrooms?createPoolDaylight(root,map,gfxKey,gfx,disposables,optics):null;
+  const streamingStats={geometryEvictions:0,visibleChunks:spatialChunks.length,totalChunks:spatialChunks.length,renderDistance:cfg.farDist||200};
+  let curRenderDist = Math.max(50, cfg.farDist || 200);
+  let lastCamPos = map.SPAWN ? { x: map.SPAWN.x, y: map.SPAWN.y || 0, z: map.SPAWN.z } : null;
+  const updateVisibility = (position, elapsed=0) => {
+    if (!position) return;
+    lastCamPos = position;
+    const baseR = Math.max(48, curRenderDist);
+    let visCount = 0;
+    for (const chunk of spatialChunks) {
+      const b = chunk.userData.bounds;
+      const dx = Math.max(b.min.x - position.x, 0, position.x - b.max.x);
+      const dz = Math.max(b.min.z - position.z, 0, position.z - b.max.z);
+      const effR = chunk.visible ? baseR + 16 : baseR;
+      const evictR = Math.max(baseR * 1.25 + 32, baseR + 48);
+      const d2 = dx * dx + dz * dz;
+      chunk.visible = d2 < effR * effR;
+      if (chunk.visible) {
+        visCount++;
+        chunk.userData.gpuEvicted = false;
+        delete chunk.userData.hiddenSince;
+      } else {
+        chunk.userData.hiddenSince ??= elapsed;
+        if (!chunk.userData.gpuEvicted && d2 > evictR * evictR && elapsed - chunk.userData.hiddenSince > 5) {
+          chunk.geometry.dispose();
+          chunk.userData.gpuEvicted = true;
+          streamingStats.geometryEvictions++;
+        }
+      }
+    }
+    streamingStats.visibleChunks = visCount;
+    streamingStats.renderDistance = curRenderDist;
+  };
+  updateVisibility(map.SPAWN);
   scene.add(root);
 
   return {
     isSubLevel: true,
+    spatialChunks,
+    heroLightPool,
+    opticsStats:optics?.stats,
+    decorStats:decor?.stats,
+    daylightStats:daylight?.stats,
+    daylight,
+    optics,
+    streamingStats,
+    setRenderDistance(dist, elapsed = 0, pos = null) {
+      curRenderDist = Math.max(50, Math.min(800, Number(dist) || 200));
+      updateVisibility(pos || lastCamPos, elapsed);
+      decor?.update(elapsed, pos || lastCamPos, curRenderDist);
+      if (daylight && (pos || lastCamPos)) daylight.update(elapsed, pos || lastCamPos, curRenderDist);
+    },
+    setQualitySettings({ renderDistance, waterQuality, cloudQuality } = {}, camPos = null, elapsed = 0) {
+      if (renderDistance !== undefined) this.setRenderDistance(renderDistance, elapsed, camPos);
+      if (waterQuality && optics?.setQuality) optics.setQuality(waterQuality);
+      if (cloudQuality && daylight?.setCloudQuality) daylight.setCloudQuality(cloudQuality);
+    },
+    updateOptics(renderer,camera,elapsed,dt=1/60,brightness=1){optics?.update(renderer,camera,elapsed);daylight?.meter(renderer,optics?.sceneTexture,elapsed,dt,brightness,scene,camera);},
     root,
     skyDome,
     sunLight,
@@ -1391,11 +1534,22 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     },
     dispose() {
       scene.remove(root);
+      for(const light of heroLightPool)light.shadow.dispose();
       for (const d of disposables) if (d && d.dispose) d.dispose();
     },
-    updateExtra(elapsed, camPos, curMap, sceneFog, entPos) {
+    updateExtra(elapsed, camPos, curMap, sceneFog, entPos, camFar = 0) {
+      decor?.update(elapsed, camPos, curRenderDist);
+      daylight?.update(elapsed, camPos, curRenderDist);
+      updateVisibility(camPos, elapsed);
+      const heroLim = Math.min(110, Math.max(52, curRenderDist * 0.9));
+      if(heroLightPool.length&&camPos){
+        const keys=map.LIGHTS.filter(l=>l.spot&&Math.hypot(l.x-camPos.x,l.z-camPos.z)<heroLim).sort((a,b)=>Math.hypot(a.x-camPos.x,a.z-camPos.z)-Math.hypot(b.x-camPos.x,b.z-camPos.z));
+        heroLightPool.forEach((light,i)=>{const key=keys[i];if(!key){light.intensity=0;return;}if(light.userData.key!==key){light.position.set(key.x,key.y,key.z);light.target.position.fromArray(key.spot.target);light.color.setHex(key.hex);light.intensity=key.spot.intensity;light.angle=key.spot.angle;light.distance=key.spot.distance;light.shadow.needsUpdate=true;light.userData.key=key;}});
+      }
       if (skyDome) {
         skyDome.mesh.position.copy(camPos);
+        const skyFit = Math.max(42, ((camFar > 0 ? camFar : curRenderDist) || 200) * 0.85) / 540;
+        skyDome.mesh.scale.setScalar(skyFit);
         skyDome.mat.uniforms.uTime.value = elapsed;
       }
       if (poolWaterMat) {
@@ -1408,9 +1562,12 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
         } else {
           poolWaterMat.uniforms.uEntityPos.value.set(-999, 0, -999);
         }
-        if (sceneFog) {
-          poolWaterMat.uniforms.uFogColor.value.copy(sceneFog.color);
-          poolWaterMat.uniforms.uFogDensity.value = sceneFog.density ?? cfg.fogDensity;
+        if (sceneFog || scene.fog) {
+          const fog=sceneFog||scene.fog;
+          poolWaterMat.uniforms.uFogColor.value.copy(fog.color);
+          poolWaterMat.uniforms.uFogDensity.value = fog.density ?? cfg.fogDensity;
+        } else {
+          poolWaterMat.uniforms.uFogDensity.value=0;
         }
       } else if (mats.waterTex) {
         mats.waterTex.offset.x = (elapsed * 0.04) % 1;

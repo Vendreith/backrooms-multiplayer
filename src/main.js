@@ -1,12 +1,31 @@
+import {classicCeilingAt} from './map.js';
+/*!
+ * Copyright (c) 2026 Vendreith. All rights reserved (Original Engine & Code).
+ * Licensing information: see LICENSE.md
+ * Third-party notices: see THIRD_PARTY_NOTICES.md
+ */
+
 import { THREE, PreloaderSystem } from './engine.js';
 import {
   C, WH, N, NTASK, NHOOK, NEED, TASK_TIME, STAM_EXHAUST_RATIO, BLEED, HOOK_T, UNHOOK_T,
   REVEAL_T, REVEAL_CD, TRAP_CD, TRAP_MAX, TRAP_LOCK, TRAP_R,
   SCAN_T, DISARM_T, WATER_LIFE, SPEED, FOG_SURV, FOG_KILLER, FAR_SURV, FAR_KILLER,
-  SURV_COLORS, GFX_PRESETS, FX_CONTROLS, getPresetDefaultFx, FPS_CAPS, DEF_KB,
+  SURV_COLORS, GFX_PRESETS, FX_GROUPS, FX_CONTROLS, EYE_ADAPT_PRESETS, RENDER_DIST_PRESETS,
+  getPresetDefaultFx, FPS_CAPS, DEF_KB,
   ENTITY_ARCHETYPES, selectMatchEntities, esc
 } from './constants.js';
-import { genMap, collide, blocked, getSurfaceAt, getZoneLuminanceAt, getZoneAtmosphereAt } from './map.js';
+import { genMap, collide, blocked, canStandAt, getSurfaceAt, getZoneLuminanceAt, getZoneAtmosphereAt } from './map.js';
+import { MovementAssist, capVelocity } from './fps/movement.js';
+import { MovementGuard } from './fps/network_movement.js';
+import { HumanCamera, boundedLocomotion } from './fps/camera_motion.js';
+import {HandheldCamera} from './fps/handheld_motion.js';
+import {advanceStamina,threatProximity} from './gameplay_balance.js';
+import { respawnPitPlayer } from './levels/classic_respawn.js';
+import { inClassic, inClassicPresentation, classicPitAt } from './levels/classic_layout.js';
+import { WeaponSystem } from './fps/weapons.js';
+import { CombatAuthority, rayBox, makeLoadout } from './fps/combat.js';
+import { tubeDistance } from './levels/poolrooms_tubes.js';
+import { normalizeProfile, profileFromSettings, profileSignature, tacticalSpeed, acceptProfileChange, FPS_SETTING_KEYS, presentationSettings } from './fps/profiles.js';
 import { registerTextureTasks, createMapLightmaps } from './textures.js';
 import {
   registerModelTasks, buildWorld, updateWorldLighting,
@@ -14,13 +33,15 @@ import {
   makeFPEntityClaws, updateFPEntityClaws, spawnTrapMesh, spawnFlareMesh
 } from './models.js';
 import { GraphicsManager } from './postfx.js';
-import { audio, MUSIC_TRACKS, AMBIENT_TRACK_KEYS, HORROR_SFX_TRACKS, CREEPY_RANDOM_KEYS } from './audio.js';
+import { audio, MUSIC_TRACKS, AMBIENT_TRACK_KEYS, CHASE_TRACK_KEYS, HORROR_SFX_TRACKS, CREEPY_RANDOM_KEYS } from './audio.js';
 import { EntityAIController, findGridPath } from './ai.js';
 import { NetworkManager } from './network.js';
 import { LEVEL_CATALOG, LEVEL_LIST, getLevelMeta } from './levels/catalog.js';
 import { getTerrainAt } from './levels/terrain.js';
 import { genSubLevelMap } from './levels/world_generators.js';
 import { getPoolroomsZoneAt, updatePoolroomsWorldEvents, resetPoolroomsEventsState } from './levels/poolrooms_world.js';
+import { getPoolroomsCellAt } from './levels/poolrooms_cells.js';
+import { isPeacefulLevel, isHostileInPeacefulLevel } from './levels/level_safety.js';
 
 // ---------- DOM Elements ----------
 const $ = (id) => document.getElementById(id);
@@ -46,9 +67,126 @@ const pauseScr = $('pauseScr');
 const endScr = $('endScr');
 const hud = $('hud');
 const fearFx = $('fearFx');
+const jumpscareFx = $('jumpscareFx');
+const jsFaceWrap = $('jsFaceWrap');
+const jsTagEl = $('jsTag');
+
+let jumpscareT = 0;
+let jumpscareDur = 0.95;
+let jumpscareHideTimer = null;
+let ambushCD = 0;
+let wasEntityCloseLOS = false;
+let hostNoiseAlertT = 0;
+
+function buildJumpscareFaceSVG(aiKind = 'bacteria') {
+  const k = aiKind === 'skinStealer' ? 'skin_stealer' : aiKind === 'hound' ? 'howler' : (aiKind || 'bacteria');
+  if (k === 'smiler') {
+    return `<svg viewBox="0 0 300 300" width="100%" height="100%">
+      <radialGradient id="jsSmG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#140000" stop-opacity="0.95"/><stop offset="100%" stop-color="#000" stop-opacity="0"/></radialGradient>
+      <circle cx="150" cy="150" r="142" fill="url(#jsSmG)"/>
+      <ellipse cx="98" cy="108" rx="22" ry="30" fill="#ffffff"/>
+      <ellipse cx="202" cy="108" rx="22" ry="30" fill="#ffffff"/>
+      <circle cx="98" cy="112" r="7" fill="#050000"/>
+      <circle cx="202" cy="112" r="7" fill="#050000"/>
+      <path d="M46 156 Q150 268 254 156 Q150 228 46 156 Z" fill="#060000" stroke="#ffffff" stroke-width="5"/>
+      <polygon points="72,175 84,212 96,184" fill="#fff"/>
+      <polygon points="104,190 116,228 128,196" fill="#fff"/>
+      <polygon points="136,198 150,236 164,198" fill="#fff"/>
+      <polygon points="172,196 184,228 196,190" fill="#fff"/>
+      <polygon points="204,184 216,212 228,175" fill="#fff"/>
+    </svg>`;
+  }
+  if (k === 'howler') {
+    return `<svg viewBox="0 0 300 300" width="100%" height="100%">
+      <path d="M72 48 C48 118 46 218 82 272 L218 272 C254 218 252 118 228 48 C185 26 115 26 72 48 Z" fill="#181310" stroke="#7d1410" stroke-width="4"/>
+      <ellipse cx="102" cy="96" rx="22" ry="15" fill="#050202"/>
+      <ellipse cx="198" cy="96" rx="22" ry="15" fill="#050202"/>
+      <circle cx="102" cy="96" r="6" fill="#ff2e1c"/>
+      <circle cx="198" cy="96" r="6" fill="#ff2e1c"/>
+      <ellipse cx="150" cy="196" rx="58" ry="74" fill="#030000" stroke="#8e1b14" stroke-width="4"/>
+      <polygon points="102,150 116,186 128,144" fill="#e8dcc8"/>
+      <polygon points="138,136 150,180 162,136" fill="#e8dcc8"/>
+      <polygon points="172,144 184,186 198,150" fill="#e8dcc8"/>
+      <polygon points="110,248 126,214 138,256" fill="#dcd0bc"/>
+      <polygon points="162,256 174,214 190,248" fill="#dcd0bc"/>
+    </svg>`;
+  }
+  if (k === 'skin_stealer' || k === 'duller' || k === 'mimic') {
+    return `<svg viewBox="0 0 300 300" width="100%" height="100%">
+      <path d="M68 42 C44 102 48 216 92 268 L208 268 C252 216 256 102 232 42 C188 18 112 18 68 42 Z" fill="#32231c" stroke="#a0201a" stroke-width="4"/>
+      <circle cx="100" cy="108" r="24" fill="#040101"/>
+      <circle cx="200" cy="104" r="21" fill="#040101"/>
+      <circle cx="102" cy="108" r="7" fill="#ffe29a"/>
+      <circle cx="198" cy="104" r="6" fill="#ff3a28"/>
+      <path d="M142 130 L158 130 L166 255 L134 255 Z" fill="#050000" stroke="#b6241c" stroke-width="3"/>
+      <path d="M90 185 L126 178 M174 178 L210 185 M96 218 L128 214 M172 214 L204 218" stroke="#c89a84" stroke-width="4"/>
+    </svg>`;
+  }
+  if (k === 'nullshade') {
+    return `<svg viewBox="0 0 300 300" width="100%" height="100%">
+      <polygon points="150,12 246,84 224,258 76,258 54,84" fill="#05020a" stroke="#c026ff" stroke-width="4"/>
+      <rect x="44" y="92" width="212" height="14" fill="#d946ef" opacity="0.55"/>
+      <circle cx="102" cy="112" r="18" fill="#ff1e56"/>
+      <circle cx="198" cy="112" r="18" fill="#ff1e56"/>
+      <circle cx="102" cy="112" r="5" fill="#fff"/>
+      <circle cx="198" cy="112" r="5" fill="#fff"/>
+      <path d="M84 196 L112 174 L138 206 L162 174 L188 206 L216 182" fill="none" stroke="#ff2e63" stroke-width="7"/>
+    </svg>`;
+  }
+  // Default: bacteria / wire_stalker terrifying tendril silhouette + glowing CRT eyes
+  return `<svg viewBox="0 0 300 300" width="100%" height="100%">
+    <path d="M150 14 L172 52 L228 22 L202 82 L268 72 L218 124 L274 166 L210 182 L248 250 L182 214 L162 284 L138 284 L118 214 L52 250 L90 182 L26 166 L82 124 L32 72 L98 82 L72 22 L128 52 Z" fill="#060404" stroke="#c81e1e" stroke-width="4"/>
+    <ellipse cx="110" cy="118" rx="18" ry="12" fill="#ff1a1a"/>
+    <ellipse cx="190" cy="118" rx="18" ry="12" fill="#38f8ff"/>
+    <circle cx="110" cy="118" r="5" fill="#ffffff"/>
+    <circle cx="190" cy="118" r="5" fill="#ffffff"/>
+    <ellipse cx="150" cy="186" rx="46" ry="52" fill="#020000" stroke="#7c1010" stroke-width="4"/>
+    <path d="M114 168 L126 196 L138 164 L150 202 L162 164 L174 196 L186 168" fill="none" stroke="#f0e6d2" stroke-width="4"/>
+  </svg>`;
+}
+
+function triggerJumpscare({ aiKind = 'bacteria', killerName = '', down = false, ambush = false } = {}) {
+  if(isPeacefulLevel(activeLocalLevelId))return;
+  const durMs = down ? 1280 : ambush ? 720 : 960;
+  jumpscareDur = durMs / 1000;
+  jumpscareT = jumpscareDur;
+  audio.playJumpscare(aiKind, down, ambush);
+  if (jumpscareFx) {
+    if (jsFaceWrap) jsFaceWrap.innerHTML = buildJumpscareFaceSVG(aiKind);
+    if (jsTagEl) {
+      jsTagEl.textContent = down
+        ? 'SIGNAL LOST // DETECTED'
+        : ambush
+          ? `AMBUSH // ${(killerName || aiKind || 'ENTITY').toUpperCase()}`
+          : `ATTACK // ${(killerName || aiKind || 'ENTITY').toUpperCase()}`;
+    }
+    jumpscareFx.classList.remove('hidden', 'active');
+    void jumpscareFx.offsetWidth;
+    jumpscareFx.classList.add('active');
+    if (jumpscareHideTimer) clearTimeout(jumpscareHideTimer);
+    jumpscareHideTimer = setTimeout(() => {
+      jumpscareFx.classList.remove('active');
+      jumpscareFx.classList.add('hidden');
+    }, durMs);
+  }
+}
+
+function alertLocalMonstersNoise(levelId, x, z, range = 26, dur = 6.5) {
+  if (!net.isHost) return;
+  const lvlMap = getOrCreateLevelMap(levelId || 'level0');
+  for (const c of aiControllers) {
+    const ep = players[c.id];
+    if (!ep || (ep.levelId || 'level0') !== (levelId || 'level0')) continue;
+    const d = Math.hypot(ep.x - x, ep.z - z);
+    const hearCap = Math.min(range, c.archetype?.hearRange || 20)*(blocked(ep.x,ep.z,x,z,lvlMap)?.45:1);
+    if (d <= hearCap && c.hearCooldown<=0 && !['CHASE','SEARCH','CARRY_TO_HOOK'].includes(c.state)) {
+      c.investigate(Math.round(x/3)*3, Math.round(z/3)*3, lvlMap, Math.min(4,dur));c.hearCooldown=2.2;
+    }
+  }
+}
 
 // ---------- Core Three.js Renderer, Scene & Camera ----------
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -77,6 +215,7 @@ localFlash.shadow.camera.near = 0.28;
 localFlash.shadow.camera.far = 48;
 localFlash.shadow.bias = -0.00045;
 localFlash.shadow.normalBias = 0.025;
+localFlash.shadow.radius = 2.0;
 
 const localFlashCore = new THREE.SpotLight(0xffffff, 6.5, 44, Math.PI / 9.0, 0.65, 1.02);
 const localFlashTarget = new THREE.Object3D();
@@ -124,11 +263,11 @@ function isMobileDevice() {
 const mobileAutoBoot = isMobileDevice();
 let currentGfx = localStorage.getItem('br_gfx_v2') || (mobileAutoBoot ? 'mobile' : 'ultra');
 function loadFxSettings(presetKey) {
-  const base = getPresetDefaultFx(presetKey);
+  const base = { ...getPresetDefaultFx(presetKey), ...loadFpsPreferences() };
   try {
     const saved = JSON.parse(localStorage.getItem('br_fx_v2') || 'null');
     if (saved && typeof saved === 'object') {
-      const merged = { ...base, ...saved };
+      const merged = { ...base, ...saved, ...loadFpsPreferences() };
       for (const c of FX_CONTROLS) {
         if (c.type === 'toggle') {
           if (typeof merged[c.key] !== 'boolean') merged[c.key] = !!base[c.key];
@@ -146,13 +285,17 @@ function loadFxSettings(presetKey) {
   return base;
 }
 let fxSettings = loadFxSettings(currentGfx);
+function loadFpsPreferences() {
+  try { const data = JSON.parse(localStorage.getItem('br_fps_preferences_v1') || '{}'); return Object.fromEntries(FPS_SETTING_KEYS.filter(k => Object.hasOwn(data, k)).map(k => [k, data[k]])); } catch { return {}; }
+}
+function saveFpsPreferences() { localStorage.setItem('br_fps_preferences_v1', JSON.stringify(Object.fromEntries(FPS_SETTING_KEYS.map(k => [k, fxSettings[k]])))); }
 const rawSavedFps = localStorage.getItem('br_fps_v2');
-const defaultFps = mobileAutoBoot ? 30 : 15;
+const defaultFps = mobileAutoBoot ? 30 : 60;
 const savedFps = rawSavedFps === null ? defaultFps : Number(rawSavedFps);
 let fpsCap = FPS_CAPS.includes(savedFps) ? savedFps : defaultFps;
 const rawSavedAspect = localStorage.getItem('br_aspect_v2');
 let aspectMode = rawSavedAspect === '4:3' ? '4:3' : rawSavedAspect === '16:9' ? '16:9' : (mobileAutoBoot ? '16:9' : '4:3');
-let mouseSens = Number(localStorage.getItem('br_sens_v2') || (mobileAutoBoot ? '1.0' : '0.6'));
+let mouseSens = Number(localStorage.getItem('br_sens_v2') || '1.0');
 let musicVol = Number(localStorage.getItem('br_mvol_v2') || '1.0');
 let sfxVol = Number(localStorage.getItem('br_svol_v2') || '1.0');
 audio.setVolumes(musicVol, sfxVol);
@@ -243,6 +386,15 @@ let hVelZ = 0;
 let jumpBuffer = 0;
 let wasAirborneT = 0;
 let bhopChain = 0;
+const movementAssist = new MovementAssist();
+const movementGuard = new MovementGuard();
+const humanCamera = new HumanCamera();
+const handheldCamera = new HandheldCamera();
+let camForeZ=0,previousForwardSpeed=0;
+let movementSpeedCap = SPEED.SURV_WALK;
+let fpsReviewFrozen = false;
+let movementProfileSequence = 0;
+let pendingProfileSignature = null;
 let stepDist = 0;
 let stepPhase = 0;
 let landTrauma = 0;
@@ -315,7 +467,31 @@ const ZONE_LABELS = {
   mb_diner_fridge: 'PHÒNG ĂN NEON OPEN & TỦ LẠNH', mb_van_tunnel: 'HẦM XE TẢI TRẮNG & DOLLAR GENER',
   mb_grey_basement: 'TẦNG HẦM XÁM & CỬA BĂNG XANH', mb_cctv_cove: 'HỐC CAMERA CCTV & CỬA CHUI',
   mb_dining_blue_drapes: 'PHÒNG ĂN RÈM XANH HOÀNG GIA', mb_gold_tile_blood: 'TƯỜNG GẠCH VÀNG & VẾT MÁU KÉO',
-  mb_floating_wall_glitch: 'TƯỜNG TREO LƠ LỬNG & GIƯỜNG CŨI'
+  mb_floating_wall_glitch: 'TƯỜNG TREO LƠ LỬNG & GIƯỜNG CŨI',
+  rear_atrium_threshold: 'SẢNH HẬU A-SYNC 360° (REAR)',
+  herringbone_gallery: 'PHÒNG TRANH SÀN GỖ XƯƠNG CÁ',
+  sunken_terrazzo_basin: 'HỒ CẠN ĐÁ MÀI TERRAZZO',
+  partition_bullpen_maze: 'MÊ CUNG VÁCH NGĂN VĂN PHÒNG',
+  arched_arcade_rotunda: 'ĐẠI SẢNH VÒM TRÒN CỔ ĐIỂN',
+  narrow_service_spine: 'HÀNH LANG KỸ THUẬT HẸP DÀI',
+  checker_diner_concourse: 'QUẦY ĂN SÀN CA-RÔ ĐEN TRẮNG',
+  exposed_stud_renovation: 'KHU THI CÔNG KHUNG XƯƠNG GỖ',
+  glass_block_solarium: 'SẢNH KÍNH MỜ ÁNH SÁNG LẠNH',
+  stepped_amphitheater_well: 'GIẾNG BẬC THANG ĐẤU TRƯỜNG',
+  laundromat_limbo: 'TIỆM GIẶT ỦI VÔ TẬN',
+  double_tier_mezzanine: 'SÀN GÁC LỬNG HAI TẦNG',
+  waiting_room_infinite: 'PHÒNG CHỜ GHẾ XANH & TV',
+  amber_brutalist_vault: 'HẦM BÊ TÔNG ÁNH VÀNG HỔ PHÁCH',
+  wallpaper_tear_void: 'KHE RÁCH GIẤY DÁN TƯỜNG HƯ KHÔNG',
+  acoustic_baffle_hall: 'HÀNH LANG TIÊU ÂM CÁCH LY',
+  freight_loading_bay: 'BẾN BỐC DỠ HÀNG HÓA CỬA CUỐN',
+  hotel_corridor_loop: 'HÀNH LANG KHÁCH SẠN THẢM ĐỎ',
+  boiler_manifold_room: 'PHÒNG LÒ HƠI & ỐNG ÁP SUẤT',
+  museum_plinth_hall: 'SẢNH TRƯNG BÀY BỆ TỦ KÍNH',
+  bowling_alley_deadend: 'ĐƯỜNG BOWLING SÀN GỖ CỤT ĐẦU',
+  server_tape_mainframe: 'PHÒNG MÁY CHỦ BĂNG TỪ A-SYNC',
+  indoor_fountain_plaza: 'QUẢNG TRƯỜNG ĐÀI PHUN NƯỚC CẠN',
+  infinity_arch_perspective: 'ĐẠI LỘ VÒM VÔ CỰC ÁNH SÁNG'
 };
 
 function syncNoclipUI() {
@@ -384,18 +560,19 @@ function setNoclipSpeed(val) {
 }
 
 function resolveWalkablePoint(m, x, z, y = 0, preserveY = false) {
-  const span = m.worldSpan ?? (N * C);
+  const spanX = m.spanX ?? m.worldSpan ?? (N * C);
+  const spanZ = m.spanZ ?? m.worldSpan ?? (N * C);
   const offsets = [[0, 0], [2.4, 0], [-2.4, 0], [0, 2.4], [0, -2.4], [3.6, 0], [-3.6, 0], [0, 3.6], [0, -3.6]];
   for (const [ox, oz] of offsets) {
-    const tx = THREE.MathUtils.clamp(x + ox, 2.0, span - 2.0);
-    const tz = THREE.MathUtils.clamp(z + oz, 2.0, span - 2.0);
+    const tx = THREE.MathUtils.clamp(x + ox, 2.0, spanX - 2.0);
+    const tz = THREE.MathUtils.clamp(z + oz, 2.0, spanZ - 2.0);
     const [cx, cz] = collide(tx, tz, 0.40, m, false, y);
     if (Math.hypot(cx - tx, cz - tz) < 0.08) {
       const tr = getTerrainAt(cx, cz, m, y);
       return { x: cx, y: preserveY ? y : Math.max(y, tr.floorY), z: cz };
     }
   }
-  const [fx, fz] = collide(THREE.MathUtils.clamp(x, 2.0, span - 2.0), THREE.MathUtils.clamp(z, 2.0, span - 2.0), 0.40, m, false, y);
+  const [fx, fz] = collide(THREE.MathUtils.clamp(x, 2.0, spanX - 2.0), THREE.MathUtils.clamp(z, 2.0, spanZ - 2.0), 0.40, m, false, y);
   const tr = getTerrainAt(fx, fz, m, y);
   return { x: fx, y: preserveY ? y : Math.max(y, tr.floorY), z: fz };
 }
@@ -408,7 +585,7 @@ function collectLevelLandmarks(levelId) {
 
   if (m.SPAWN) {
     list.push({
-      id: `${levelId}_spawn`, cat: 'here', badge: 'XUẤT PHÁT', badgeClass: '',
+      id: `${levelId}_spawn`, cat: 'here', subGroup: 'core', badge: 'XUẤT PHÁT', badgeClass: '',
       title: `Điểm Xuất Phát (${meta.code})`,
       subtitle: `${meta.vnName} • (${Math.round(m.SPAWN.x)}, ${Math.round(m.SPAWN.y || 0)}, ${Math.round(m.SPAWN.z)})`,
       levelId, x: m.SPAWN.x, y: m.SPAWN.y || 0, z: m.SPAWN.z, yaw: m.SPAWN.yaw || 0
@@ -417,21 +594,33 @@ function collectLevelLandmarks(levelId) {
 
   if (levelId === 'level0' && m.ELEVATOR) {
     list.push({
-      id: 'level0_elev', cat: 'here', badge: 'THANG MÁY', badgeClass: 'done',
-      title: 'Thang Máy A-Sync (Phòng Chờ Mở Đầu)',
-      subtitle: `Trước thang máy khởi đầu • (${Math.round(m.ELEVATOR.x)}, ${Math.round(m.ELEVATOR.z)})`,
+      id: 'level0_elev', cat: 'here', subGroup: 'core', badge: 'THANG MÁY', badgeClass: 'done',
+      title: 'Thang Máy — Khu Classic',
+      subtitle: `Điểm xuất phát giữa mê cung vàng • (${Math.round(m.ELEVATOR.x)}, ${Math.round(m.ELEVATOR.z)})`,
       levelId: 'level0', x: m.ELEVATOR.x, y: 0, z: m.ELEVATOR.z - 5.2, yaw: 0
+    });
+    const oldCab=m.legacyElevator||m.ELEVATOR;
+    const rearHubPt = resolveWalkablePoint(m, oldCab.x, oldCab.z + 6.5, 0);
+    list.push({
+      id: 'level0_rear_hub', cat: 'here', subGroup: 'core', badge: 'PHÍA SAU 180°', badgeClass: 'accent',
+      title: 'Sảnh Hậu Phía Sau Thang Máy (Rear Atrium 180°)',
+      subtitle: `Hướng thẳng vào thế giới phía sau • (${Math.round(rearHubPt.x)}, ${Math.round(rearHubPt.z)})`,
+      levelId: 'level0', ...rearHubPt, yaw: Math.PI
     });
   }
 
+  if(levelId==='level0'&&m.classic){
+    const names={spawn:'Cửa thang máy Classic',corridor:'Hành lang vàng hẹp',intersection:'Ngã rẽ vách ngăn',dark:'Phòng tắt đèn',lit:'Phòng đèn huỳnh quang trắng',dream:'Dãy cửa lặp',pit:'Miệng vực đen',props:'Cụm đồ gia dụng',exit:'Sảnh chuyển tiếp'};
+    for(const [key,v]of Object.entries(m.classic.views))list.push({id:'classic_'+key,cat:'here',subGroup:'core',badge:'CLASSIC',title:names[key],subtitle:'Khu classic 150 × 150 m',levelId:'level0',x:v.x,z:v.z,y:0,yaw:v.yaw});
+  }
   if (levelId === 'level0' && m.EXITS?.length) {
     m.EXITS.forEach((ex, i) => {
-      const safeZ = ex.dirZ < 0 ? 3.5 : (m.worldSpan ?? (N * C)) - 3.5;
+      const safeZ = ex.dirZ < 0 ? 3.5 : (m.spanZ ?? m.worldSpan ?? (N * C)) - 3.5;
       const pt = resolveWalkablePoint(m, ex.x, safeZ, 0);
       list.push({
-        id: `level0_exit_${i}`, cat: 'here', badge: m.exitsOpen ? 'ĐÃ MỞ' : 'CỔNG THOÁT',
+        id: `level0_exit_${i}`, cat: 'here', subGroup: 'core', badge: m.exitsOpen ? 'ĐÃ MỞ' : 'CỔNG THOÁT',
         badgeClass: m.exitsOpen ? 'done' : 'warn',
-        title: `Cổng Thoát Hiểm ${ex.dirZ < 0 ? 'Bắc (North)' : 'Nam (South)'}`,
+        title: `Cổng Thoát Hiểm ${ex.dirZ < 0 ? 'Bắc (North Front)' : 'Nam (South Rear)'}`,
         subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
         levelId: 'level0', ...pt, yaw: ex.dirZ < 0 ? 0 : Math.PI
       });
@@ -539,19 +728,28 @@ function collectLevelLandmarks(levelId) {
   }
 
   if (levelId === 'level0' && m.ZONES?.length) {
-    const seen = new Set();
+    const seenFront = new Set();
+    const seenRear = new Set();
     const gC = m.cellSize ?? C;
-    for (const z of m.ZONES) {
-      if (seen.has(z.type)) continue;
-      seen.add(z.type);
+    const frontBoundary = m.frontZoneCount ?? m.ZONES.length;
+    for (let zi = 0; zi < m.ZONES.length; zi++) {
+      const z = m.ZONES[zi];
+      const isRear = z.side === 'rear' || zi >= frontBoundary || ((z.r0 + z.r1) * 0.5 >= N);
+      const seenSet = isRear ? seenRear : seenFront;
+      if (seenSet.has(z.type)) continue;
+      seenSet.add(z.type);
       const zx = ((z.c0 + z.c1 + 1) * 0.5) * gC;
       const zz = ((z.r0 + z.r1 + 1) * 0.5) * gC;
       const pt = resolveWalkablePoint(m, zx, zz, 0);
       list.push({
-        id: `lvl0_zone_${z.type}`, cat: 'here', badge: 'KHU VỰC', badgeClass: '',
+        id: `lvl0_${isRear ? 'rear' : 'front'}_${z.type}`,
+        cat: 'here',
+        subGroup: isRear ? 'rear' : 'front',
+        badge: isRear ? 'REAR' : 'FRONT',
+        badgeClass: isRear ? 'accent' : '',
         title: ZONE_LABELS[z.type] || z.type.toUpperCase(),
-        subtitle: `Khu Level 0 • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
-        levelId: 'level0', ...pt, yaw: 0
+        subtitle: `${isRear ? 'Khu Phía Sau (Rear)' : 'Khu Phía Trước (Front)'} • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        levelId: 'level0', ...pt, yaw: isRear ? Math.PI : 0
       });
     }
   }
@@ -622,9 +820,10 @@ function teleportToTarget(target, keepOpen = false) {
   const dstMap = getOrCreateLevelMap(dstLvl);
   if (!dstMap) return false;
 
-  const span = dstMap.worldSpan ?? (N * C);
-  let tx = Number.isFinite(target?.x) ? target.x : (dstMap.SPAWN?.x ?? span * 0.5);
-  let tz = Number.isFinite(target?.z) ? target.z : (dstMap.SPAWN?.z ?? span * 0.5);
+  const spanX = dstMap.spanX ?? dstMap.worldSpan ?? (N * C);
+  const spanZ = dstMap.spanZ ?? dstMap.worldSpan ?? (N * C);
+  let tx = Number.isFinite(target?.x) ? target.x : (dstMap.SPAWN?.x ?? spanX * 0.5);
+  let tz = Number.isFinite(target?.z) ? target.z : (dstMap.SPAWN?.z ?? spanZ * 0.5);
   let ty = Number.isFinite(target?.y) ? target.y : (dstMap.SPAWN?.y ?? 0);
   const tyaw = Number.isFinite(target?.yaw) ? target.yaw : (dstMap.SPAWN?.yaw ?? me.yaw ?? 0);
 
@@ -634,8 +833,8 @@ function teleportToTarget(target, keepOpen = false) {
     ty = safePt.y;
     tz = safePt.z;
   } else {
-    tx = THREE.MathUtils.clamp(tx, -25, span + 25);
-    tz = THREE.MathUtils.clamp(tz, -25, span + 25);
+    tx = THREE.MathUtils.clamp(tx, -25, spanX + 25);
+    tz = THREE.MathUtils.clamp(tz, -25, spanZ + 25);
     ty = THREE.MathUtils.clamp(ty, -12, 180);
   }
 
@@ -675,7 +874,14 @@ function renderTpPanel() {
     const hereSpots = collectLevelLandmarks(activeLocalLevelId).filter(
       it => it.cat !== 'entrances' && matchesQ(`${it.title} ${it.subtitle} ${it.badge}`)
     );
-    if (hereSpots.length) {
+    if (activeLocalLevelId === 'level0') {
+      const rearSpots = hereSpots.filter(it => it.subGroup === 'rear');
+      const frontSpots = hereSpots.filter(it => it.subGroup === 'front');
+      const coreSpots = hereSpots.filter(it => it.subGroup !== 'rear' && it.subGroup !== 'front');
+      if (coreSpots.length) sections.push({ heading: `CỐT LÕI LEVEL 0 & LỐI ĐI 360° (${coreSpots.length})`, items: coreSpots });
+      if (rearSpots.length) sections.push({ heading: `THẾ GIỚI PHÍA SAU MỞ RỘNG — REAR (${rearSpots.length})`, items: rearSpots });
+      if (frontSpots.length) sections.push({ heading: `THẾ GIỚI PHÍA TRƯỚC — FRONT (${frontSpots.length})`, items: frontSpots });
+    } else if (hereSpots.length) {
       sections.push({ heading: `ĐỊA ĐIỂM TRONG ${curMeta.code} (${hereSpots.length})`, items: hereSpots });
     }
   }
@@ -691,7 +897,7 @@ function renderTpPanel() {
 
   if (tpActiveTab === 'all' || tpActiveTab === 'levels') {
     const allLvls = [
-      { id: 'level0', code: 'LEVEL 0', vnName: 'Mê Cung Đèn Huỳnh Quang & Thang Máy', tagline: '300m • Mê cung khởi điểm, 6 Tủ Điện & 20 Lối Vào' },
+      { id: 'level0', code: 'LEVEL 0', vnName: 'Mê Cung 360° Front + Rear & Thang Máy', tagline: '908m • 70+ Biến Thể Vô Tận, Tủ Điện & 20 Lối Vào' },
       ...LEVEL_LIST.map(l => ({ id: l.id, code: l.code, vnName: l.vnName, tagline: `${l.span}m • ${l.entity?.name || ''}` }))
     ];
     const lvlItems = allLvls.filter(l => matchesQ(`${l.code} ${l.vnName} ${l.tagline}`)).map(l => {
@@ -739,6 +945,7 @@ function renderTpPanel() {
 
 function openTpPanel() {
   if (!inMatch || matchEnded) return;
+  weaponSystem.clearInput(); movementAssist.clearInput();
   if (paused) closePauseMenu(false);
   tpOpen = true;
   for (const k in keys) keys[k] = false;
@@ -769,6 +976,42 @@ function closeTpPanel(lock = true) {
       if (lock && !location.hash.includes('test')) requestLock();
     }
   }
+}
+
+let creditsOpen = false;
+let creditsActiveTab = 'overview';
+
+function switchCreditsTab(tabKey = 'overview') {
+  creditsActiveTab = tabKey || 'overview';
+  const tabsEl = $('creditsTabs');
+  const bodyEl = $('creditsBody');
+  if (tabsEl) {
+    tabsEl.querySelectorAll('[data-credits-tab]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.creditsTab === creditsActiveTab);
+    });
+  }
+  if (bodyEl) {
+    bodyEl.querySelectorAll('[data-credits-panel]').forEach(sec => {
+      sec.classList.toggle('hidden', sec.dataset.creditsPanel !== creditsActiveTab);
+    });
+    bodyEl.scrollTop = 0;
+  }
+}
+
+function openCreditsModal(tabKey = 'overview') {
+  creditsOpen = true;
+  switchCreditsTab(tabKey);
+  $('creditsModal')?.classList.remove('hidden');
+  document.body.style.cursor = '';
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock?.(); } catch {}
+  }
+}
+
+function closeCreditsModal() {
+  creditsOpen = false;
+  $('creditsModal')?.classList.add('hidden');
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
 }
 
 function getOrCreateLevelMap(levelId) {
@@ -807,7 +1050,10 @@ function switchLocalWorld(targetLevelId, via = 'portal') {
   if (!nextMap) return;
 
   activeLocalLevelId = nextId;
+  if(isPeacefulLevel(nextId)){jumpscareT=0;revealGlobalT=0;jumpscareFx?.classList.remove('active');jumpscareFx?.classList.add('hidden');}
   map = nextMap;
+  wasEntityCloseLOS = false;
+  audio.setLevelMusicContext(nextId);
   if (nextId === 'level37') resetPoolroomsEventsState();
   busyAct = null;
   scState = null;
@@ -841,18 +1087,17 @@ function switchLocalWorld(targetLevelId, via = 'portal') {
   const amK = me?.role === 'k';
   if (nextId === 'level0') {
     scene.fog.density = amK ? FOG_KILLER : FOG_SURV;
-    camera.far = amK ? FAR_KILLER : FAR_SURV;
     scene.background.setHex(0x161207);
     scene.fog.color.setHex(0x161207);
   } else {
     scene.fog.density = amK ? FOG_KILLER : (meta.fogDensity ?? 0.008);
-    camera.far = amK ? FAR_KILLER : (meta.farDist ?? 220);
     scene.background.setHex(meta.fogColor ?? 0x161207);
     scene.fog.color.setHex(meta.fogColor ?? 0x161207);
     hemiLight.color.setHex(meta.hemiSky ?? 0xd8e0e8);
     hemiLight.groundColor.setHex(meta.hemiGround ?? 0x26200d);
   }
-  camera.updateProjectionMatrix();
+  applyWorldVisibilitySettings();
+  gfx.resetExposure?.(0.82);
   gfx.resetMotionHistory();
   showNoclipOverlay(nextId, via);
   audio.playAlertBeep?.();
@@ -915,32 +1160,52 @@ function applyViewportLayout() {
 }
 
 function formatFxVal(ctrl, v) {
+  if (ctrl.unit === 'raw') return Number(v).toFixed(Number(v) % 1 ? 2 : 0);
   if (ctrl.type === 'toggle') return v ? 'Bật' : 'Tắt';
   if (ctrl.type === 'select') return ctrl.options?.find(o => o.value === v)?.label || String(v || '');
   if (ctrl.unit === 'deg') return `${Math.round(Number(v) || 0)}°`;
+  if (ctrl.unit === 'm') return `${Math.round(Number(v) || 0)} m`;
+  if (ctrl.unit === 'sec') return `${Number(v || 0).toFixed(2).replace(/\.00$/, '')}s`;
+  if (ctrl.unit === 'ev') {
+    const n = Number(v) || 0;
+    return `${n > 0 ? '+' : ''}${n.toFixed(2)} EV`;
+  }
+  if (ctrl.unit === 'signedPct') {
+    const p = Math.round((Number(v) || 0) * 100);
+    return `${p > 0 ? '+' : ''}${p}%`;
+  }
   return `${Math.round(Number(v) * 100)}%`;
+}
+
+function renderFxControlRow(c) {
+  let ctrlHtml;
+  if (c.type === 'toggle') {
+    ctrlHtml = `<label class="fx-toggle-wrap"><input type="checkbox" data-fx-key="${c.key}" /> <span data-fx-val="${c.key}">Bật</span></label>`;
+  } else if (c.type === 'select') {
+    const opts = (c.options || []).map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+    ctrlHtml = `<select data-fx-key="${c.key}">${opts}</select>`;
+  } else {
+    ctrlHtml = `<input type="range" data-fx-key="${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="1" />`;
+  }
+  const topRight = (c.type === 'toggle' || c.type === 'select') ? '' : `<span class="fx-val" data-fx-val="${c.key}">100%</span>`;
+  return `<div class="fx-row">
+    <div class="fx-row-top">
+      <div><div class="fx-label">${esc(c.label)}</div><div class="fx-hint">${esc(c.hint)}</div></div>
+      ${topRight}
+    </div>
+    ${ctrlHtml}
+  </div>`;
 }
 
 function mountFxTable(container) {
   if (!container) return;
-  container.innerHTML = FX_CONTROLS.map((c) => {
-    let ctrlHtml;
-    if (c.type === 'toggle') {
-      ctrlHtml = `<label class="fx-toggle-wrap"><input type="checkbox" data-fx-key="${c.key}" /> <span data-fx-val="${c.key}">Bật</span></label>`;
-    } else if (c.type === 'select') {
-      const opts = (c.options || []).map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
-      ctrlHtml = `<select data-fx-key="${c.key}">${opts}</select>`;
-    } else {
-      ctrlHtml = `<input type="range" data-fx-key="${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="1" />`;
-    }
-    const topRight = (c.type === 'toggle' || c.type === 'select') ? '' : `<span class="fx-val" data-fx-val="${c.key}">100%</span>`;
-    return `<div class="fx-row">
-      <div class="fx-row-top">
-        <div><div class="fx-label">${esc(c.label)}</div><div class="fx-hint">${esc(c.hint)}</div></div>
-        ${topRight}
-      </div>
-      ${ctrlHtml}
-    </div>`;
+  const groups = FX_GROUPS.length ? FX_GROUPS : [{ id: null, title: 'Graphics Settings', sub: '' }];
+  container.innerHTML = groups.map((g) => {
+    const items = FX_CONTROLS.filter(c => !g.id || c.group === g.id);
+    if (!items.length) return '';
+    const head = g.id ? `<div class="fx-group-head"><span>${esc(g.title)}</span><span class="fx-group-sub">${esc(g.sub)}</span></div>` : '';
+    const rows = items.map(renderFxControlRow).join('');
+    return ['tactical', 'weapons'].includes(g.id) ? `<details class="fps-settings-details"><summary>${esc(g.title)}</summary><div class="fx-group-sub">${esc(g.sub)}</div>${rows}</details>` : head + rows;
   }).join('');
 
   const onUpdate = (e) => {
@@ -948,11 +1213,43 @@ function mountFxTable(container) {
     if (!key) return;
     const ctrl = FX_CONTROLS.find(x => x.key === key);
     if (!ctrl) return;
-    fxSettings[key] = ctrl.type === 'toggle'
+    const nextVal = ctrl.type === 'toggle'
       ? !!e.target.checked
       : ctrl.type === 'select'
         ? String(e.target.value)
         : Number(e.target.value);
+    fxSettings[key] = nextVal;
+    if (FPS_SETTING_KEYS.includes(key)) saveFpsPreferences();
+
+    // Bidirectional preset synchronization without overwriting unrelated settings
+    if (key === 'eyeAdaptPreset' && nextVal !== 'custom' && EYE_ADAPT_PRESETS[nextVal]) {
+      const ep = EYE_ADAPT_PRESETS[nextVal];
+      fxSettings.eyeAdaptEnabled = ep.enabled;
+      fxSettings.eyeAdaptStrength = ep.strength;
+      fxSettings.eyeAdaptBrightSpeed = ep.brightSpeed;
+      fxSettings.eyeAdaptDarkSpeed = ep.darkSpeed;
+      fxSettings.eyeAdaptComp = ep.comp;
+      fxSettings.eyeAdaptMinExp = ep.minExp;
+      fxSettings.eyeAdaptMaxExp = ep.maxExp;
+    } else if (key === 'eyeAdaptEnabled') {
+      if (!nextVal) fxSettings.eyeAdaptPreset = 'off';
+      else if (fxSettings.eyeAdaptPreset === 'off') {
+        const ep = EYE_ADAPT_PRESETS.cinematic;
+        fxSettings.eyeAdaptPreset = 'cinematic';
+        fxSettings.eyeAdaptStrength = fxSettings.eyeAdaptStrength > 0.01 ? fxSettings.eyeAdaptStrength : ep.strength;
+      }
+    } else if (['eyeAdaptStrength', 'eyeAdaptBrightSpeed', 'eyeAdaptDarkSpeed', 'eyeAdaptComp', 'eyeAdaptMinExp', 'eyeAdaptMaxExp'].includes(key)) {
+      if (Number(fxSettings.eyeAdaptMaxExp) < Number(fxSettings.eyeAdaptMinExp) + 0.15) {
+        fxSettings.eyeAdaptMaxExp = Math.min(4.0, Number(fxSettings.eyeAdaptMinExp) + 0.15);
+      }
+      fxSettings.eyeAdaptPreset = fxSettings.eyeAdaptEnabled ? 'custom' : 'off';
+    } else if (key === 'renderDistPreset' && RENDER_DIST_PRESETS[nextVal]) {
+      fxSettings.renderDistance = RENDER_DIST_PRESETS[nextVal].meters;
+    } else if (key === 'renderDistance') {
+      const mKey = String(Math.round(Number(nextVal)));
+      fxSettings.renderDistPreset = RENDER_DIST_PRESETS[mKey] ? mKey : 'custom';
+    }
+
     applyFxSettings();
   };
   container.addEventListener('input', onUpdate);
@@ -984,6 +1281,7 @@ function syncSettingsUI() {
     document.querySelectorAll(`[data-fx-key="${ctrl.key}"]`).forEach((el) => {
       if (ctrl.type === 'toggle') el.checked = !!val;
       else el.value = String(val);
+      if (ctrl.key.startsWith('tactical_')) el.disabled = fxSettings.movementProfile !== 'tactical';
     });
     document.querySelectorAll(`[data-fx-val="${ctrl.key}"]`).forEach((el) => {
       el.textContent = formatFxVal(ctrl, val);
@@ -998,9 +1296,44 @@ function setAspectMode(mode) {
   syncSettingsUI();
 }
 
+function applyWorldVisibilitySettings() {
+  const rd = THREE.MathUtils.clamp(Number(fxSettings.renderDistance ?? 200), 50, 800);
+  const amK = players?.[myId]?.role === 'k';
+  const nextFar = (amK && activeLocalLevelId === 'level0') ? Math.min(rd, FAR_KILLER) : rd;
+  if (Math.abs(camera.far - nextFar) > 0.5) {
+    camera.far = nextFar;
+    camera.updateProjectionMatrix();
+  }
+  const skyFit = Math.max(42, nextFar * 0.85) / 540;
+  if (world?.skyDome?.mesh) {
+    world.skyDome.mesh.scale.setScalar(skyFit);
+  }
+  const v7EyeOn = !!(fxSettings.postFX && fxSettings.eyeAdaptEnabled && fxSettings.eyeAdaptPreset !== 'off');
+  world?.daylight?.exposure?.setExternalManaged?.(v7EyeOn);
+  if (world?.setQualitySettings) {
+    world.setQualitySettings(
+      {
+        renderDistance: rd,
+        waterQuality: fxSettings.waterQuality,
+        cloudQuality: fxSettings.cloudQuality
+      },
+      camera.position,
+      matchTime
+    );
+  } else if (world?.setRenderDistance) {
+    world.setRenderDistance(rd, matchTime, camera.position);
+  }
+}
+
 function applyFxSettings() {
+  Object.assign(fxSettings, loadFpsPreferences());
+  // Review diagnostics: record every fx application so intermittent preset
+  // restores (breaking clean captures) can be attributed to a caller.
+  const _log = (window.__FX_APPLY_LOG ||= []);
+  if (_log.length < 400) _log.push({ t: performance.now() | 0, mode: fxSettings.footageFilterMode, scan: fxSettings.scanlines, vig: fxSettings.vignette, stack: (new Error().stack || '').split('\n')[2] || '' });
   localStorage.setItem('br_fx_v2', JSON.stringify(fxSettings));
   gfx.applyFx(fxSettings, hemiLight, ambLight);
+  applyWorldVisibilitySettings();
   hud?.classList.toggle('clean-cam', !!fxSettings.cleanCamHud);
   hud?.classList.toggle('no-scanlines', fxSettings.crtScanlines === false || Number(fxSettings.scanlines) <= 0.01);
   hud?.classList.toggle('dreamcam-clean', fxSettings.footageFilterMode === 'soft_dreamcam' && Number(fxSettings.footageFilterStrength ?? 1.0) >= 0.4);
@@ -1019,6 +1352,8 @@ function applyFxSettings() {
     world.skirtInst.visible = !(fxSettings.postFX && Number(fxSettings.rtShadow || 0) > 0.05);
   }
   syncSettingsUI();
+  weaponSystem.configure?.(presentationSettings(fxSettings));
+  requestMovementProfile();
 }
 
 function setGraphicsPreset(key, resetCustomFx = true) {
@@ -1096,14 +1431,25 @@ const net = new NetworkManager({
     const p = players[peerId];
     if (!p || p.state === 'dead' || p.state === 'escaped') return;
     if (p.warpGuardUntil && performance.now() < p.warpGuardUntil) return;
-    p.x = inp.x; p.y = inp.y; p.z = inp.z;
-    p.yaw = inp.yaw; p.pitch = inp.pitch;
-    p.spd = inp.spd; p.crouch = inp.crouch; p.fl = inp.fl;
+    const pm = getOrCreateLevelMap(p.levelId || 'level0');
+    p.moveSprint = !!inp.sprint && (p.movement?.key === 'tactical' || (!p.stamExhausted && (p.moveStam ?? SPEED.STAM_DRAIN) > 0));
+    const cap = hostMovementCap(p, pm);
+    const accepted = movementGuard.accept(p, inp, {
+      now: performance.now() / 1000, cap,
+      floorAt: (x, z, y) => getTerrainAt(x, z, pm, y).floorY,
+      abyssAt: (x,z,y)=>!!classicPitAt(pm.classic,x,z,y),
+      resolve: (x, z, crouch, y) => collide(x, z, p.role === 'k' ? .42 : .36, pm, crouch, y),
+      canStand: (x, z, y) => canStandAt(x, z, pm, y)
+    });
+    if (accepted && (Math.hypot(p.x - inp.x, p.z - inp.z) > .25 || Math.abs(p.y-inp.y)>.9)) {
+      net.conns.get(peerId)?.send({ t: 'ev', ev: 'moveCorrection', id: peerId, x: p.x, y: p.y, z: p.z });
+    }
   },
   onClientAction(peerId, msg) {
     processPlayerActionHost(peerId, msg);
   },
   onPeerDisconnect(peerId) {
+    weaponSystem.removeRemote(peerId);
     if (inMatch && players[peerId]) {
       pushFeed(`${players[peerId].name} đã ngắt kết nối`, '#ff9a8a');
       delete players[peerId];
@@ -1115,6 +1461,7 @@ const net = new NetworkManager({
     }
   },
   onHostDisconnect() {
+    weaponSystem.clearInput(); weaponSystem.pendingShots.clear();
     if (inMatch && !matchEnded) {
       pushFeed('Mất kết nối tới Host!', '#ff5648');
     }
@@ -1122,7 +1469,67 @@ const net = new NetworkManager({
 });
 
 // ---------- Match Setup & Teardown ----------
+function hostMovementCap(p, pm) {
+  const profile = normalizeProfile(p.movement);
+  if (p.role === 's' && p.state === 'ok' && profile.key === 'tactical') return tacticalSpeed(profile, { shift: p.moveSprint, crouch: p.crouch, water: getTerrainAt(p.x, p.z, pm, p.y).inWater });
+  let chase = 0;
+  if (p.role === 's' && !isPeacefulLevel(p.levelId)) {
+    let nearest = 999;
+    for (const other of Object.values(players)) if (other.role === 'k' && other.levelId === p.levelId) nearest = Math.min(nearest, Math.hypot(p.x - other.x, p.z - other.z));
+    chase = Math.max(0, Math.min(1, (18 - nearest) / 14));
+  }
+  let cap = p.role === 'k' ? (p.carrying ? SPEED.KILLER_CARRY : p.moveSprint ? SPEED.KILLER_SPRINT : SPEED.KILLER_BASE)
+    : p.state === 'down' ? SPEED.SURV_DOWN
+    : p.sliding || p.moveSprint ? SPEED.SURV_SPRINT * (1 + chase * .14)
+    : p.crouch ? SPEED.SURV_CROUCH : (p.moveThirst ?? WATER_LIFE) <= 0 ? SPEED.SURV_THIRSTY : SPEED.SURV_WALK * (1 + chase * .14);
+  if ((p.jellyUntil || 0) > performance.now() / 1000) cap *= 1.22;
+  if (p.role === 'k' && (p.weaponStunUntil || 0) > performance.now() / 1000) cap = Math.min(cap, SPEED.KILLER_SLOW);
+  if (p.role !== 'k' && getTerrainAt(p.x, p.z, pm, p.y).inWater) cap *= .8;
+  return cap;
+}
+function updateSceneOptics(elapsed,dt) {
+  const classic=inClassicPresentation(map?.classic,camera.position.x,camera.position.z);
+  gfx.setLocalExposureLimit(classic?1.6:Infinity);
+  if(classic)gfx.setCoolGrade(1);else if(gfx._wasClassic)gfx.setCoolGrade(activeLocalLevelId==='level37'?.92:0);gfx._wasClassic=classic;
+  // First-person depth compression belongs to the player view, never the water's scene captures.
+  const view=weaponSystem.view.root,visible=view.visible;view.visible=false;
+  try{world?.updateOptics?.(renderer,camera,elapsed,dt,Number(fxSettings.brightness)||1);}finally{view.visible=visible;}
+}
+function requestMovementProfile() {
+  const p = players[myId]; if (!inMatch || !p || p.role !== 's' || p.state !== 'ok') return;
+  const profile = profileFromSettings(fxSettings), signature = profileSignature(profile);
+  if (signature === profileSignature(p.movement) || signature === pendingProfileSignature) return;
+  pendingProfileSignature = signature; movementProfileSequence = Math.max(movementProfileSequence, p.movement?.sequence || 0) + 1;
+  sendAction({ act: 'movementProfile', profile, seq: movementProfileSequence });
+}
+
+function traceWeaponWorld(p, origin, dir, range) {
+  const pm = getOrCreateLevelMap(p.levelId || 'level0'), seen = new Set();
+  let best = range, normal = { x: -dir.x, y: -dir.y, z: -dir.z };
+  for (let t = 0; t < best; t += .3) {
+    const x = origin.x + dir.x * t, y = origin.y + dir.y * t, z = origin.z + dir.z * t;
+    for (const b of pm.wallGrid.queryNear(x, z, .25)) {
+      if (seen.has(b) || (b.elevatorDoor && (pm.elevatorOpenProgress || 0) >= .72)) continue;
+      seen.add(b); const d = rayBox(origin, dir, b, best); if (d !== null && d > .02 && d < best) best = d;
+    }
+    const terrain = getTerrainAt(x, z, pm, y), cell = getPoolroomsCellAt(x, z, pm);
+    const solid = y < terrain.floorY || (cell && (cell.tubeNetwork ? tubeDistance(cell.tubeNetwork, x, y - cell.floorY, z) > 0 : y > cell.floorY + cell.ceiling));
+    if (solid) { best = Math.min(best, t); break; }
+  }
+  return best < range ? { distance: best, x: origin.x + dir.x * best, y: origin.y + dir.y * best, z: origin.z + dir.z * best, normal } : null;
+}
+
+const combatAuthority = new CombatAuthority({ emit: broadcastEvent, trace: traceWeaponWorld, targets: () => Object.values(players), peaceful: isPeacefulLevel });
+const weaponSystem = new WeaponSystem({ camera, renderer, scene, audio, send: msg => {
+  const p = players[myId];
+  if (!net.isHost && p && msg.act === 'weaponFire') net.sendToHost({ t: 'input', x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, crouch: p.crouch, fl: p.fl, sliding: !!p.sliding, sprint: !!keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint, bhop: movementAssist.hopBonus > 0 });
+  sendAction(msg);
+}, hud,
+  context: () => ({ active: inMatch && !paused && !tpOpen && !matchEnded && !busyAct && !scState && (net.isHost || net.hostConn?.open), player: players[myId], floorY: map && players[myId] ? getTerrainAt(players[myId].x, players[myId].z, map, players[myId].y).floorY : 0 })
+});
+
 function clearMatchObjects() {
+  weaponSystem.reset(); movementAssist.reset();
   resetMobileInputs();
   setNoclipMode(false, true);
   tpOpen = false;
@@ -1300,6 +1707,8 @@ async function beginMatch(matchSeed, roster, localId) {
 
   levelMaps.clear();
   activeLocalLevelId = 'level0';
+  wasEntityCloseLOS = false;
+  audio.setLevelMusicContext('level0');
   activeJoinTarget = null;
   levelDiscoveredSet.clear();
   levelsClearedSet.clear();
@@ -1326,11 +1735,13 @@ async function beginMatch(matchSeed, roster, localId) {
     const isK = r.role === 'k';
     let ox, oz;
     if (isK) {
-      const archIdx = Math.max(0, ENTITY_ARCHETYPES.findIndex(a => a.id === r.id || a.kind === r.aiKind));
+      let archIdx = ENTITY_ARCHETYPES.findIndex(a => a.id === r.id);
+      if (archIdx < 0) archIdx = ENTITY_ARCHETYPES.findIndex(a => a.kind === r.aiKind);
+      archIdx = Math.max(0, archIdx);
       const route = map.ENTITY_ROUTES?.[archIdx % (map.ENTITY_ROUTES?.length || 1)] || map.ENTITY_ROUTES?.[routeMapIdx];
       const safeWps = (route?.wps || []).filter(w => Math.hypot(w.x - elevPos.x, w.z - elevPos.z) >= 85);
       const wpIdx = r.spawnJitter && safeWps.length ? Math.floor(r.spawnJitter * safeWps.length) % safeWps.length : 0;
-      const rSpawn = safeWps[wpIdx] || route?.wps?.[0] || map.K_SPAWN;
+      const rSpawn = safeWps[wpIdx] || safeWps[0] || map.K_SPAWN;
       ox = rSpawn.x;
       oz = rSpawn.z;
       routeMapIdx++;
@@ -1362,7 +1773,8 @@ async function beginMatch(matchSeed, roster, localId) {
       carrying: null,
       swingT: 0,
       reveal: false,
-      inv: { water: 2, scan: 1, jelly: 0, ration: 0, flare: 1 } // Starter gear: 2 Almond Water + 1 Scanner + 1 UV Flare
+      weapon: makeLoadout(), movement: { ...normalizeProfile(null), sequence: 0, revision: 0 }, sliding: false, moveStam: SPEED.STAM_DRAIN, moveThirst: WATER_LIFE,
+      inv: { water: 2, scan: 1, jelly: 0, ration: 0, flare: 1 } // Starter gear plus dedicated weapon slots 6/7/8.
     };
 
     if (r.id !== myId) {
@@ -1380,8 +1792,8 @@ async function beginMatch(matchSeed, roster, localId) {
   if (net.isHost) {
     const aiEntries = roster.filter(r => r.isAI && r.role === 'k');
     aiEntries.forEach((entry, idx) => {
-      const arch = ENTITY_ARCHETYPES.find(a => a.id === entry.id || a.kind === entry.aiKind) || ENTITY_ARCHETYPES[idx % ENTITY_ARCHETYPES.length];
-      const route = map.ENTITY_ROUTES?.find(rt => rt.id === arch.id || rt.kind === arch.kind) || map.ENTITY_ROUTES?.[idx];
+      const arch = ENTITY_ARCHETYPES.find(a => a.id === entry.id) || ENTITY_ARCHETYPES.find(a => a.kind === entry.aiKind) || ENTITY_ARCHETYPES[idx % ENTITY_ARCHETYPES.length];
+      const route = map.ENTITY_ROUTES?.find(rt => rt.id === arch.id) || map.ENTITY_ROUTES?.find(rt => rt.kind === arch.kind) || map.ENTITY_ROUTES?.[idx];
       const ctrl = new EntityAIController(entry.id, arch);
       const pEnt = players[entry.id];
       ctrl.reset(pEnt ? pEnt.x : map.K_SPAWN.x, pEnt ? pEnt.z : map.K_SPAWN.z, route?.wps || []);
@@ -1433,9 +1845,9 @@ async function beginMatch(matchSeed, roster, localId) {
 
   // Entity sees HALF as far as Survivors (FOG_KILLER / FAR_KILLER vs FOG_SURV / FAR_SURV)
   scene.fog.density = amK ? FOG_KILLER : FOG_SURV;
-  camera.far = amK ? FAR_KILLER : FAR_SURV;
   camera.fov = amK ? 86 : 80;
   camera.updateProjectionMatrix();
+  applyWorldVisibilitySettings();
   turnYawRate = 0;
   turnPitchRate = 0;
   gfx.resetMotionHistory();
@@ -1448,6 +1860,7 @@ async function beginMatch(matchSeed, roster, localId) {
   // Visible Pre-Match Effect & Shader Warm-Up Screen: tests lights, flares, traps, items & filters to eliminate first-use hitches
   try {
     await warmupMatchEffects(amK, me);
+    weaponSystem.warmup(renderer,scene);
   } finally {
     warmingMatch = false;
     setPreloadOverlay(false);
@@ -1455,6 +1868,7 @@ async function beginMatch(matchSeed, roster, localId) {
 
   matchTime = 0;
   inMatch = true;
+  pendingProfileSignature = null; requestMovementProfile();
   lobbyScr.classList.add('hidden');
   endScr.classList.add('hidden');
   pauseScr.classList.add('hidden');
@@ -1502,6 +1916,7 @@ function requestLock() {
 
 function openPauseMenu() {
   if (!inMatch || matchEnded) return;
+  weaponSystem.clearInput(); movementAssist.clearInput();
   if (tpOpen) closeTpPanel(false);
   paused = true;
   lastPauseToggleAt = performance.now();
@@ -1535,8 +1950,14 @@ function processPlayerActionHost(actorId, msg) {
   if (!net.isHost || !inMatch || matchEnded) return;
   const p = players[actorId];
   if (!p) return;
+  if (msg.act === 'movementProfile') {
+    if (acceptProfileChange(p, msg)) broadcastEvent({ ev: 'movementProfile', id: actorId, movement: { ...p.movement } });
+    return;
+  }
+  if (['weaponEquip', 'weaponFire', 'weaponReload'].includes(msg.act)) { combatAuthority.action(p, msg); return; }
 
   const pCurLevel = p.levelId || 'level0';
+  if(p.role==='k'&&isPeacefulLevel(pCurLevel)){removePeacefulLevelHostiles();return;}
   const pMap = getOrCreateLevelMap(pCurLevel);
 
   if (msg.act === 'openElevator') {
@@ -1554,6 +1975,7 @@ function processPlayerActionHost(actorId, msg) {
     const viaTp = msg.via === 'tp_panel';
     if (!viaTp && (p.role !== 's' || p.state !== 'ok')) return;
     const targetLevel = msg.levelId || 'level0';
+    if (isPeacefulLevel(targetLevel) && p.role === 'k') return;
     if (targetLevel === pCurLevel && !viaTp) return;
     const dstMap = getOrCreateLevelMap(targetLevel);
     if (!dstMap) return;
@@ -1577,52 +1999,72 @@ function processPlayerActionHost(actorId, msg) {
       p.y = 0;
       p.yaw = 0;
     } else {
-      p.x = dstMap.SPAWN.x;
-      p.z = dstMap.SPAWN.z;
-      p.y = dstMap.SPAWN.y || 0;
+      const occupied=Object.values(players).filter(q=>q.id!==p.id&&q.role==='s'&&q.levelId===targetLevel).length;
+      const spawn=isPeacefulLevel(targetLevel)&&dstMap.SPAWN_POINTS?.length?dstMap.SPAWN_POINTS[occupied%dstMap.SPAWN_POINTS.length]:dstMap.SPAWN;
+      p.x = spawn.x;
+      p.z = spawn.z;
+      p.y = spawn.y || 0;
       p.yaw = dstMap.SPAWN.yaw || 0;
     }
     p.levelId = targetLevel;
     p.warpGuardUntil = performance.now() + 650;
 
     let subEntInfo = null;
+    const subEnts = [];
     if (targetLevel !== 'level0') {
       levelDiscoveredSet.add(targetLevel);
-      const subId = `AI_SUB_${targetLevel}`;
-      if (!players[subId] && dstMap.levelCfg?.entity) {
+      removePeacefulLevelHostiles();
+      if (dstMap.levelCfg?.entity && !isPeacefulLevel(targetLevel)) {
         const ec = dstMap.levelCfg.entity;
-        const archObj = {
-          id: subId,
-          kind: ec.archKey || 'bacteria',
-          name: ec.name || 'Entity',
-          behavior: ec.behavior || 'patrol',
-          patrolSpd: ec.patrolSpd || 4.4,
-          chaseSpd: ec.chaseSpd || 5.7,
-          sightRange: ec.sightRange || 20,
-          hearRange: ec.hearRange || 16,
-          loseTime: ec.behavior === 'water_only' ? 1.8 : 4.8
-        };
-        const ex = dstMap.K_SPAWN?.x ?? (dstMap.worldSpan * 0.5);
-        const ez = dstMap.K_SPAWN?.z ?? (dstMap.worldSpan * 0.5);
-        players[subId] = {
-          id: subId,
-          name: archObj.name,
-          role: 'k',
-          aiKind: archObj.kind,
-          levelId: targetLevel,
-          colorIdx: 0,
-          isAI: true,
-          x: ex, y: 0, z: ez, vy: 0,
-          yaw: 0, pitch: 0, spd: 0,
-          crouch: false, fl: false,
-          hp: 99, state: 'ok',
-          carrying: null, swingT: 0, reveal: false,
-          inv: {}
-        };
-        const ctrl = new EntityAIController(subId, archObj);
-        ctrl.reset(ex, ez, dstMap.ENTITY_ROUTES?.[0] || []);
-        aiControllers.push(ctrl);
-        subEntInfo = { id: subId, name: archObj.name, aiKind: archObj.kind, levelId: targetLevel, x: ex, z: ez };
+        const routes = (dstMap.ENTITY_ROUTES && dstMap.ENTITY_ROUTES.length)
+          ? dstMap.ENTITY_ROUTES
+          : [[dstMap.K_SPAWN || { x: dstMap.worldSpan * 0.5, z: dstMap.worldSpan * 0.5 }]];
+        const spawnCount = Math.min(3, Math.max(2, routes.length));
+        const altKinds = ['howler', 'skin_stealer', 'smiler', 'duller'];
+        for (let rIdx = 0; rIdx < spawnCount; rIdx++) {
+          const subId = rIdx === 0 ? `AI_SUB_${targetLevel}` : `AI_SUB_${targetLevel}_${rIdx}`;
+          if (players[subId]) continue;
+          const route = routes[rIdx % routes.length] || routes[0];
+          const wp0 = route?.[0] || dstMap.K_SPAWN || { x: dstMap.worldSpan * 0.5, z: dstMap.worldSpan * 0.5 };
+          const entKind = (rIdx === 0 || ec.behavior === 'water_only')
+            ? (ec.archKey || 'bacteria')
+            : altKinds[(rIdx + Math.floor(targetLevel.length)) % altKinds.length];
+          const archObj = {
+            id: subId,
+            kind: entKind,
+            name: rIdx === 0 ? (ec.name || 'Entity') : `${ec.name || 'Entity'} #${rIdx + 1}`,
+            behavior: ec.behavior || 'patrol',
+            patrolSpd: ec.patrolSpd || 4.4,
+            chaseSpd: ec.chaseSpd || 7.4,
+            maxChaseSpd: ec.maxChaseSpd || SPEED.KILLER_SPRINT || 8.88,
+            sightRange: ec.sightRange || 30,
+            hearRange: ec.hearRange || 24,
+            loseTime: ec.behavior === 'water_only' ? 2.4 : 6.4
+          };
+          const ex = wp0.x ?? dstMap.worldSpan * 0.5;
+          const ez = wp0.z ?? dstMap.worldSpan * 0.5;
+          players[subId] = {
+            id: subId,
+            name: archObj.name,
+            role: 'k',
+            aiKind: archObj.kind,
+            levelId: targetLevel,
+            colorIdx: 0,
+            isAI: true,
+            x: ex, y: 0, z: ez, vy: 0,
+            yaw: 0, pitch: 0, spd: 0,
+            crouch: false, fl: false,
+            hp: 99, state: 'ok',
+            carrying: null, swingT: 0, reveal: false,
+            inv: {}
+          };
+          const ctrl = new EntityAIController(subId, archObj);
+          ctrl.reset(ex, ez, route || []);
+          aiControllers.push(ctrl);
+          const info = { id: subId, name: archObj.name, aiKind: archObj.kind, levelId: targetLevel, x: ex, z: ez };
+          subEnts.push(info);
+          if (!subEntInfo) subEntInfo = info;
+        }
       }
     }
 
@@ -1633,13 +2075,15 @@ function processPlayerActionHost(actorId, msg) {
       levelId: targetLevel,
       via: msg.via || 'portal',
       x: p.x, y: p.y, z: p.z, yaw: p.yaw,
-      subEnt: subEntInfo
+      subEnt: subEntInfo,
+      subEnts
     });
     return;
   }
 
   if (msg.act === 'teleportPos') {
     const targetLevel = msg.levelId || pCurLevel || 'level0';
+    if (isPeacefulLevel(targetLevel) && p.role==='k') return;
     if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) return;
     p.levelId = targetLevel;
     p.x = msg.x;
@@ -1705,14 +2149,17 @@ function processPlayerActionHost(actorId, msg) {
     if ((p.inv[k] || 0) <= 0) return;
     p.inv[k]--;
     if (k === 'water') {
+      p.moveThirst = Math.min(WATER_LIFE, (p.moveThirst ?? WATER_LIFE) + WATER_LIFE * .72);
       if (p.hp < 2) p.hp = 2;
       p.state = 'ok';
       broadcastEvent({ ev: 'sfx', kind: 'consume', item: 'water', x: p.x, z: p.z, who: actorId });
     } else if (k === 'scan') {
       broadcastEvent({ ev: 'scanStart', by: actorId, x: p.x, z: p.z });
     } else if (k === 'jelly') {
+      p.jellyUntil = performance.now() / 1000 + 6;
       broadcastEvent({ ev: 'sfx', kind: 'consume', item: 'jelly', x: p.x, z: p.z, who: actorId });
     } else if (k === 'ration') {
+      p.moveThirst = WATER_LIFE; p.jellyUntil = Math.max(p.jellyUntil || 0, performance.now() / 1000 + 3);
       p.hp = 2;
       p.state = 'ok';
       broadcastEvent({ ev: 'sfx', kind: 'consume', item: 'ration', x: p.x, z: p.z, who: actorId });
@@ -1720,6 +2167,7 @@ function processPlayerActionHost(actorId, msg) {
       const fx = p.x - Math.sin(p.yaw) * 1.4;
       const fz = p.z - Math.cos(p.yaw) * 1.4;
       broadcastEvent({ ev: 'flare', x: fx, z: fz });
+      alertLocalMonstersNoise(pCurLevel, fx, fz, 34, 7.0);
     }
   } else if (msg.act === 'taskProg') {
     const t = pMap.TASKS[msg.idx];
@@ -1729,6 +2177,7 @@ function processPlayerActionHost(actorId, msg) {
       t.done = true;
       t.p = 1;
       const doneCount = pMap.TASKS.filter(x => x.done).length;
+      alertLocalMonstersNoise(pCurLevel, t.x, t.z, 38, 8.0);
       if (pCurLevel === 'level0') {
         if (doneCount >= NEED) pMap.exitsOpen = true;
         broadcastEvent({ ev: 'taskDone', levelId: pCurLevel, idx: t.id, doneCount, exitsOpen: pMap.exitsOpen });
@@ -1763,6 +2212,7 @@ function processPlayerActionHost(actorId, msg) {
     if (t && !t.done) {
       t.p = Math.max(0, t.p - 0.04);
       broadcastEvent({ ev: 'sfx', kind: 'spark', x: t.x, z: t.z });
+      alertLocalMonstersNoise(pCurLevel, t.x, t.z, 36, 7.5);
     }
   } else if (msg.act === 'selfEscape') {
     if (p.role !== 's' || (p.selfEscapeLeft ?? 0) <= 0) return;
@@ -1912,13 +2362,23 @@ function processPlayerActionHost(actorId, msg) {
 }
 
 function applyKillerHit(killer, victim) {
+  if (isPeacefulLevel(victim?.levelId) || isPeacefulLevel(killer?.levelId)) return;
   if ((victim.escapeGuardT || 0) > 0) return;
   victim.hp--;
   if (victim.hp <= 0) {
     victim.state = 'down';
     victim.bleed = BLEED;
   }
-  broadcastEvent({ ev: 'hit', victimId: victim.id, killerId: killer.id, down: victim.state === 'down', x: victim.x, z: victim.z });
+  broadcastEvent({
+    ev: 'hit',
+    victimId: victim.id,
+    killerId: killer.id,
+    killerKind: killer.aiKind || 'bacteria',
+    killerName: killer.name || 'Thực Thể',
+    down: victim.state === 'down',
+    x: victim.x,
+    z: victim.z
+  });
 }
 
 function hookSurvivorHost(killer, victim, hook) {
@@ -1960,6 +2420,29 @@ function broadcastEvent(ev) {
 let revealGlobalT = 0;
 function handleNetEvent(ev) {
   if (!inMatch) return;
+  if(ev.ev==='pitRespawn'){
+    const p=players[ev.id];if(!p||ev.sequence<=(p._pitEventApplied||0))return;p._pitEventApplied=ev.sequence;
+    Object.assign(p,{x:ev.x,y:ev.y,z:ev.z,vy:0,spd:0,sliding:false,crouch:false,grounded:true,yaw:0,pitch:0});
+    if(ev.id===myId){
+      hVelX=hVelZ=jumpBuffer=bhopChain=camBobY=camSwayX=camNod=camRoll=camRollPan=stepSpring=stepSpringVel=stepPulseT=landTrauma=smoothMoveMix=smoothSprintMix=0;
+      camYaw=camPitch=localSwingT=0;movementAssist.reset();humanCamera.reset();handheldCamera.reset();camForeZ=previousForwardSpeed=stepPhase=stepDist=0;stepFootSign=1;weaponSystem.clearInput();for(const key in keys)keys[key]=false;
+      camera.position.set(p.x,1.62,p.z);camera.rotation.set(0,0,0);gfx.resetMotionHistory();gfx.exposurePass?.requestReset(1);renderer.toneMappingExposure=1;
+      let fade=document.getElementById('pitFade');if(!fade){fade=document.createElement('div');fade.id='pitFade';fade.style.cssText='position:fixed;inset:0;background:#000;pointer-events:none;z-index:9999;opacity:0;transition:opacity .65s';document.body.append(fade);}fade.style.transition='none';fade.style.opacity='1';setTimeout(()=>{fade.style.transition='opacity .65s';fade.style.opacity='0';},150);
+    }return;
+  }
+  if (ev.ev === 'movementProfile') {
+    const p = players[ev.id]; if (!p || (p.movement?.revision || 0) > ev.movement.revision) return;
+    p.movement = { ...ev.movement };
+    if (ev.id === myId) { pendingProfileSignature = null; movementAssist.configure(p.movement); p.sliding = false; if (p.movement.key === 'tactical') p.vy = Math.min(p.vy, p.movement.jumpImpulse); }
+    return;
+  }
+  if (ev.ev === 'weapon') { if (players[ev.id]) players[ev.id].weapon = { ...ev.weapon }; if (ev.kind === 'fire' && ev.hit?.target === myId) killerSlowT = Math.max(killerSlowT, ev.weapon.equipped === 'butterfly' ? .4 : .85); weaponSystem.event(ev, myId); return; }
+  if (ev.ev === 'moveCorrection' && ev.id === myId) { const p = players[myId]; p.x = ev.x; p.y = ev.y; p.z = ev.z; hVelX = hVelZ = 0; return; }
+  const localPeaceful=isPeacefulLevel(activeLocalLevelId);
+  if(['hooked','hookDeath'].includes(ev.ev)&&isPeacefulLevel(players[ev.id]?.levelId))return;
+  if(localPeaceful&&['reveal','trapPlaced','trapSprung'].includes(ev.ev))return;
+  if(ev.ev==='hit'&&isPeacefulLevel(players[ev.victimId]?.levelId))return;
+  if((ev.ev==='levelShift'||ev.ev==='tpPos')&&isPeacefulLevel(ev.levelId)&&players[ev.playerId]?.role==='k')return;
   if (ev.ev === 'itemGone') {
     const tMap = getOrCreateLevelMap(ev.levelId || activeLocalLevelId);
     const pool = ev.kind === 'water' ? tMap?.WATERS
@@ -1976,8 +2459,10 @@ function handleNetEvent(ev) {
       }
     }
   } else if (ev.ev === 'levelShift') {
-    if (ev.subEnt && !players[ev.subEnt.id]) {
-      const se = ev.subEnt;
+    const incomingEnts = Array.isArray(ev.subEnts) && ev.subEnts.length ? ev.subEnts : (ev.subEnt ? [ev.subEnt] : []);
+    for (const se of incomingEnts) {
+      if (isPeacefulLevel(se?.levelId || ev.levelId)) continue;
+      if (!se || players[se.id]) continue;
       players[se.id] = {
         id: se.id, name: se.name, role: 'k', aiKind: se.aiKind,
         levelId: se.levelId, colorIdx: 0, isAI: true,
@@ -2071,7 +2556,7 @@ function handleNetEvent(ev) {
   } else if (ev.ev === 'scanStart') {
     scanT = SCAN_T;
     audio.playScanPing();
-    pushFeed('Máy Dò Thực Thể đang hoạt động (9s)!', '#48d0f5');
+    pushFeed(localPeaceful?'Máy quét đang hoạt động (9s)!':'Máy Dò Thực Thể đang hoạt động (9s)!', '#48d0f5');
   } else if (ev.ev === 'reveal') {
     revealGlobalT = ev.dur || REVEAL_T;
     audio.playRevealStinger({ x: ev.x, y: 1.5, z: ev.z });
@@ -2084,29 +2569,38 @@ function handleNetEvent(ev) {
     }
     audio.playFlareHiss({ x: ev.x, y: 0.2, z: ev.z });
   } else if (ev.ev === 'hit') {
-    audio.playFleshHit({ x: ev.x, y: 1.2, z: ev.z });
-    audio.playScream({ x: ev.x, y: 1.4, z: ev.z });
+    if(!localPeaceful){audio.playFleshHit({ x: ev.x, y: 1.2, z: ev.z });audio.playScream({ x: ev.x, y: 1.4, z: ev.z });}
+    if (ev.victimId === myId) {
+      triggerJumpscare({
+        aiKind: ev.killerKind || players[ev.killerId]?.aiKind || 'bacteria',
+        killerName: ev.killerName || players[ev.killerId]?.name || 'Thực Thể',
+        down: !!ev.down
+      });
+    }
     if (ev.victimId === myId && ev.down) {
       pushFeed('Bạn đã bị đánh gục!', '#ff4438');
     } else if (!ev.down && ev.victimId === myId) {
       pushFeed('Bị Thực thể chém trúng! Chạy ngay!', '#ff7456');
     }
   } else if (ev.ev === 'hooked') {
-    audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, false);
+    if(!localPeaceful)audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, false);
+    if (ev.id === myId) {
+      triggerJumpscare({ aiKind: 'bacteria', killerName: 'Thực Thể', down: true });
+    }
     const v = players[ev.id];
     if (v) { v.state = 'hooked'; v.hookIdx = ev.hookIdx; v.x = ev.x; v.z = ev.z; }
     const hk = map?.HOOKS?.[ev.hookIdx];
     if (hk) hk.occ = ev.id;
-    pushFeed(`${v?.name || 'Đồng đội'} bị treo lên móc!`, '#ff8838');
+    if(!localPeaceful)pushFeed(`${v?.name || 'Đồng đội'} bị treo lên móc!`, '#ff8838');
   } else if (ev.ev === 'hookDeath') {
-    audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, true);
+    if(!localPeaceful)audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, true);
     const v = players[ev.id];
     if (v) {
       if (v.hookIdx >= 0 && map?.HOOKS?.[v.hookIdx]) map.HOOKS[v.hookIdx].occ = null;
       v.state = 'dead';
       v.hookIdx = -1;
     }
-    pushFeed(`${v?.name || 'Đồng đội'} đã hy sinh...`, '#ff3028');
+    if(!localPeaceful)pushFeed(`${v?.name || 'Đồng đội'} đã hy sinh...`, '#ff3028');
   } else if (ev.ev === 'unhooked') {
     const v = players[ev.id];
     if (ev.hookIdx >= 0 && map?.HOOKS?.[ev.hookIdx]) map.HOOKS[ev.hookIdx].occ = null;
@@ -2185,6 +2679,7 @@ function handleNetEvent(ev) {
     else if (ev.kind === 'consume') audio.playConsume(ev.item);
     else if (ev.kind === 'spark') audio.playAlertBeep();
   } else if (ev.ev === 'end') {
+    weaponSystem.clearInput(); weaponSystem.view.root.visible = false; weaponSystem.bar.hidden = true;
     matchEnded = true;
     inMatch = false;
     document.exitPointerLock?.();
@@ -2202,7 +2697,9 @@ function sendAction(msg) {
 
 function applyHostSnapshot(snap) {
   if (!inMatch || net.isHost) return;
+  removePeacefulLevelHostiles();
   for (const [id, sp] of Object.entries(snap.players)) {
+    if (isHostileInPeacefulLevel({...players[id],...sp})) continue;
     const p = players[id];
     if (!p) continue;
     if (id !== myId) {
@@ -2211,8 +2708,9 @@ function applyHostSnapshot(snap) {
     } else {
       // Authoritative state sync for local client
       const prevState = p.state;
-      p.hp = sp.hp;
-      p.state = sp.state;
+      const peaceful=isPeacefulLevel(sp.levelId||p.levelId);
+      p.hp = peaceful ? Math.max(p.hp,sp.hp) : sp.hp;
+      p.state = peaceful&&['down','carried','hooked'].includes(sp.state) ? 'ok' : sp.state;
       p.carrying = sp.carrying;
       p.hookIdx = sp.hookIdx;
       p.hooks = sp.hooks;
@@ -2223,6 +2721,10 @@ function applyHostSnapshot(snap) {
       }
     }
     p.levelId = sp.levelId || 'level0';
+    if (sp.weapon) p.weapon = { ...sp.weapon };
+    if (sp.movement && (sp.movement.revision || 0) >= (p.movement?.revision || 0)) p.movement = { ...sp.movement };
+    if (id !== myId) { p.vy = sp.vy; p.grounded = sp.grounded; }
+    if (id !== myId) p.sliding = !!sp.sliding;
     p.crouch = sp.crouch;
     p.fl = sp.fl;
     p.swingT = sp.swingT;
@@ -2293,8 +2795,39 @@ function syncTaskCabinetLEDs() {
 }
 
 // ---------- Host Simulation Tick (Multi-Entity AI + World Timers) ----------
+function removePeacefulLevelHostiles() {
+  for (const [id,p] of Object.entries(players)) {
+    if (!isHostileInPeacefulLevel(p)) continue;
+    if (p.isAI || id.startsWith('AI_SUB_')) {
+      if(avatars[id]){scene.remove(avatars[id].group);delete avatars[id];}
+      delete players[id];
+    }
+    else {
+      const safe = getOrCreateLevelMap('level0').K_SPAWN;
+      p.levelId='level0';p.x=safe.x;p.z=safe.z;p.y=0;p.carrying=null;
+    }
+  }
+  aiControllers=aiControllers.filter(ctrl=>players[ctrl.id]&&!isHostileInPeacefulLevel(players[ctrl.id]));
+}
+
 function updateHostSimulation(dt) {
   if (!net.isHost) return;
+  const pitMap=getOrCreateLevelMap('level0');
+  for(const p of Object.values(players)){
+    if(p.id!==myId&&!p.isAI&&['s','k'].includes(p.role)&&p.levelId==='level0'&&['ok','down'].includes(p.state))movementGuard.advanceEnvironment(p,{now:performance.now()/1000,dt,floorAt:(x,z,y)=>getTerrainAt(x,z,pitMap,y).floorY,abyssAt:(x,z,y)=>!!classicPitAt(pitMap.classic,x,z,y)});
+    const ev=respawnPitPlayer(p,pitMap,performance.now());if(ev){movementGuard.reset(p);broadcastEvent(ev);}
+  }
+  removePeacefulLevelHostiles();
+  for (const p of Object.values(players)) {
+    if (p.role !== 's') continue;
+    combatAuthority.tick(p);
+    p.moveThirst = Math.max(0, (p.moveThirst ?? WATER_LIFE) - dt);
+    if (p.id !== myId) {
+      p.moveStam=advanceStamina(p.moveStam,dt,{sprinting:p.moveSprint&&!p.sliding,chase:threatProximity(p,players,isPeacefulLevel(p.levelId)),tactical:p.movement?.key==='tactical'});
+      if(p.moveStam<=.02){p.moveStam=0;p.stamExhausted=true;p.moveSprint=false;}
+      if(p.moveStam>=SPEED.STAM_DRAIN*STAM_EXHAUST_RATIO)p.stamExhausted=false;
+    }
+  }
 
   // Animate A-Sync Elevator Doors smoothly (plus auto-open if all Survivors are AI bots)
   const lvl0Map = getOrCreateLevelMap('level0');
@@ -2313,14 +2846,29 @@ function updateHostSimulation(dt) {
   }
 
   // Drive ALL patrolling quadrant & sub-level AI Entities in their own isolated dimension
+  hostNoiseAlertT += dt;
+  const doSprintNoiseScan = hostNoiseAlertT >= 0.72;
+  if (doSprintNoiseScan) hostNoiseAlertT = 0;
+
   for (const ctrl of aiControllers) {
     const aiP = players[ctrl.id];
     if (!aiP) continue;
+    if ((aiP.weaponStunUntil || 0) > performance.now() / 1000) { aiP.spd = 0; continue; }
     const aiMap = getOrCreateLevelMap(aiP.levelId || 'level0');
     ctrl.update(dt, aiP, players, aiMap, {
       onAggro(killer, targ, arch) {
         if (targ.id === myId) {
           pushFeed(`${arch?.name || killer.name} vừa phát hiện bạn ở cự ly gần!`, '#ff7456');
+        }
+        // Bounded pack howl: notify nearby patrolling Entities within 44m in the same dimension
+        const kLvl = killer.levelId || 'level0';
+        for (const peer of aiControllers) {
+          if (peer === ctrl) continue;
+          const pp = players[peer.id];
+          if (!pp || (pp.levelId || 'level0') !== kLvl) continue;
+          if (Math.hypot(pp.x - killer.x, pp.z - killer.z) <= 44) {
+            peer.investigate(targ.x, targ.z, aiMap, 7.5);
+          }
         }
       },
       onHit(killer, targ) {
@@ -2334,6 +2882,16 @@ function updateHostSimulation(dt) {
         hookSurvivorHost(killer, targ, hook);
       }
     });
+  }
+
+  // Loud sprinting footsteps / heavy breathing draw nearby idle Entities
+  if (doSprintNoiseScan) {
+    for (const s of Object.values(players)) {
+      if (s.role !== 's' || s.state !== 'ok' || s.crouch) continue;
+      if ((s.spd || 0) > SPEED.SURV_WALK + 2.2) {
+        alertLocalMonstersNoise(s.levelId || 'level0', s.x, s.z, 24, 5.5);
+      }
+    }
   }
   syncTaskCabinetLEDs();
 
@@ -2351,7 +2909,7 @@ function updateHostSimulation(dt) {
     if (wp) {
       const dx = wp[0] - p.x, dz = wp[1] - p.z;
       const d = Math.hypot(dx, dz);
-      if (d < 1.2) bp.path.shift();
+      if (d < (inClassic(botMap.classic,p.x,p.z) ? .22 : 1.2)) bp.path.shift();
       else {
         const vx = (dx / d) * SPEED.SURV_WALK * 0.92;
         const vz = (dz / d) * SPEED.SURV_WALK * 0.92;
@@ -2460,6 +3018,9 @@ function updateLocalPlayer(dt, elapsed) {
   if (wasAirborneT > 0) wasAirborneT = Math.max(0, wasAirborneT - dt);
 
   const isK = me.role === 'k';
+  const movementProfile = isK ? normalizeProfile(null) : normalizeProfile(me.movement);
+  const tactical = movementProfile.key === 'tactical';
+  movementAssist.configure(movementProfile);
 
   if (me.role === 's' && me.state === 'ok') {
     thirstT = Math.max(0, thirstT - dt);
@@ -2531,10 +3092,11 @@ function updateLocalPlayer(dt, elapsed) {
     noclipVelY += (gy * tgtSpd - noclipVelY) * flyK;
     noclipVelZ += (gz * tgtSpd - noclipVelZ) * flyK;
 
-    const span = map.worldSpan ?? (N * C);
-    me.x = THREE.MathUtils.clamp(me.x + noclipVelX * dt, -35, span + 35);
+    const spanX = map.spanX ?? map.worldSpan ?? (N * C);
+    const spanZ = map.spanZ ?? map.worldSpan ?? (N * C);
+    me.x = THREE.MathUtils.clamp(me.x + noclipVelX * dt, -35, spanX + 35);
     me.y = THREE.MathUtils.clamp(me.y + noclipVelY * dt, -12, 180);
-    me.z = THREE.MathUtils.clamp(me.z + noclipVelZ * dt, -35, span + 35);
+    me.z = THREE.MathUtils.clamp(me.z + noclipVelZ * dt, -35, spanZ + 35);
     me.vy = 0;
     hVelX = noclipVelX;
     hVelZ = noclipVelZ;
@@ -2552,9 +3114,9 @@ function updateLocalPlayer(dt, elapsed) {
   } else {
   // Chase adrenaline boost near monsters: conserves stamina + raises escape sprint speed to lose Entities cleanly
   let nearestThreatDist = 999;
-  if (!isK) {
+  if (!isK&&!isPeacefulLevel(me.levelId)) {
     for (const p of Object.values(players)) {
-      if (p.role === 'k') {
+      if (p.role === 'k'&&(p.levelId||'level0')===(me.levelId||'level0')) {
         const d = Math.hypot(p.x - me.x, p.z - me.z);
         if (d < nearestThreatDist) nearestThreatDist = d;
       }
@@ -2564,18 +3126,19 @@ function updateLocalPlayer(dt, elapsed) {
     ? Math.max(0, Math.min(1, (18 - nearestThreatDist) / 14))
     : 0;
 
-  me.crouch = !isK && (me.state === 'down' || (!tpOpen && (!!keys[DEF_KB.crouch] || mobCrouchToggle)));
+  const crouchInput = !tpOpen && (!!keys[DEF_KB.crouch] || keys.ControlLeft || keys.ControlRight || mobCrouchToggle);
+  const standClear = isK || canStandAt(me.x, me.z, map, me.y);
+  me.crouch = !isK && (me.state === 'down' || crouchInput || movementAssist.sliding || !standClear);
   const stamMinUnlock = SPEED.STAM_DRAIN * STAM_EXHAUST_RATIO;
   if (stamExhausted && stam >= stamMinUnlock) {
     stamExhausted = false;
   }
   const sprintInput = !tpOpen && (!!keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint);
   const trySprint = !isK && me.state === 'ok' && !me.crouch && !busyAct && sprintInput && wishLen > 0;
-  wantSprint = trySprint && !stamExhausted && stam > 0;
+  wantSprint = !tactical && trySprint && !stamExhausted && stam > 0;
 
   if (wantSprint) {
-    const drainScale = 1.0 - chaseProx * 0.42;
-    stam = Math.max(0, stam - dt * drainScale);
+    stam = advanceStamina(stam,dt,{sprinting:true,chase:chaseProx});
     if (stam <= 0.02) {
       stam = 0;
       if (!stamExhausted) {
@@ -2584,35 +3147,39 @@ function updateLocalPlayer(dt, elapsed) {
       }
     }
   } else {
-    const refillScale = 1.0 + chaseProx * 0.25;
-    stam = Math.min(SPEED.STAM_DRAIN, stam + dt * (SPEED.STAM_DRAIN / SPEED.STAM_REFILL) * refillScale);
+    stam = advanceStamina(stam,dt,{chase:chaseProx,tactical});
     if (stamExhausted && stam >= stamMinUnlock) stamExhausted = false;
   }
 
   // Target Ground Speed
+  me.moveStam=stam;me.moveThirst=thirstT;me.moveSprint=tactical?sprintInput:wantSprint;me.stamExhausted=stamExhausted;
   let groundSpd;
   if (isK) {
-    groundSpd = me.carrying ? SPEED.KILLER_CARRY : killerSlowT > 0 ? SPEED.KILLER_SLOW : SPEED.KILLER_BASE;
+    const killerSprint = !me.carrying && killerSlowT <= 0 && me.state === 'ok' && sprintInput && wishLen > 0;
+    groundSpd = me.carrying
+      ? SPEED.KILLER_CARRY
+      : killerSlowT > 0
+        ? SPEED.KILLER_SLOW
+        : killerSprint
+          ? (SPEED.KILLER_SPRINT || 8.88)
+          : SPEED.KILLER_BASE;
   } else if (me.state === 'down') {
     groundSpd = SPEED.SURV_DOWN;
+  } else if (tactical) {
+    groundSpd = tacticalSpeed(movementProfile, { shift: sprintInput, crouch: me.crouch });
   } else if (me.crouch) {
     groundSpd = SPEED.SURV_CROUCH;
   } else if (wantSprint) {
-    groundSpd = SPEED.SURV_SPRINT * (1.0 + chaseProx * 0.24);
+    groundSpd = SPEED.SURV_SPRINT * (1.0 + chaseProx * 0.14);
   } else if (thirstT <= 0) {
     groundSpd = SPEED.SURV_THIRSTY;
   } else {
     groundSpd = SPEED.SURV_WALK * (1.0 + chaseProx * 0.14);
   }
 
-  if (jellyBuffT > 0) groundSpd *= 1.22;
+  if (!tactical && jellyBuffT > 0) groundSpd *= 1.22;
   if (!kbdMove && !wantSprint && wishLen > 0 && wishLen < 0.99) {
     groundSpd *= 0.28 + 0.72 * wishLen;
-  }
-
-  // Hold Space/Jump continuously OR tap before touchdown for super smooth Bunny-Hopping!
-  if (!tpOpen && (keys[DEF_KB.jump] || mobJumpHeld) && !scState && me.state === 'ok' && !me.crouch && !me.carrying && wishLen > 0.1) {
-    if (jumpBuffer <= 0) jumpBuffer = 0.08;
   }
 
   const terrain = getTerrainAt(me.x, me.z, map, me.y);
@@ -2626,38 +3193,32 @@ function updateLocalPlayer(dt, elapsed) {
     groundSpd *= 0.80;
   }
 
-  const dynBhopCap = SPEED.BHOP_MAX + chaseProx * 1.2;
   grounded = me.y <= floorBaseY + 0.045 && me.vy <= 0.45;
-  if (grounded && jumpBuffer > 0 && me.state === 'ok' && !me.crouch && !me.carrying) {
-    me.vy = SPEED.JUMP_VEL;
-    me.y = floorBaseY + 0.01;
+  const sprintCap = tactical||isK ? groundSpd : SPEED.SURV_SPRINT * (1 + chaseProx * .14) * (jellyBuffT > 0 ? 1.22 : 1) * (terrain.inWater ? .8 : 1);
+  if (movementAssist.sliding) groundSpd = sprintCap;
+  movementAssist.vx = hVelX; movementAssist.vz = hVelZ;
+  const moveResult = movementAssist.step(dt, {
+    grounded, jump: !tpOpen && !scState && (!!keys[DEF_KB.jump] || mobJumpHeld), autoHop: !!fxSettings.autoBhop,allowHopBonus:!isK,
+    crouch: crouchInput, canStand: standClear, canAct: !paused && !tpOpen && !busyAct && me.state === 'ok' && !me.carrying,
+    sprint: !tactical && !isK && sprintInput && !stamExhausted && stam > 0, sprintCap,
+    speed: groundSpd, wx: wishX, wz: wishZ, wish: wishLen, surface: terrain.inWater ? 'water' : getSurfaceAt(me.x, me.z, map), water: terrain.inWater
+  });
+  hVelX = movementAssist.vx; hVelZ = movementAssist.vz;
+  me.sliding = moveResult.sliding;
+  me.crouch = !isK && (me.state === 'down' || (moveResult.crouch && !moveResult.jumped));
+  movementSpeedCap = movementAssist.allowedSpeed;
+  jumpBuffer = movementAssist.buffer;
+  if (moveResult.justSlid) weaponSystem.sound.play(`slide_${terrain.inWater ? 'water' : getSurfaceAt(me.x, me.z, map)}`);
+  if (moveResult.jumped) {
+    me.vy = movementProfile.jumpImpulse;
+    if (grounded) me.y = floorBaseY + 0.01;
     jumpBuffer = 0;
-
-    // Grant smooth bhop momentum boost when chaining jumps!
-    const curSpd = Math.hypot(hVelX, hVelZ);
-    if (wasAirborneT > 0 || curSpd > groundSpd * 0.95) {
-      bhopChain++;
-      const boost = Math.min(dynBhopCap, Math.max(groundSpd, curSpd) + SPEED.BHOP_BOOST);
-      if (wishLen > 0.1) {
-        hVelX = wishX * boost;
-        hVelZ = wishZ * boost;
-      }
-    } else {
-      bhopChain = 0;
-    }
+    bhopChain++; grounded = false;
     audio.playJump(me);
   }
 
   if (!grounded) {
     wasAirborneT = 0.24;
-    // Source-style air steering: allow crisp directional control in midair without losing forward momentum
-    if (wishLen > 0.05) {
-      const curSpd = Math.max(groundSpd, Math.hypot(hVelX, hVelZ));
-      const steerK = 1 - Math.exp(-5.4 * dt);
-      const tx = wishX * curSpd, tz = wishZ * curSpd;
-      hVelX += (tx - hVelX) * steerK;
-      hVelZ += (tz - hVelZ) * steerK;
-    }
     me.vy -= SPEED.GRAVITY * dt;
     me.y += me.vy * dt;
     if (me.y <= floorBaseY) {
@@ -2668,6 +3229,7 @@ function updateLocalPlayer(dt, elapsed) {
       stepPulseT = 1.0;
       stepPulseAmp = Math.min(0.65, impact * 0.55);
       me.vy = 0;
+      grounded = true;
       if (terrain.inWater) audio.playWaterSplash?.(me, Math.min(1.0, impact + 0.25));
       else audio.playLand(me, impact);
     }
@@ -2675,22 +3237,29 @@ function updateLocalPlayer(dt, elapsed) {
     // Smooth step/ramp elevation follow + Poolrooms water-slide momentum!
     me.y += (floorBaseY - me.y) * Math.min(1, 22 * dt);
     if (Math.abs(me.y - floorBaseY) < 0.01) me.y = floorBaseY;
-    const curSpd = Math.hypot(hVelX, hVelZ);
-    const preserveBhop = wasAirborneT > 0 && curSpd > groundSpd;
-    const targetSpd = wishLen > 0 ? (preserveBhop ? curSpd : groundSpd) : 0;
-    const accelK = 1 - Math.exp(-(wishLen > 0 ? 18 : 22) * dt);
-    const tx = wishX * targetSpd;
-    const tz = wishZ * targetSpd;
-    hVelX += (tx - hVelX) * accelK;
-    hVelZ += (tz - hVelZ) * accelK;
     if (terrain.onSlide) {
       const sLerp = 1 - Math.exp(-7.5 * dt);
       hVelX += (terrain.slideVelX - hVelX) * sLerp;
       hVelZ += (terrain.slideVelZ - hVelZ) * sLerp;
+      movementSpeedCap = sprintCap;
     }
     if (wasAirborneT <= 0 && wishLen === 0 && !terrain.onSlide) bhopChain = 0;
   }
 
+  if(isPeacefulLevel(me.levelId)){
+    const cell=getPoolroomsCellAt(me.x,me.z,map),body=me.crouch?1.08:1.72;
+    if(cell&&me.y+body>cell.floorY+cell.ceiling-.06){me.y=Math.max(floorBaseY,cell.floorY+cell.ceiling-body-.06);me.vy=Math.min(0,me.vy);}
+    if (cell?.tubeNetwork) {
+      const fits = y => [[0, 0], [.30, 0], [-.30, 0], [0, .30], [0, -.30]].every(([dx, dz]) => tubeDistance(cell.tubeNetwork, me.x + dx, y + body - cell.floorY, me.z + dz) < -.012);
+      if (!fits(me.y) && fits(floorBaseY)) {
+        let lo = floorBaseY, hi = me.y;
+        for (let i = 0; i < 9; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+        me.y = lo; me.vy = Math.min(0, me.vy);
+      }
+    }
+  }
+
+  const architectureCeiling=classicCeilingAt(map,me.x,me.z,me.y);if(Number.isFinite(architectureCeiling)&&me.y>floorBaseY){const top=architectureCeiling-(isK?1.92:me.crouch?1.08:1.72)-.04;if(me.y>top){me.y=Math.max(floorBaseY,top);me.vy=Math.min(0,me.vy);}}
   // Flat-Floor False Noclip Drop & Crouch Hatch Walk-Through triggers in Level 0
   if (activeLocalLevelId === 'level0' && !isK && me.state === 'ok' && performance.now() > noclipDropLockUntil && map.ENTRANCES) {
     for (const ent of map.ENTRANCES) {
@@ -2710,30 +3279,39 @@ function updateLocalPlayer(dt, elapsed) {
   }
 
   const prevX = me.x, prevZ = me.z;
-  const [nx, nz] = collide(me.x + hVelX * dt, me.z + hVelZ * dt, isK ? 0.42 : 0.36, map, me.crouch, me.y);
+  const capped = capVelocity({ vx: hVelX, vz: hVelZ }, movementSpeedCap);
+  hVelX = capped.vx; hVelZ = capped.vz;
+  let nx = me.x, nz = me.z;
+  const collisionSteps = Math.max(1, Math.ceil(Math.hypot(hVelX, hVelZ) * dt / .12));
+  const movingBodyHeight = me.crouch ? Math.max(1.08, Math.min(1.72, movementAssist.eye + .12)) : 1.72;
+  for (let i = 0; i < collisionSteps; i++) [nx, nz] = collide(nx + hVelX * dt / collisionSteps, nz + hVelZ * dt / collisionSteps, isK ? .42 : .36, map, me.crouch, me.y, movingBodyHeight);
   me.x = nx;
   me.z = nz;
   const actualVx = (me.x - prevX) / Math.max(dt, 1e-4);
   const actualVz = (me.z - prevZ) / Math.max(dt, 1e-4);
   me.spd = Math.hypot(actualVx, actualVz);
+  if (Math.abs(actualVx) < Math.abs(hVelX) * .1) hVelX = actualVx;
+  if (Math.abs(actualVz) < Math.abs(hVelZ) * .1) hVelZ = actualVz;
+  if (me.sliding && me.spd < 1) { movementAssist.endSlide(); me.sliding = false; }
+  me.grounded = grounded;
   me.swingT = localSwingT;
 
   if (landTrauma > 0) landTrauma = Math.max(0, landTrauma - dt * 2.8);
 
   // Surface-aware footstep spatial audio & visceral found-footage running/walking camera jolt
-  if (grounded && me.spd > 0.6) {
-    const strideLen = wantSprint ? 2.02 : me.crouch ? 1.12 : 1.65;
+  if (grounded && me.spd > 0.6 && !me.sliding) {
+    const strideLen = wantSprint ? 2.28 : me.crouch ? 1.12 : 1.35;
     stepPhase += (me.spd / strideLen) * Math.PI * dt;
     stepDist += me.spd * dt;
     if (stepDist >= strideLen) {
-      stepDist = 0;
+      stepDist -= strideLen;
       stepFootSign = -stepFootSign;
       const imp = isK ? 1.32 : wantSprint ? 1.38 : me.crouch ? 0.30 : 0.64;
       stepSpringVel -= imp;
       stepPulseT = 1.0;
       stepPulseAmp = isK ? 1.24 : wantSprint ? 1.44 : me.crouch ? 0.34 : 0.68;
       landTrauma = Math.min(0.65, landTrauma + (isK ? 0.30 : wantSprint ? 0.26 : 0.12));
-      audio.playFootstep(me, wantSprint, me.crouch, isK, terrain.inWater ? 'water' : getSurfaceAt(me.x, me.z, map));
+      audio.playFootstep(me, wantSprint, me.crouch || (tactical && sprintInput), isK, terrain.inWater ? 'water' : getSurfaceAt(me.x, me.z, map));
     }
   }
 
@@ -2747,9 +3325,9 @@ function updateLocalPlayer(dt, elapsed) {
 
   // Exit threshold check for Survivors
   if (!isK && map.exitsOpen && activeLocalLevelId === 'level0') {
-    const span = map.worldSpan ?? (N * C);
+    const spanZ = map.spanZ ?? map.worldSpan ?? (N * C);
     for (const e of map.EXITS) {
-      if (Math.hypot(me.x - e.x, 0) < 2.2 && ((e.dirZ < 0 && me.z < -0.5) || (e.dirZ > 0 && me.z > span + 0.5))) {
+      if (Math.hypot(me.x - e.x, 0) < 2.2 && ((e.dirZ < 0 && me.z < -0.5) || (e.dirZ > 0 && me.z > spanZ + 0.5))) {
         sendAction({ act: 'escape' });
         return;
       }
@@ -2758,25 +3336,22 @@ function updateLocalPlayer(dt, elapsed) {
 
   // Camera placement + stronger visceral Found Footage running/walking camera shake & handheld tremor
   eyeH = isK ? 1.82 : me.state === 'down' ? 0.45 : me.crouch ? 0.92 : 1.62;
-  const rawMoveMix = grounded ? Math.min(1, me.spd / 4.6) : 0;
+  const rawMoveMix = grounded&&!me.sliding ? Math.min(1, me.spd / (wantSprint?7.4:me.crouch?2:SPEED.SURV_WALK)) : 0;
   const mixK = 1 - Math.exp(-9.5 * dt);
   smoothMoveMix += (rawMoveMix - smoothMoveMix) * mixK;
   smoothSprintMix += ((wantSprint && rawMoveMix > 0.2 ? 1 : 0) - smoothSprintMix) * mixK;
 
-  const baseWalkAmp = isK ? 0.175 : me.crouch ? 0.052 : 0.128 + 0.138 * smoothSprintMix;
-  const breatheY = Math.sin(elapsed * 1.85) * 0.011;
-  // Handheld camcorder micro-tremor during movement & sprinting
-  const tremorAmp = (0.014 + 0.028 * smoothSprintMix) * smoothMoveMix;
-  const handTremorX = (Math.sin(elapsed * 17.3) * 0.6 + Math.cos(elapsed * 29.1) * 0.4) * tremorAmp;
-  const handTremorY = (Math.cos(elapsed * 21.7) * 0.6 + Math.sin(elapsed * 33.4) * 0.4) * tremorAmp;
-  const handTremorRoll = Math.sin(elapsed * 14.8 + stepPhase) * (0.012 + 0.022 * smoothSprintMix) * smoothMoveMix;
-
-  const strideWaveY = (-0.5 + 0.5 * Math.cos(stepPhase * 2.0 - 0.65)) * baseWalkAmp * 1.18;
-  const cushionDip = stepSpring * 0.82 - footPlantCurve * (0.105 * smoothSprintMix + (isK ? 0.082 : 0.044));
-  const tgtBobY = THREE.MathUtils.clamp(strideWaveY * smoothMoveMix + breatheY + cushionDip + handTremorY, -0.36, 0.28);
-  const tgtSwayX = Math.cos(stepPhase) * (baseWalkAmp * 0.78) * smoothMoveMix + handTremorX;
-  const tgtRoll = (Math.sin(stepPhase) * (0.052 + 0.056 * smoothSprintMix) * smoothMoveMix) + footPlantCurve * 0.036 * stepFootSign + handTremorRoll;
-  const tgtNod = (Math.cos(stepPhase * 2.0 - 0.45) * (0.024 + 0.036 * smoothSprintMix) * smoothMoveMix) + footPlantCurve * (0.052 * smoothSprintMix + 0.022) - stepSpring * 0.22;
+  // Distance-driven gait: one vertical cycle per audible footfall, horizontal sway over two steps.
+  const walkAmp=me.crouch?.016:.052+.047*smoothSprintMix;
+  const strideWaveY=(.9*Math.sin(stepPhase*2-.35)+.1*Math.sin(stepPhase*4+.6))*walkAmp*smoothMoveMix;
+  const cushionDip=stepSpring*.23-footPlantCurve*.012;
+  const tgtBobY=THREE.MathUtils.clamp(strideWaveY*Math.max(0,Math.min(2.5,Number(fxSettings.verticalBob??1)))+cushionDip,-.17,.12);
+  const tgtSwayX=Math.cos(stepPhase)*(.026+.026*smoothSprintMix)*smoothMoveMix;
+  const tgtRoll=Math.sin(stepPhase)*(.0066+.008*smoothSprintMix)*smoothMoveMix+footPlantCurve*.005*stepFootSign;
+  const tgtNod=Math.cos(stepPhase*2-.45)*(.0043+.0067*smoothSprintMix)*smoothMoveMix+footPlantCurve*.008-stepSpring*.06;
+  const forwardSpeed=-hVelX*Math.sin(camYaw)-hVelZ*Math.cos(camYaw);
+  const foreTarget=THREE.MathUtils.clamp((forwardSpeed-previousForwardSpeed)/Math.max(.004,dt)*.0009,-.035,.035)+Math.sin(stepPhase*2+.15)*.006*smoothMoveMix;
+  camForeZ+=(foreTarget-camForeZ)*(1-Math.exp(-11*dt));previousForwardSpeed=forwardSpeed;
 
   const camK = 1 - Math.exp(-14.0 * dt);
   const prevBobY = camBobY;
@@ -2795,19 +3370,29 @@ function updateLocalPlayer(dt, elapsed) {
   }
 
   // Heavy smooth found-footage Camera Pan Delay Curve (weighted camcorder gimbal inertia without stretching motion blur beyond mouse stop)
-  const kCam = 1 - Math.exp(-14.5 * dt);
+  const ads = weaponSystem.ads;
+  const kCam = tactical || ads > .98 ? 1 : 1 - Math.exp(-(14.5 + ads * 70) * dt);
   const dCamYaw = Math.atan2(Math.sin(me.yaw - camYaw), Math.cos(me.yaw - camYaw));
   const dCamPitch = me.pitch - camPitch;
   camYaw += dCamYaw * kCam;
   camPitch += dCamPitch * kCam;
   camRollPan += (THREE.MathUtils.clamp(-dCamYaw * 0.20, -0.072, 0.072) - camRollPan) * (1 - Math.exp(-12.5 * dt));
 
-  camera.position.set(
-    me.x + Math.cos(camYaw) * camSwayX,
-    eyeH + me.y + camBobY,
-    me.z - Math.sin(camYaw) * camSwayX
-  );
-  camera.rotation.set(camPitch - camNod, camYaw + camSwayX * 0.055, camRoll + camRollPan, 'YXZ');
+  const natural = humanCamera.update(dt, { speed: me.spd, crouch: me.crouch, ads, mode: fxSettings.idleMotion, reduced: fxSettings.reducedMotion, inspect: ['INSPECTING', 'FLEX_LOOP'].includes(weaponSystem.view.animation.state), grounded });
+  const handheld=handheldCamera.update(dt,{mode:fxSettings.idleMotion,intensity:fxSettings.handheldTremor,reduced:fxSettings.reducedMotion,ads,inspect:['INSPECTING','FLEX_LOOP'].includes(weaponSystem.view.animation.state)});
+  const cameraMotionScale = (fxSettings.reducedMotion ? .08 : 1) * (1 - ads * .98) * movementProfile.cameraIntensity;
+  const moveShake=Math.max(0,Math.min(3,Number(fxSettings.movementShake) || 0));
+  const locomotion=boundedLocomotion({x:camSwayX,y:camBobY,z:camForeZ,pitch:-camNod,roll:camRoll+(tactical?0:camRollPan)+(me.sliding?.035:0)},cameraMotionScale*moveShake);
+  shakeXRate *= cameraMotionScale*moveShake;shakeYRate *= cameraMotionScale*moveShake;
+  eyeH = movementAssist.cameraHeight(eyeH, dt);
+  const sideOffset = locomotion.x + natural.x+handheld.x,foreOffset=locomotion.z+handheld.z;
+  camera.position.set(me.x + Math.cos(camYaw) * sideOffset+Math.sin(camYaw)*foreOffset, eyeH + me.y + locomotion.y + natural.y+handheld.y, me.z - Math.sin(camYaw) * sideOffset+Math.cos(camYaw)*foreOffset);
+  camera.position.y=Math.min(camera.position.y,classicCeilingAt(map,camera.position.x,camera.position.z,me.y,.08)-Math.max(.06,camera.near*1.4));
+  camera.rotation.set(camPitch + locomotion.pitch + natural.pitch+handheld.pitch, camYaw + locomotion.x*.055+handheld.yaw, locomotion.roll + natural.roll+handheld.roll, 'YXZ');
+  if(import.meta.env.DEV&&new URLSearchParams(location.search).has('cameradebug')){
+    let d=document.getElementById('cameraDiagnostic');if(!d){d=document.createElement('pre');d.id='cameraDiagnostic';d.style.cssText='position:fixed;left:12px;top:65px;z-index:900;color:#fff;background:#000c;padding:12px;pointer-events:none;font:12px monospace';document.body.append(d);}
+    d.textContent=`Idle: ${natural.mode}  blend ${natural.weight.toFixed(3)}\nBreath ${(natural.breathing*1000).toFixed(2)} mm  sway ${(natural.sway*1000).toFixed(2)} mm\nPitch ${(natural.pitch*180/Math.PI).toFixed(3)}°  roll ${(natural.roll*180/Math.PI).toFixed(3)}°\nApplied position ${camera.position.toArray().map(v=>v.toFixed(4)).join(', ')}\nApplied rotation ${[camera.rotation.x,camera.rotation.y,camera.rotation.z].map(v=>v.toFixed(5)).join(', ')}\nMovement shake ${(moveShake*100).toFixed(0)}%\nTremor ${(Math.hypot(handheld.fine.pitch,handheld.fine.yaw)*180/Math.PI).toFixed(4)}° | cutoff ${handheld.cutoffHz.toFixed(1)}Hz`;
+  }
 
   // Keep Camcorder HUD strictly fixed/locked on screen without camera shake coupling
   if (hud && hud.style.transform !== 'none') hud.style.transform = 'none';
@@ -2816,7 +3401,7 @@ function updateLocalPlayer(dt, elapsed) {
   const baseFov = isK ? 86 : 80;
   const speedExcess = Math.max(0, me.spd - (SPEED.SURV_WALK + 0.15));
   const bonusFov = Math.min(20, (speedExcess / Math.max(1, SPEED.SURV_SPRINT - SPEED.SURV_WALK)) * 16) + (localSwingT > 0 ? Math.sin(localSwingT * Math.PI) * 5.5 : 0);
-  const targetFov = baseFov + bonusFov + (isK ? 0 : Math.sin(elapsed * 1.15) * 0.55);
+  const targetFov = (baseFov + (tactical ? 0 : bonusFov * (fxSettings.reducedMotion ? .2 : 1))) * (1 - ads) + 55 * ads;
   if (Math.abs(camera.fov - targetFov) > 0.05) {
     camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-10 * dt));
     camera.updateProjectionMatrix();
@@ -2826,7 +3411,7 @@ function updateLocalPlayer(dt, elapsed) {
   const flashOn = !isK && !!me.fl;
   localFlash.visible = flashOn;
   localFlashCore.visible = flashOn;
-  fpFlashGroup.visible = flashOn;
+  fpFlashGroup.visible = flashOn && weaponSystem.equipped === 'none';
   if (flashOn) {
     const inBrightPool = activeLocalLevelId === 'level37';
     localFlash.intensity = inBrightPool ? 1.85 : 11.5;
@@ -2866,7 +3451,8 @@ function updateLocalPlayer(dt, elapsed) {
       net.sendToHost({
         t: 'input',
         x: me.x, y: me.y, z: me.z, yaw: me.yaw, pitch: me.pitch,
-        spd: me.spd, crouch: me.crouch, fl: me.fl
+        spd: me.spd, crouch: me.crouch, fl: me.fl, sliding: !!me.sliding,
+        sprint: !!keys[DEF_KB.sprint] || mobSprintToggle || mobEdgeSprint, bhop: movementAssist.hopBonus > 0
       });
     }
   }
@@ -3266,11 +3852,16 @@ function updateHUD(elapsed, fpsVal) {
     }
   }
 
-  $('speedText').textContent = `SPD: ${me.spd.toFixed(1)} m/s${noclipMode ? ` • [NOCLIP ${Math.round(noclipSpeed)}m/s]` : bhopChain > 0 ? `  [BHOP x${bhopChain}]` : ''}`;
+  $('speedText').textContent = `SPD: ${me.spd.toFixed(1)} m/s${noclipMode ? ` • [NOCLIP ${Math.round(noclipSpeed)}m/s]` : movementAssist.hopBonus > 0 ? '  [BHOP +0.45]' : ''}`;
   if (tpOpen && $('tpCurrentPos')) {
     $('tpCurrentPos').textContent = `Tầng: ${meta.code} (${meta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
   }
 
+  // Environmental navigation in the introduction; ordinary objective/rescue guidance resumes outside it.
+  const classicIntro=inClassicPresentation(map.classic,me.x,me.z);
+  $('missionBox').style.display=classicIntro?'none':'';
+  $('objText').style.display=classicIntro?'none':'';
+  audio.updateClassicAmbience?.(activeLocalLevelId==='level0'?map.classic:null,me);
   // Clear On-Screen Mission / Objective Panel + Zone Indicator + Nearest Waypoint Distance
   const curC = Math.floor(me.x / C), curR = Math.floor(me.z / C);
   const zoneHit = map.ZONES?.find(z => curC >= z.c0 && curC <= z.c1 && curR >= z.r0 && curR <= z.r1);
@@ -3314,7 +3905,7 @@ function updateHUD(elapsed, fpsVal) {
       <div class="mission-title"><span style="white-space:nowrap">${compactCode}</span><span style="text-align:right;font-size:10px">${curZone?.name || meta.vnName}</span></div>
       <div class="mission-step ${pumpsDone >= pumps.length && pumps.length > 0 ? 'done' : 'active'}">${pumpsDone >= pumps.length && pumps.length > 0 ? '✓' : '1.'} Mở 3 Trạm Bơm Thủy Lực (${pumpsDone}/${pumps.length}) — Giữ [E]</div>
       <div class="mission-step ${repairDone ? 'active' : ''}">${repairDone ? '✓' : '2.'} Thoát qua Cổng Khu J ([E])</div>
-      <div class="mission-hint">${tgtLbl}: ${Math.round(dist)}m (${arrow}) • Tránh nước sâu khi có Hydrolitis</div>`;
+      <div class="mission-hint">${tgtLbl}: ${Math.round(dist)}m (${arrow}) • Theo lối gạch khô để tìm trạm bơm — không có thực thể thù địch</div>`;
   } else if (activeLocalLevelId !== 'level0') {
     const repairDone = doneCount >= 1;
     const tgt = repairDone ? (map.PORTALS?.[0] || map.TASKS[0]) : map.TASKS[0];
@@ -3394,8 +3985,8 @@ function updateHUD(elapsed, fpsVal) {
 
     const slots = [
       ['1', 'water', 'Hạnh Nhân'],
-      ['2', 'scan', 'Máy Dò'],
-      ['3', 'jelly', 'Thạch Bướm'],
+      ['9', 'scan', 'Máy Dò'],
+      ['0', 'jelly', 'Thạch Bướm'],
       ['4', 'ration', 'Khẩu Phần'],
       ['5', 'flare', 'Pháo UV']
     ];
@@ -3569,6 +4160,12 @@ function updateRevealMarkers(elapsed) {
 
 // ---------- Input Event Listeners ----------
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && creditsOpen) {
+    if (e.repeat) return;
+    e.preventDefault();
+    closeCreditsModal();
+    return;
+  }
   const inTextField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable);
   if (inMatch && !matchEnded && e.code === 'Escape' && tpOpen) {
     if (e.repeat) return;
@@ -3576,7 +4173,7 @@ window.addEventListener('keydown', (e) => {
     closeTpPanel(true);
     return;
   }
-  if (inMatch && !matchEnded && e.code === 'KeyT' && !inTextField) {
+  if (inMatch && !matchEnded && e.code === 'F2' && !inTextField) {
     if (e.repeat) return;
     e.preventDefault();
     if (tpOpen) closeTpPanel(true);
@@ -3599,6 +4196,15 @@ window.addEventListener('keydown', (e) => {
   if (inTextField) return;
   keys[e.code] = true;
   if (!inMatch || paused || tpOpen) return;
+  if (e.code === DEF_KB.jump && !scState) e.preventDefault();
+  if (players[myId]?.role === 's' && !e.repeat) {
+    if (e.code === 'Digit2') { weaponSystem.equip('relic'); return; }
+    if (e.code === 'Digit6') { weaponSystem.equip('deagle'); return; }
+    if (e.code === 'Digit3') { weaponSystem.equip('butterfly'); return; }
+    if (e.code === 'Digit8') { weaponSystem.equip('none'); return; }
+    if (e.code === presentationSettings(fxSettings).inspectKey) { weaponSystem.inspect(true); return; }
+    if (e.code === 'KeyR') { weaponSystem.reload(); return; }
+  }
 
   if (e.code === 'KeyN') {
     if (!e.repeat) setNoclipMode(!noclipMode);
@@ -3611,8 +4217,8 @@ window.addEventListener('keydown', (e) => {
   } else if (e.code === DEF_KB.trap) {
     triggerKillerTrap();
   } else if (e.code === 'Digit1') useQuickItem(0);
-  else if (e.code === 'Digit2') useQuickItem(1);
-  else if (e.code === 'Digit3') useQuickItem(2);
+  else if (e.code === 'Digit9') useQuickItem(1);
+  else if (e.code === 'Digit0') useQuickItem(2);
   else if (e.code === 'Digit4') useQuickItem(3);
   else if (e.code === 'Digit5') useQuickItem(4);
   else if (e.code === 'KeyM') {
@@ -3671,8 +4277,10 @@ function applyCameraLookDelta(dx, dy, sensScale = 0.0021) {
 
 window.addEventListener('keyup', (e) => {
   keys[e.code] = false;
+  if (e.code === presentationSettings(fxSettings).inspectKey) weaponSystem.inspect(false);
 });
 window.addEventListener('blur', () => {
+  weaponSystem.clearInput(); movementAssist.clearInput();
   for (const k in keys) keys[k] = false;
   resetMobileInputs();
 });
@@ -3726,8 +4334,11 @@ window.addEventListener('mousedown', (e) => {
     requestLock();
     return;
   }
-  if (e.button === 0) triggerKillerSwing();
+  if (e.button === 0) { if (players[myId]?.role === 's') weaponSystem.primary(); else triggerKillerSwing(); }
+  if (e.button === 2 && weaponSystem.available()) { weaponSystem.aim = true; weaponSystem.view.animation.inspect(false); if (['INSPECTING', 'FLEX_LOOP'].includes(weaponSystem.view.animation.state)) weaponSystem.view.animation.transition('RECOVERING'); }
 });
+window.addEventListener('mouseup', (e) => { if (e.button === 2) weaponSystem.aim = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { for (const k in keys) keys[k] = false; weaponSystem.clearInput(); movementAssist.clearInput(); } });
 
 // ---------- UI Button Bindings ----------
 $('soloSurvBtn').addEventListener('click', () => {
@@ -4013,6 +4624,20 @@ $('pauseTpBtn')?.addEventListener('click', (e) => {
   e.stopPropagation();
   openTpPanel();
 });
+$('lobbyCreditsBtn')?.addEventListener('click', () => openCreditsModal('overview'));
+$('footerCreditsBtn')?.addEventListener('click', () => openCreditsModal('overview'));
+$('pauseCreditsBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  openCreditsModal('overview');
+});
+$('creditsCloseBtn')?.addEventListener('click', () => closeCreditsModal());
+$('creditsModal')?.addEventListener('click', (e) => {
+  if (e.target === $('creditsModal')) closeCreditsModal();
+});
+$('creditsTabs')?.addEventListener('click', (e) => {
+  const btn = e.target?.closest?.('[data-credits-tab]');
+  if (btn) switchCreditsTab(btn.dataset.creditsTab);
+});
 $('tpCloseBtn')?.addEventListener('click', () => closeTpPanel(true));
 $('tpNoclipBtn')?.addEventListener('click', () => setNoclipMode(!noclipMode));
 $('tpNoclipSpeed')?.addEventListener('input', (e) => setNoclipSpeed(e.target.value));
@@ -4057,9 +4682,11 @@ const exitToLobby = () => {
   inMatch = false;
   paused = false;
   tpOpen = false;
+  creditsOpen = false;
   matchEnded = false;
   setNoclipMode(false, true);
   $('tpPanel')?.classList.add('hidden');
+  $('creditsModal')?.classList.add('hidden');
   resetMobileInputs();
   document.body.style.cursor = '';
   if (document.pointerLockElement) {
@@ -4084,6 +4711,7 @@ let frameMsSmooth = 16.7;
 const poolEyeAdapt = { adaptedExp: 0.72 };
 
 function animate(now) {
+  window.__LAST_ANIMATE_MS = performance.now();
   requestAnimationFrame(animate);
   const frameStartMs = performance.now();
 
@@ -4106,8 +4734,8 @@ function animate(now) {
   fpsSmooth += (instFps - fpsSmooth) * 0.16;
 
   const elapsed = now * 0.001;
-  // Scale turn-hold window cleanly by frame interval so 24FPS still keeps crisp turn blur & stops on halt
-  const turnHoldMs = fpsCap > 0 ? Math.max(42, Math.min(85, (1000 / fpsCap) * 1.35)) : 42;
+  // Scale turn-hold window cleanly by frame interval so 15/24FPS still keeps crisp turn blur & stops on halt
+  const turnHoldMs = fpsCap > 0 ? Math.max(58, (1000 / fpsCap) * 1.65) : 58;
   if (now - lastCamTurnAt > turnHoldMs) {
     turnYawRate = 0;
     turnPitchRate = 0;
@@ -4118,7 +4746,7 @@ function animate(now) {
 
   if (warmingMatch) return;
 
-  if (inMatch && map && world) {
+  if (inMatch && map && world && !fpsReviewFrozen) {
     matchTime += dt;
     updateHostSimulation(dt);
     if (!net.isHost && map.elevatorState === 'opening') {
@@ -4140,12 +4768,13 @@ function animate(now) {
       av.group.rotation.y = p.yaw || 0;
       if (p.role === 'k') animateEntity(av, dt, p, elapsed);
       else animateSurvivor(av, dt, p, elapsed);
+      if (p.role === 's') weaponSystem.updateRemote(id, av, p, dt);
     }
 
     const killers = Object.values(players).filter(p => p.role === 'k' && (p.levelId || 'level0') === activeLocalLevelId);
     updateWorldLighting(world, map, camera.position, elapsed, killers.map(k => ({ x: k.x, z: k.z })));
-    if (activeLocalLevelId === 'level37' && world.updateExtra) {
-      world.updateExtra(elapsed, camera.position, map, scene.fog, killers[0] ? { x: killers[0].x, y: 0, z: killers[0].z } : null);
+    if ((world?.isSubLevel || activeLocalLevelId === 'level37') && world.updateExtra) {
+      world.updateExtra(elapsed, camera.position, map, scene.fog, killers[0] ? { x: killers[0].x, y: 0, z: killers[0].z } : null, camera.far);
     }
 
     // Update active thrown UV Flares
@@ -4176,12 +4805,14 @@ function animate(now) {
     // Reactive Audio & Panic Calculation across ALL active patrolling Entities
     let entityDist = 999;
     let entityVisible = false;
+    let nearestEntity = null;
     if (me && killers.length && !isK) {
       for (const kr of killers) {
         const d = Math.hypot(kr.x - me.x, kr.z - me.z);
         if (d < entityDist) {
           entityDist = d;
-          entityVisible = d < 26 && !blocked(me.x, me.z, kr.x, kr.z, map);
+          nearestEntity = kr;
+          entityVisible = d < 32 && !blocked(me.x, me.z, kr.x, kr.z, map);
         }
       }
     } else if (me && isK) {
@@ -4190,44 +4821,66 @@ function animate(now) {
           const d = Math.hypot(s.x - me.x, s.z - me.z);
           if (d < entityDist) {
             entityDist = d;
-            entityVisible = d < 18 && !blocked(me.x, me.z, s.x, s.z, map);
+            entityVisible = d < 24 && !blocked(me.x, me.z, s.x, s.z, map);
           }
         }
       }
     }
 
-    const panic = isK
-      ? (entityVisible ? 0.35 : 0.05)
-      : Math.max(me.hp === 1 ? 0.35 : 0, Math.min(1, 1 - (entityDist - 3) / 18));
+    if (ambushCD > 0) ambushCD = Math.max(0, ambushCD - dt);
+    const closeLOSNow = !isK && !!me && me.state === 'ok' && entityVisible && entityDist < 6.8;
+    if (closeLOSNow && !wasEntityCloseLOS && ambushCD <= 0 && !location.hash.includes('test')) {
+      ambushCD = 22;
+      triggerJumpscare({
+        aiKind: nearestEntity?.aiKind || 'bacteria',
+        killerName: nearestEntity?.name || 'Thực Thể',
+        ambush: true
+      });
+    }
+    wasEntityCloseLOS = !isK && entityVisible && entityDist < 8.5;
 
-    // Extreme POV camera earthquake + VHS signal breakdown when Entity approaches closely
+    if (jumpscareT > 0) jumpscareT = Math.max(0, jumpscareT - dt);
+    const jsNorm = jumpscareT > 0 ? (jumpscareT / Math.max(0.1, jumpscareDur)) : 0;
+
+    const panic = isPeacefulLevel(activeLocalLevelId)?0:isK
+      ? (entityVisible ? 0.35 : 0.05)
+      : Math.min(1, Math.max(me.hp === 1 ? 0.35 : 0, 1 - (entityDist - 3) / 20, jsNorm * 1.15));
+
+    // Extreme POV camera earthquake + Jumpscare trauma impact + VHS breakdown
     let frameShakeX = paused ? 0 : shakeXRate;
     let frameShakeY = paused ? 0 : shakeYRate;
-    if (!isK && entityDist < 19) {
-      const q = Math.pow(Math.max(0, 1 - (entityDist - 2.5) / 16.5), 1.55);
-      const posAmp = q * 0.068;
-      const rotAmp = q * 0.042;
-      const qYaw = Math.cos(elapsed * 58.2);
-      const qPitch = Math.sin(elapsed * 67.4);
+    if (!isK && (entityDist < 19 || jsNorm > 0.01)) {
+      const q = entityDist < 19 ? Math.pow(Math.max(0, 1 - (entityDist - 2.5) / 16.5), 1.55) : 0;
+      const jsPow = Math.pow(jsNorm, 0.72);
+      const posAmp = q * 0.068 + jsPow * 0.145;
+      const rotAmp = q * 0.042 + jsPow * 0.14;
+      const qYaw = Math.cos(elapsed * (jsPow > 0.1 ? 82.0 : 58.2));
+      const qPitch = Math.sin(elapsed * (jsPow > 0.1 ? 94.0 : 67.4));
       camera.position.x += (Math.sin(elapsed * 53.7) * 0.6 + Math.cos(elapsed * 89.3) * 0.4) * posAmp;
       camera.position.y += (Math.cos(elapsed * 61.1) * 0.7 + Math.sin(elapsed * 97.9) * 0.3) * posAmp;
       camera.position.z += Math.sin(elapsed * 71.3) * posAmp * 0.5;
       camera.rotation.x += qPitch * rotAmp;
       camera.rotation.y += qYaw * rotAmp;
       camera.rotation.z += Math.sin(elapsed * 49.5) * (rotAmp * 1.25);
+      if (jsPow > 0.02) {
+        camera.fov = (isK ? 86 : 80) + Math.sin(jsNorm * Math.PI) * 14.0;
+        camera.updateProjectionMatrix();
+      }
       if (!paused) {
-        frameShakeX += qYaw * q * 3.6;
-        frameShakeY += qPitch * q * 3.6;
+        frameShakeX += qYaw * (q * 3.6 + jsPow * 7.5);
+        frameShakeY += qPitch * (q * 3.6 + jsPow * 7.5);
       }
     }
 
     fearFx.style.background = 'radial-gradient(circle, transparent 42%, rgba(160, 12, 8, 0.85) 100%)';
-    fearFx.style.opacity = !isK && panic > 0.12 ? (panic * 0.75).toFixed(2) : '0';
+    fearFx.style.opacity = !isK && (panic > 0.12 || jsNorm > 0.05) ? Math.min(1, panic * 0.78 + jsNorm * 0.28).toFixed(2) : '0';
 
+    weaponSystem.update(dt, { player: me, speed: me?.spd || 0, visible: !!me && !matchEnded && me.role === 's' && me.state === 'ok', sprint: !!me && me.movement?.key !== 'tactical' && me.spd > SPEED.SURV_WALK + .5 && !me.sliding, sliding: !!me?.sliding, breath: humanCamera.out.breath, turnX: turnYawRate, turnY: turnPitchRate, light: zoneLightSmooth, reduced: fxSettings.reducedMotion, touch: isMobileUiActive(), clean: fxSettings.cleanCamHud, profile: me?.movement });
     audio.updateListener(camera.position, me ? camYaw : 0, me ? camPitch : 0);
     const runSpeedRatio = me && !paused ? Math.min(1, (me.spd || 0) / SPEED.SURV_SPRINT) : 0;
     const stamRatio = Math.max(0, Math.min(1, stam / SPEED.STAM_DRAIN));
-    const isSprintingNow = !paused && !!me && (me.spd || 0) > SPEED.SURV_WALK + 0.6;
+    const isSprintingNow = !paused && !!me && me.movement?.key !== 'tactical' && (me.spd || 0) > SPEED.SURV_WALK + 0.6;
+    const lvl0Atmo = (me && activeLocalLevelId === 'level0') ? getZoneAtmosphereAt(me.x, me.z, map) : null;
     audio.updateReactiveMix(dt, {
       inGame: true,
       paused,
@@ -4240,6 +4893,7 @@ function animate(now) {
       speedRatio: runSpeedRatio,
       stamRatio,
       zoneLight: zoneLightSmooth,
+      zoneAcoustic: lvl0Atmo?.acoustic || 'standard',
       panic
     });
     const isRepairing = !!(busyAct && busyAct.kind === 'task' && !scState);
@@ -4276,13 +4930,18 @@ function animate(now) {
           _atmoHemiSky.setHex(pz.ambColor ?? lc.ambColor ?? 0xe8ebe0);
           ambLight.color.lerp(_atmoHemiSky, atmLerp);
           ambLight.intensity += (((pz.ambInt ?? lc.ambInt ?? 0.48) * 0.50) - ambLight.intensity) * atmLerp;
-          // Asymmetric Dynamic Eye Adaptation: dark -> bright (~0.55s settle), bright -> dark (~1.9s recovery)
-          const rawTargetExp = Math.min(0.84, Math.max(0.54, ((pz.exposure ?? 0.74) * 0.78 + (lookPz?.exposure ?? pz.exposure ?? 0.74) * 0.22) * 0.94));
-          const toBright = rawTargetExp > poolEyeAdapt.adaptedExp;
-          const eyeRate = 1 - Math.exp(-dt / (toBright ? 0.55 : 1.9));
-          poolEyeAdapt.adaptedExp += (rawTargetExp - poolEyeAdapt.adaptedExp) * eyeRate;
-          const clampedExp = Math.min(1.06, Math.max(0.50, poolEyeAdapt.adaptedExp * br));
-          renderer.toneMappingExposure += (clampedExp - renderer.toneMappingExposure) * Math.min(1, eyeRate * 1.45);
+          // When V7 GPU AdaptiveExposurePass runs in PostFX, hold renderer exposure neutral (1.0) so custom water/sunshaft shaders match walls without double-adapting.
+          const v7EyeManaged = !!(fxSettings.postFX && fxSettings.eyeAdaptEnabled && fxSettings.eyeAdaptPreset !== 'off');
+          if (v7EyeManaged) {
+            renderer.toneMappingExposure = 1.0;
+          } else {
+            const rawTargetExp = Math.min(pz.art?1.12:0.84, Math.max(0.54, ((pz.exposure ?? 0.74) * 0.78 + (lookPz?.exposure ?? pz.exposure ?? 0.74) * 0.22) * 0.94));
+            const toBright = rawTargetExp > poolEyeAdapt.adaptedExp;
+            const eyeRate = 1 - Math.exp(-dt / (toBright ? 0.55 : 1.9));
+            if(!world.daylightStats?.autoExposure){poolEyeAdapt.adaptedExp += (rawTargetExp - poolEyeAdapt.adaptedExp) * eyeRate;
+            const clampedExp = Math.min(1.06, Math.max(0.50, poolEyeAdapt.adaptedExp * br));
+            renderer.toneMappingExposure += (clampedExp - renderer.toneMappingExposure) * Math.min(1, eyeRate * 1.45);}
+          }
           audio.updatePoolroomsZoneAudio?.(dt, pz, !!me.inWater, me, map);
           updatePoolroomsWorldEvents(dt, elapsed, me, map, world, audio, (cueTxt) => pushFeed(cueTxt, '#7ceeff'));
         } else {
@@ -4295,7 +4954,7 @@ function animate(now) {
           ambLight.color.setHex(lc.ambColor ?? 0x88929a);
           ambLight.intensity = (lc.ambInt ?? 0.35) * 0.45;
           const brightCap = (lc.id === 'level37' || lc.id === 'level974' || lc.id === 'level9223') ? 0.76 : (lc.isOutdoor ? 0.90 : 0.85);
-          renderer.toneMappingExposure = brightCap * br;
+          renderer.toneMappingExposure = fxSettings.postFX ? 1.0 : brightCap * br;
         }
       } else {
         const targetZL = getZoneLuminanceAt(me.x, me.z, map);
@@ -4313,14 +4972,14 @@ function animate(now) {
         const br = Number(fxSettings.brightness) || 1.0;
         hemiLight.intensity = THREE.MathUtils.lerp(0.20, 0.44, zl);
         ambLight.intensity = THREE.MathUtils.lerp(0.08, 0.15, zl);
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 1.03, zl) * br * ((atmo.exposure || 1.06) / 1.06);
+        renderer.toneMappingExposure = fxSettings.postFX ? 1.0 : THREE.MathUtils.lerp(0.94, 1.03, zl) * br * ((atmo.exposure || 1.06) / 1.06);
       }
     } else if (isK) {
       scene.fog.density = FOG_KILLER;
       scene.fog.color.setHex(0x120b05);
       hemiLight.intensity = 0.26;
       ambLight.intensity = 0.10;
-      renderer.toneMappingExposure = 0.94 * (Number(fxSettings.brightness) || 1.0);
+      renderer.toneMappingExposure = fxSettings.postFX ? 1.0 : 0.94 * (Number(fxSettings.brightness) || 1.0);
     }
 
     const speedBlurRatio = me && !paused ? Math.max(0, (me.spd - 1.2) / 3.8) : 0;
@@ -4345,6 +5004,8 @@ function animate(now) {
     audio.updateRepairAudio(dt, false, 0);
   }
 
+  gfx.setEnvironmentProfile?.(activeLocalLevelId);
+  updateSceneOptics(elapsed,dt);
   gfx.render(dt);
   const workMs = performance.now() - frameStartMs;
   frameMsSmooth += (workMs - frameMsSmooth) * 0.16;
@@ -4432,13 +5093,27 @@ async function runSelfTests() {
   const prevFpsCap = fpsCap;
   const prevAspect = aspectMode;
   assert(
-    currentGfx === 'ultra' && fpsCap === 15 && aspectMode === '4:3' && Math.abs(mouseSens - 0.6) < 0.01 &&
-    fxSettings.footageFilterMode === 'found_vhs' && Math.abs(fxSettings.footageFilterStrength - 0.35) < 0.01 &&
-    fxSettings.rtShadow === 1.6 && fxSettings.lensCurve === 1.5 && fxSettings.motionBlur === 3.0 &&
-    fxSettings.dofBlur === 1.5 && fxSettings.bloom === 3.5 && fxSettings.grain === 1.5 &&
-    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && fxSettings.brightness === 1.35 &&
-    Math.abs(fxSettings.contrast - 1.02) < 0.005 && Math.abs(fxSettings.gamma - 1.04) < 0.005 &&
-    fxSettings.hue === 0 && Math.abs(fxSettings.saturation - 1.09) < 0.005 &&
+    currentGfx === 'ultra' && fpsCap === defaultFps && aspectMode === '4:3' && Math.abs(mouseSens - 1.0) < 0.01 &&
+    fxSettings.footageFilterMode === 'soft_dreamcam' && Math.abs(fxSettings.footageFilterStrength - 1.0) < 0.01 &&
+    Math.abs(fxSettings.upscaleSoftness - 1.2) < 0.01 && Math.abs(fxSettings.halation - 2.5) < 0.01 &&
+    Math.abs(fxSettings.clarity - 1.0) < 0.01 &&
+    fxSettings.rtShadow === 1.6 && fxSettings.lensCurve === 1.5 && fxSettings.crtScanlines === true &&
+    fxSettings.motionBlur === 3.0 && fxSettings.dofBlur === 1.5 && Math.abs(fxSettings.bloom - 2.3) < 0.01 &&
+    Math.abs(fxSettings.baseGrain - 0.35) < 0.01 && fxSettings.grain === 1.5 &&
+    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && Math.abs(fxSettings.brightness - 0.80) < 0.01 &&
+    Math.abs(fxSettings.contrast - 1.00) < 0.005 && Math.abs(fxSettings.gamma - 1.00) < 0.005 &&
+    fxSettings.hue === 0 && Math.abs(fxSettings.saturation - 1.05) < 0.005 &&
+    fxSettings.eyeAdaptPreset === 'custom' && fxSettings.eyeAdaptEnabled === true &&
+    Math.abs(fxSettings.eyeAdaptStrength - 2.0) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptBrightSpeed - 0.60) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptDarkSpeed - 6.0) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptComp - 0.15) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptMinExp - 0.65) < 0.01 &&
+    Math.abs(fxSettings.eyeAdaptMaxExp - 4.0) < 0.01 &&
+    fxSettings.renderDistPreset === '800' && fxSettings.renderDistance === 800 &&
+    Math.abs(fxSettings.renderScale - 1.5) < 0.01 && fxSettings.aaMode === 'msaa' &&
+    fxSettings.shadows === true && fxSettings.waterQuality === 'ultra' && fxSettings.cloudQuality === 'ultra' &&
+    fxSettings.postFX === true && fxSettings.dust === true &&
     fxSettings.cleanCamHud === true && fxSettings.touchControls === 'auto',
     'default_settings_ultra_15fps_43_matched'
   );
@@ -4560,11 +5235,19 @@ async function runSelfTests() {
   );
   gfx.update(0.016, { turnYawRate: -16.0, turnPitchRate: 0.4, speedRatio: 0.9, panic: 0.2, isKiller: false, elapsed: 1.0, nearLights: world.lightPool });
   gfx.update(0.016, { turnYawRate: -16.0, turnPitchRate: 0.4, speedRatio: 0.9, panic: 0.2, isKiller: false, elapsed: 1.02, nearLights: world.lightPool });
+  gfx.render(0.016);
   assert(
     gfx.motionBlur.uniforms.get('uVelocity').value.length() > 0.16 &&
-    Number(FX_CONTROLS.find(c => c.key === 'motionBlur')?.max || 0) >= 3.0,
+    Number(FX_CONTROLS.find(c => c.key === 'motionBlur')?.max || 0) >= 3.0 &&
+    gfx.motionBlur.uniforms.get('uShutterScale').value >= 0.55 &&
+    gfx.motionBlur.uniforms.get('uHasHistory').value === 1.0 &&
+    Math.abs(gfx.motionBlur.uniforms.get('uReprojMatrix').value.elements[12]) > 0.001 &&
+    (gfx.composer.passes.indexOf(gfx.bloomPass) < 0 || gfx.composer.passes.indexOf(gfx.mblurPass) < gfx.composer.passes.indexOf(gfx.bloomPass)),
     'motion_blur_raised_ceiling'
   );
+  turnYawRate = 0; turnPitchRate = 0;
+  gfx.update(0.016, { turnYawRate: 0, turnPitchRate: 0, shakeXRate: 0, shakeYRate: 0, speedRatio: 0, panic: 0, isKiller: false, elapsed: 1.05, nearLights: world.lightPool });
+  gfx.resetMotionHistory();
   assert(
     gfx.crtGrade.uniforms.get('uCrtFar').value > 50 && gfx.crtGrade.uniforms.get('uCrtNear').value <= 0.06,
     'close_object_clarity_uniforms'
@@ -4656,7 +5339,7 @@ async function runSelfTests() {
   applyFxSettings();
   assert(getComputedStyle($('missionBox')).display !== 'none', 'clean_cam_hud_can_disable_cleanly');
 
-  // Test multi-layer Low-Quality Found-Footage / Stream / VOD filter presets (PC Ultra defaults to Found/VHS 35%)
+  // Test multi-layer Low-Quality Found-Footage / Stream / VOD filter presets (PC Ultra defaults to Soft Upscale / Dreamcam 100%)
   const savedFilterMode = fxSettings.footageFilterMode;
   const savedFilterStrength = fxSettings.footageFilterStrength;
   const modeSelects = document.querySelectorAll('select[data-fx-key="footageFilterMode"]');
@@ -4666,7 +5349,7 @@ async function runSelfTests() {
     modeSelects.length === 2 &&
     softnessSliders.length === 2 &&
     halationSliders.length === 2 &&
-    savedFilterMode === 'found_vhs' && Math.abs(savedFilterStrength - 0.35) < 0.01 &&
+    savedFilterMode === 'soft_dreamcam' && Math.abs(savedFilterStrength - 1.0) < 0.01 &&
     Array.from(modeSelects).every(el => !!el.querySelector('option[value="hybrid_all"]') && !!el.querySelector('option[value="soft_dreamcam"]')),
     'footage_filter_defaults_and_ui_mounted'
   );
@@ -4756,6 +5439,154 @@ async function runSelfTests() {
   fxSettings.cleanCamHud = savedCleanCam;
   applyFxSettings();
 
+  // Test standalone Anti-Aliasing modes (Off, FXAA Performance, SMAA Quality, Hardware MSAA) across Footage modes
+  {
+    const savedAaMode = fxSettings.aaMode;
+    const aaSelects = document.querySelectorAll('select[data-fx-key="aaMode"]');
+    assert(
+      aaSelects.length === 2 &&
+      savedAaMode === 'msaa' &&
+      Array.from(aaSelects).every(el =>
+        ['off', 'fxaa', 'smaa', 'msaa'].every(v => !!el.querySelector(`option[value="${v}"]`))
+      ),
+      'aa_mode_ui_and_default_smaa_mounted'
+    );
+    fxSettings.footageFilterMode = 'soft_dreamcam';
+    fxSettings.footageFilterStrength = 1.0;
+
+    fxSettings.aaMode = 'smaa';
+    applyFxSettings();
+    gfx.render(0.016);
+    assert(
+      gfx.activeAaMode === 'smaa' &&
+      gfx.aaPass !== null &&
+      gfx.aaPass.effects.includes(gfx.smaa) &&
+      gfx.motionBlur.uniforms.get('uExternalAa').value === 1.0,
+      'aa_smaa_pipeline_active_with_dreamcam'
+    );
+
+    fxSettings.aaMode = 'fxaa';
+    applyFxSettings();
+    gfx.render(0.016);
+    assert(
+      gfx.activeAaMode === 'fxaa' &&
+      gfx.aaPass !== null &&
+      gfx.aaPass.effects.includes(gfx.fxaa) &&
+      gfx.composer.multisampling === 0,
+      'aa_fxaa_pipeline_active'
+    );
+
+    fxSettings.aaMode = 'msaa';
+    applyFxSettings();
+    gfx.render(0.016);
+    const hwCap = Math.min(4, renderer.capabilities?.maxSamples || 0);
+    assert(
+      hwCap >= 2
+        ? (gfx.activeAaMode === 'msaa' && gfx.composer.multisampling === hwCap && gfx.aaPass === null)
+        : (gfx.activeAaMode === 'smaa' && gfx.aaPass !== null),
+      'aa_msaa_or_smaa_fallback_active'
+    );
+
+    fxSettings.aaMode = 'off';
+    applyFxSettings();
+    gfx.render(0.016);
+    assert(
+      gfx.activeAaMode === 'off' &&
+      gfx.aaPass === null &&
+      gfx.composer.multisampling === 0 &&
+      gfx.motionBlur.uniforms.get('uExternalAa').value === 0.0,
+      'aa_disabled_cleanly'
+    );
+
+    fxSettings.aaMode = savedAaMode;
+    fxSettings.footageFilterMode = savedFilterMode;
+    fxSettings.footageFilterStrength = savedFilterStrength;
+    applyFxSettings();
+  }
+
+  // Test standalone always-on Basic Grain slider independent of bright-light Micro-Grain & Bloom
+  {
+    const savedBaseGrain = fxSettings.baseGrain;
+    const savedHiGrain = fxSettings.grain;
+    const savedModeBg = fxSettings.footageFilterMode;
+    const baseGrainSliders = document.querySelectorAll('input[data-fx-key="baseGrain"]');
+    assert(
+      baseGrainSliders.length === 2 &&
+      Math.abs(savedBaseGrain - 0.35) < 0.01 &&
+      Array.from(baseGrainSliders).every(el => Number(el.min) === 0 && Number(el.max) >= 2.0) &&
+      Math.abs(gfx.crtGrade.uniforms.get('uBaseGrain').value - 0.35) < 0.01,
+      'base_grain_ui_and_default_mounted'
+    );
+    fxSettings.footageFilterMode = 'off';
+    fxSettings.grain = 0;
+    fxSettings.baseGrain = 1.6;
+    applyFxSettings();
+    gfx.render(0.016);
+    assert(
+      Math.abs(gfx.crtGrade.uniforms.get('uBaseGrain').value - 1.6) < 0.01 &&
+      gfx.crtGrade.uniforms.get('uGrainAmount').value === 0,
+      'base_grain_independent_of_highlight_grain'
+    );
+    fxSettings.baseGrain = 0;
+    applyFxSettings();
+    gfx.render(0.016);
+    assert(gfx.crtGrade.uniforms.get('uBaseGrain').value === 0, 'base_grain_zero_disables_cleanly');
+    fxSettings.baseGrain = savedBaseGrain;
+    fxSettings.grain = savedHiGrain;
+    fxSettings.footageFilterMode = savedModeBg;
+    applyFxSettings();
+  }
+
+  // Test Graphics System V7: Eye Adaptation GPU Pass, Extended 400%/300%/250% Footage Controls, Clarity, Render Distance
+  {
+    const snap = { ...fxSettings };
+    const passIdx = gfx.composer?.passes?.indexOf(gfx.exposurePass) ?? -1;
+    const bloomIdx = gfx.composer?.passes?.indexOf(gfx.bloomPass) ?? -1;
+    assert(
+      passIdx >= 1 && (bloomIdx < 0 || passIdx < bloomIdx) &&
+      document.querySelectorAll('#pauseFxMount .fx-group-head').length === FX_GROUPS.length &&
+      gfx.exposurePass._adaptMat.uniforms.uBrightTau.value < gfx.exposurePass._adaptMat.uniforms.uDarkTau.value,
+      'v7_eye_adaptation_gpu_pass_and_presets'
+    );
+
+    fxSettings.footageFilterMode = 'hybrid_all';
+    fxSettings.footageFilterStrength = 4.0;
+    fxSettings.upscaleSoftness = 3.0;
+    fxSettings.halation = 2.5;
+    fxSettings.clarity = 1.0;
+    applyFxSettings();
+    gfx.render(0.016);
+    const crtU = gfx.crtGrade.uniforms;
+    assert(
+      crtU.get('uCompressAmt').value > 1.8 &&
+      crtU.get('uLensSoftness').value > 1.8 &&
+      crtU.get('uHalationAmt').value > 1.8 &&
+      crtU.get('uClarity').value === 1.0 &&
+      Number.isFinite(crtU.get('uSubResH').value),
+      'v7_extended_footage_400_300_250_limits_and_clarity'
+    );
+
+    fxSettings.clarity = -1.0;
+    applyFxSettings();
+    assert(crtU.get('uClarity').value === -1.0, 'v7_clarity_negative_soft_mode');
+
+    fxSettings.renderDistance = 50;
+    applyFxSettings();
+    const vis50 = world.streamingStats?.visibleChunks ?? 0;
+    const far50 = camera.far;
+    fxSettings.renderDistance = 400;
+    applyFxSettings();
+    const vis400 = world.streamingStats?.visibleChunks ?? 0;
+    const far400 = camera.far;
+    assert(
+      far50 === 50 && far400 === 400 && vis50 < vis400,
+      'v7_render_distance_changes_far_plane_and_visible_chunks'
+    );
+
+    Object.assign(fxSettings, snap);
+    applyFxSettings();
+  }
+
   // Color grading controls: Contrast, Gamma, Hue, Saturation (tighter, subtle ranges; Ultra defaults match PC screenshot)
   const savedColorCon = fxSettings.contrast;
   const savedColorGam = fxSettings.gamma;
@@ -4772,10 +5603,10 @@ async function runSelfTests() {
     Number(conInput?.min) >= 0.75 && Number(conInput?.max) <= 1.30 &&
     Number(hueInput?.min) >= -45 && Number(hueInput?.max) <= 45 &&
     Number(satInput?.min) >= 0.5 && Number(satInput?.max) <= 1.4 &&
-    Math.abs(gfx.crtGrade.uniforms.get('uContrast').value - 1.02) < 0.01 &&
-    Math.abs(gfx.crtGrade.uniforms.get('uGamma').value - 1.04) < 0.01 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uContrast').value - 1.00) < 0.01 &&
+    Math.abs(gfx.crtGrade.uniforms.get('uGamma').value - 1.00) < 0.01 &&
     Math.abs(gfx.crtGrade.uniforms.get('uHue').value) < 1e-5 &&
-    Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.09) < 0.01,
+    Math.abs(gfx.crtGrade.uniforms.get('uSaturation').value - 1.05) < 0.01,
     'color_settings_defaults_and_ui_mounted'
   );
   fxSettings.contrast = 1.18;
@@ -5158,7 +5989,7 @@ async function runSelfTests() {
         sm.worldSpan >= 500 &&
         sm.TASKS?.length === 1 &&
         sm.PORTALS?.length === 1 &&
-        propCount >= 18 &&
+        (propCount >= 18 || (sm.customPoolrooms && sm.POOL_CELLS?.length > 100)) &&
         (sm.LIGHTS?.length || 0) >= 4 &&
         Math.hypot(sx - sm.SPAWN.x, sz - sm.SPAWN.z) < 0.8 &&
         Number.isFinite(sx) && Number.isFinite(sz) &&
@@ -5171,45 +6002,19 @@ async function runSelfTests() {
     if (subDiag.length > 0) console.error('SUBLEVEL VERIFY FAIL:', subDiag);
     assert(subDiag.length === 0, 'all_20_sublevels_vast_architecture_and_loops');
 
-    // Poolrooms: underwater basin depth, downhill water slides & water_only Entity behavior
+    // Poolrooms: underwater basin depth, downhill water slides and peaceful policy
     const poolMap = getOrCreateLevelMap('level37');
     const basin = poolMap.WATER_RECTS?.[0];
     const slide = poolMap.SLIDES?.[0];
     const wetX = basin ? basin.x0 + 4.5 : 0;
     const wetZ = basin ? basin.z0 + 4.5 : 0;
-    const bridgeX = basin ? (basin.x0 + basin.x1) * 0.5 : 0;
-    const bridgeZ = basin ? (basin.z0 + basin.z1) * 0.5 : 0;
+    const bridgeX = poolMap.SPAWN.x;
+    const bridgeZ = poolMap.SPAWN.z;
     const basinTerr = basin ? getTerrainAt(wetX, wetZ, poolMap, 0) : null;
     const bridgeTerr = basin ? getTerrainAt(bridgeX, bridgeZ, poolMap, 0) : null;
     const slideTerr = slide ? getTerrainAt((slide.x0 + slide.x1) * 0.5, (slide.z0 + slide.z1) * 0.5, poolMap, 5) : null;
     const dryTerr = getTerrainAt(poolMap.SPAWN.x, poolMap.SPAWN.z, poolMap, 0);
-    const poolEntAI = new EntityAIController('test_pool_stalker', {
-      id: 'test_pool_stalker',
-      kind: 'crawler',
-      behavior: 'water_only',
-      speedMult: 1.0,
-      sightRange: 26,
-      hearRange: 18
-    });
-    const fakeEnt = {
-      id: 'test_pool_stalker',
-      role: 'k',
-      levelId: 'level37',
-      x: wetX + 3,
-      y: basinTerr?.floorY || -0.68,
-      z: wetZ,
-      yaw: 0, spd: 0, carrying: null, stunT: 0, blindT: 0
-    };
-    const fakeDrySurv = {
-      s1: { id: 's1', role: 's', state: 'ok', levelId: 'level37', x: bridgeX, y: bridgeTerr?.floorY || 0.08, z: bridgeZ, crouch: false, fl: false, spd: 6 }
-    };
-    poolEntAI.update(0.1, fakeEnt, fakeDrySurv, poolMap, {});
-    const ignoredDry = poolEntAI.state === 'PATROL';
-    const fakeWetSurv = {
-      s1: { id: 's1', role: 's', state: 'ok', levelId: 'level37', x: wetX, y: basinTerr?.floorY || -0.68, z: wetZ, crouch: false, fl: false, spd: 5 }
-    };
-    poolEntAI.update(0.1, fakeEnt, fakeWetSurv, poolMap, {});
-    const chasedWet = poolEntAI.state === 'CHASE' && poolEntAI.targetId === 's1';
+    const peacefulPool = poolMap.levelCfg?.peaceful === true && !poolMap.levelCfg?.entity && poolMap.ENTITY_ROUTES.length === 0;
     const validMusicLayers = new Set([
       'peaceful_shallow', 'dark_submerged', 'colored_sanctuary',
       'slide_cathedral', 'industrial_nexus', 'silent_horror'
@@ -5251,10 +6056,7 @@ async function runSelfTests() {
       bridgeTerr,
       slideTerr,
       dryTerr,
-      ignoredDry,
-      chasedWet,
-      aiStateAfterWet: poolEntAI.state,
-      aiTargetAfterWet: poolEntAI.targetId
+      peacefulPool
     };
     const poolPass = (
       poolDiag.waters >= 3 &&
@@ -5266,10 +6068,10 @@ async function runSelfTests() {
       bridgeTerr?.inWater === false &&
       slideTerr?.onSlide === true && Math.hypot(slideTerr.slideVelX, slideTerr.slideVelZ) > 0.5 &&
       dryTerr?.inWater === false &&
-      ignoredDry && chasedWet
+      peacefulPool
     );
     if (!poolPass) console.error('POOL TEST DIAG:', JSON.stringify(poolDiag));
-    assert(poolPass, 'poolrooms_water_slides_and_water_only_monster');
+    assert(poolPass, 'poolrooms_water_slides_and_peaceful_policy');
 
     // Interactive enter -> Co-op Join -> Activate 3 Pumps to Unlock Portal -> Return to Level 0 loop
     players['ally_coop'] = {
@@ -5367,13 +6169,120 @@ async function runSelfTests() {
     }
     assert(tpPass, 'teleport_panel_and_noclip_3d_flight_work_cleanly');
 
+    // Credits & Legal UI accessibility checks
+    const footerEl = $('legalFooter');
+    const lobbyCredBtn = $('lobbyCreditsBtn');
+    const credModal = $('creditsModal');
+    openCreditsModal('backrooms');
+    const credOpened = creditsOpen === true && credModal && !credModal.classList.contains('hidden');
+    const backroomsTabActive = !!credModal?.querySelector('[data-credits-panel="backrooms"]:not(.hidden)');
+    switchCreditsTab('privacy');
+    const privacyTabActive = !!credModal?.querySelector('[data-credits-panel="privacy"]:not(.hidden)');
+    closeCreditsModal();
+    const credClosed = creditsOpen === false && !!credModal?.classList.contains('hidden');
+    assert(
+      Boolean(footerEl && lobbyCredBtn && credOpened && backroomsTabActive && privacyTabActive && credClosed),
+      'credits_legal_modal_and_footer_accessible'
+    );
+
+    // Expanded Backrooms Music + Chase Library + Sprint Breathing + Jumpscare + Smart AI Balance
+    const musicKeysCount = Object.keys(MUSIC_TRACKS).length;
+    const preloadedNewMusic = ['lvl0_hum', 'lvl5_hotel', 'chase_pulse', 'chase_redlands'].every(
+      k => (audio.rawBuffers[k]?.byteLength || 0) > 10000
+    );
+    const preloadedNewSfx = ['sfx_jumpscare', 'sfx_sprint_breath', 'sfx_horror_breath'].every(
+      k => (audio.sfxRawBuffers[k]?.byteLength || 0) > 1000
+    );
+    assert(
+      musicKeysCount >= 30 && AMBIENT_TRACK_KEYS.length >= 20 && CHASE_TRACK_KEYS.length >= 8 &&
+      preloadedNewMusic && preloadedNewSfx,
+      'expanded_backrooms_music_chase_and_sprint_sfx'
+    );
+
+    triggerJumpscare({ aiKind: 'smiler', killerName: 'The Smiler', down: false });
+    const jsActiveOk = Boolean(
+      jumpscareFx &&
+      jumpscareFx.classList.contains('active') &&
+      getComputedStyle(jumpscareFx).pointerEvents === 'none' &&
+      jumpscareT > 0.5 &&
+      jsFaceWrap?.innerHTML.includes('<svg')
+    );
+    if (jumpscareHideTimer) { clearTimeout(jumpscareHideTimer); jumpscareHideTimer = null; }
+    jumpscareT = 0;
+    jumpscareFx?.classList.remove('active');
+    jumpscareFx?.classList.add('hidden');
+    assert(jsActiveOk, 'jumpscare_attack_overlay_and_audio_impulse');
+
+    const archStatsOk = ENTITY_ARCHETYPES.every(a =>
+      a.patrolSpd <= 5.0 &&
+      a.chaseSpd >= SPEED.SURV_SPRINT*.6 && a.chaseSpd <= SPEED.SURV_SPRINT*.75 &&
+      (a.maxChaseSpd || a.chaseSpd) <= SPEED.KILLER_SPRINT + 0.01 &&
+      a.sightRange >= 24 &&
+      a.hearRange >= 19
+    );
+    const lvl0EntCount = aiControllers.filter(c => !c.id.startsWith('AI_SUB_')).length;
+    const subPoolEntCount = aiControllers.filter(c => c.id.startsWith('AI_SUB_level37')).length;
+    const smartCtrl = new EntityAIController('TEST_SMART', ENTITY_ARCHETYPES[0]);
+    smartCtrl.reset(tMap.SPAWN.x, tMap.SPAWN.z, tMap.ENTITY_ROUTES?.[0]?.wps || []);
+    smartCtrl.investigate(tMap.SPAWN.x + 12, tMap.SPAWN.z + 6, tMap, 6.0);
+    assert(
+      archStatsOk && lvl0EntCount >= 8 && subPoolEntCount === 0 && smartCtrl.state === 'INVESTIGATE',
+      'smart_ai_speed_detection_and_extra_spawns'
+    );
+
+    // Level 0 V6: 124x239 Rectangular Grid, 360° Centered Spawn, 20+ Rear Variants, Parity & Melee/Mezzanine Checks
+    {
+      const gCols = tMap.gridCols ?? tMap.gridN;
+      const gRows = tMap.gridRows ?? tMap.gridN;
+      const rearZones = (tMap.ZONES || []).slice(tMap.frontZoneCount || 0);
+      const rearVariantTypes = new Set(rearZones.map(z => z.type));
+      const frontSpotsCount = (tMap.SPOTS || []).filter(s => s.r < N - 2).length;
+      const rearSpotsCount = (tMap.SPOTS || []).filter(s => s.r >= N).length;
+      const frontTasksCount = (tMap.TASKS || []).filter(t => t.r < N - 2).length;
+      const rearTasksCount = (tMap.TASKS || []).filter(t => t.r >= N).length;
+      const frontLightsCount = (tMap.LIGHTS || []).filter(l => l.z < N * C - 7.6).length;
+      const rearLightsCount = (tMap.LIGHTS || []).filter(l => l.z >= N * C).length;
+      const flankWPath = findGridPath(tMap, tMap.ELEVATOR.x, tMap.ELEVATOR.z - 5.5, tMap.ELEVATOR.x - 10, tMap.ELEVATOR.z);
+      const flankEPath = findGridPath(tMap, tMap.ELEVATOR.x, tMap.ELEVATOR.z - 5.5, tMap.ELEVATOR.x + 10, tMap.ELEVATOR.z);
+      const rearHubPath = findGridPath(tMap, tMap.ELEVATOR.x, tMap.ELEVATOR.z - 5.5, tMap.ELEVATOR.x, tMap.ELEVATOR.z + 12);
+      const southExitPath = findGridPath(tMap, tMap.ELEVATOR.x, tMap.ELEVATOR.z + 12, tMap.EXITS[1].x, tMap.spanZ - 8);
+      const hasElevPlat = (tMap.PLATFORMS || []).some(pl => getTerrainAt((pl.x0 + pl.x1) * 0.5, (pl.z0 + pl.z1) * 0.5, tMap, pl.y ?? 1.0).floorY > 0.35);
+      const hasRearMarks = lvl0Marks.some(m => m.id === 'level0_rear_hub') && lvl0Marks.filter(m => m.subGroup === 'rear').length >= 20;
+      const v6Diag = {
+        gCols, gRows, spanX: tMap.spanX, spanZ: tMap.spanZ,
+        spawnRatioZ: +(tMap.SPAWN.z / tMap.spanZ).toFixed(4),
+        rearZones: rearZones.length, rearVariantTypes: rearVariantTypes.size,
+        frontSpotsCount, rearSpotsCount, frontTasksCount, rearTasksCount,
+        frontLightsCount, rearLightsCount,
+        flankWLen: flankWPath?.length || 0, flankELen: flankEPath?.length || 0,
+        rearHubLen: rearHubPath?.length || 0, southExitLen: southExitPath?.length || 0,
+        hasElevPlat, hasRearMarks
+      };
+      const v6Pass = (
+        gCols === 124 && gRows === 239 && tMap.spanZ > 900 &&
+        Math.abs(tMap.SPAWN.z / tMap.spanZ - 0.5) < 0.02 &&
+        rearZones.length >= 35 && rearVariantTypes.size >= 20 &&
+        rearSpotsCount >= frontSpotsCount * 0.65 &&
+        frontTasksCount >= 3 && rearTasksCount >= 3 &&
+        rearLightsCount >= frontLightsCount * 0.65 &&
+        flankWPath?.length >= 1 && flankEPath?.length >= 1 &&
+        rearHubPath?.length >= 1 && southExitPath?.length >= 1 &&
+        hasElevPlat && hasRearMarks
+      );
+      if (!v6Pass) console.error('V6 REAR WORLD TEST DIAG:', JSON.stringify(v6Diag));
+      assert(v6Pass, 'v6_rear_world_360_spawn_connectivity_parity_and_mezzanine');
+    }
+
     // Clean up test artifacts so Playwright visual exploration starts fresh
     levelsClearedSet.delete('level37');
     levelDiscoveredSet.delete('level37');
     levelMaps.delete('level37');
     for (let i = aiControllers.length - 1; i >= 0; i--) {
       if (aiControllers[i].id.startsWith('AI_SUB_')) {
-        delete players[aiControllers[i].id];
+        const aiId = aiControllers[i].id;
+        if (avatars[aiId]?.group) scene.remove(avatars[aiId].group);
+        delete avatars[aiId];
+        delete players[aiId];
         aiControllers.splice(i, 1);
       }
     }
@@ -5388,7 +6297,12 @@ async function runSelfTests() {
     audio,
     scene,
     LEVEL_LIST,
+    MUSIC_TRACKS,
+    AMBIENT_TRACK_KEYS,
+    CHASE_TRACK_KEYS,
     getTerrainAt,
+    getZoneAtmosphereAt,
+    triggerJumpscare,
     getMe: () => players[myId],
     getMap: () => map,
     getWorld: () => world,
@@ -5408,6 +6322,9 @@ async function runSelfTests() {
     setNoclipSpeed,
     openTpPanel,
     closeTpPanel,
+    openCreditsModal,
+    closeCreditsModal,
+    switchCreditsTab,
     collectLevelLandmarks,
     teleportToTarget,
     enterLevel: (levelId, via = 'portal') => {
@@ -5452,6 +6369,48 @@ async function runSelfTests() {
     setFpsCap,
     fxSettings,
     applyFxSettings,
+    getAAState: () => {
+      const sz = new THREE.Vector2();
+      renderer.getDrawingBufferSize(sz);
+      return {
+        requestedMode: fxSettings.aaMode,
+        activeMode: gfx.activeAaMode,
+        msaaSamples: gfx.msaaSamples,
+        composerMultisampling: gfx.composer?.multisampling || 0,
+        maxHardwareSamples: renderer.capabilities?.maxSamples || 0,
+        pixelRatio: renderer.getPixelRatio?.() || 1,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        bufferWidth: sz.x,
+        bufferHeight: sz.y,
+        cssWidth: gfx._viewW,
+        cssHeight: gfx._viewH,
+        smaaReady: !!gfx.smaa?.weightsMaterial?.searchTexture && !!gfx.smaa?.weightsMaterial?.areaTexture,
+        maxAnisotropy: renderer.capabilities?.getMaxAnisotropy?.() || 1
+      };
+    },
+    getFxSettings: () => fxSettings,
+    setFxValues: (patch = {}) => {
+      Object.assign(fxSettings, patch);
+      applyFxSettings();
+    },
+    getRenderStats: () => ({
+      activeLevel: activeLocalLevelId,
+      cameraFar: camera.far,
+      fogDensity: scene.fog?.density,
+      renderDistance: fxSettings.renderDistance,
+      waterQuality: fxSettings.waterQuality,
+      cloudQuality: fxSettings.cloudQuality,
+      visibleChunks: world?.streamingStats?.visibleChunks ?? null,
+      totalChunks: world?.streamingStats?.totalChunks ?? world?.spatialChunks?.length ?? null,
+      skyScale: world?.skyDome?.mesh?.scale?.x ?? null,
+      triangles: renderer.info.render.triangles,
+      drawCalls: renderer.info.render.calls
+    }),
+    readExposureAsync: () => gfx.readExposureTelemetryAsync?.(),
+    stepExposureFrames: (dt = 0.08, frames = 10) => {
+      for (let i = 0; i < frames; i++) gfx.render(dt);
+      return gfx.readExposureTelemetryAsync?.();
+    },
     openPauseMenu,
     closePauseMenu,
     whipTurn: (yawDelta = 0.12, fwd = 0.14) => {
@@ -5468,6 +6427,113 @@ async function runSelfTests() {
 
   window.__BACKROOMS_TEST_OK = true;
   console.log('SELFTEST OK:', results.join(', '));
+}
+
+// DEV-only integration audit, driven through the real host actions and client handlers.
+async function runPoolV5Audit(){
+  const checks=[],check=(name,ok,detail)=>{checks.push({name,passed:!!ok,detail});if(!ok)console.error('V5 AUDIT',name,detail);};
+  net.startSolo('Poolrooms QA',false);await beginMatch(2026,net.roster,net.myId);paused=true;
+  const me=players[myId],level0Enemies=aiControllers.filter(a=>players[a.id]?.levelId==='level0').length;
+  const roster=[myId];for(let i=1;i<6;i++){const id='QA_SURV_'+i;roster.push(id);players[id]={...me,id,name:'QA '+i,isAI:false,inv:{...me.inv}};}
+  for(const id of roster)processPlayerActionHost(id,{act:'enterLevel',levelId:'level37',via:'join'});
+  const pool=getOrCreateLevelMap('level37');
+  check('six_survivors_join',roster.every(id=>players[id].levelId==='level37'));
+  check('six_distinct_spawns',new Set(roster.map(id=>players[id].x+','+players[id].z)).size===6);
+  check('six_dry_spawns',roster.every(id=>{const p=players[id];return !getTerrainAt(p.x,p.z,pool,p.y).inWater;}));
+  check('authored_acoustic_profiles',pool.POOL_CELLS.filter(c=>c.art).every(c=>c.acoustics.delay>0&&c.acoustics.feedback<1&&c.acoustics.cutoff>0));
+  check('no_pool_enemy_spawn',!Object.values(players).some(isHostileInPeacefulLevel)&&!pool.levelCfg.entity&&pool.ENTITY_ROUTES.length===0);
+  triggerJumpscare({down:true});handleNetEvent({ev:'reveal',dur:9});handleNetEvent({ev:'hooked',id:myId,hookIdx:0,x:me.x,z:me.z});check('hostile_hud_and_stale_hook_blocked',jumpscareT===0&&revealGlobalT===0&&me.state==='ok');
+  const enemy=Object.values(players).find(p=>p.role==='k'&&p.levelId==='level0');
+  const hp=me.hp;applyKillerHit(enemy,me);handleNetEvent({ev:'hit',victimId:myId,killerId:enemy.id,down:true});check('host_and_event_damage_blocked',me.hp===hp&&me.state==='ok');
+  const oldEnemy={...enemy,id:'AI_SUB_level37_legacy',levelId:'level37',isAI:true};players[oldEnemy.id]=oldEnemy;aiControllers.push({id:oldEnemy.id});removePeacefulLevelHostiles();
+  check('legacy_ai_removed',!players[oldEnemy.id]&&!aiControllers.some(c=>c.id===oldEnemy.id));
+  handleNetEvent({ev:'levelShift',playerId:roster[1],levelId:'level37',x:players[roster[1]].x,z:players[roster[1]].z,subEnts:[oldEnemy]});check('legacy_subentity_event_ignored',!players[oldEnemy.id]);
+  net.isHost=false;applyHostSnapshot({players:{[myId]:{...me,hp:0,state:'down'},[oldEnemy.id]:oldEnemy}});net.isHost=true;
+  check('stale_client_snapshot_safe',me.hp===hp&&me.state==='ok'&&!players[oldEnemy.id]);
+  processPlayerActionHost(enemy.id,{act:'enterLevel',levelId:'level37',via:'tp_panel'});check('human_or_ai_killer_entry_blocked',enemy.levelId==='level0');
+  processPlayerActionHost(myId,{act:'enterLevel',levelId:'level0',via:'return'});check('return_locked_before_pumps',me.levelId==='level37');
+  const item=pool.WATERS.find(i=>!i.gone),before=me.inv.water||0;me.x=item.x;me.z=item.z;processPlayerActionHost(myId,{act:'pickup',kind:'water',id:item.id});check('inventory_pickup',me.inv.water===before+1&&item.gone);processPlayerActionHost(myId,{act:'useItem',kind:'water'});check('inventory_consume',me.inv.water===before);
+  for(let i=0;i<3;i++){const actor=players[roster[i]],p=pool.PUMPS[i];actor.x=p.x;actor.z=p.z;processPlayerActionHost(actor.id,{act:'pumpProg',idx:i,delta:1});}
+  check('cooperative_pumps_unlock_portal',pool.PUMPS.every(p=>p.done)&&pool.TASKS[0].done&&pool.exitsOpen&&levelsClearedSet.has('level37'));
+  processPlayerActionHost(myId,{act:'enterLevel',levelId:'level0',via:'return'});check('return_to_level0',me.levelId==='level0'&&activeLocalLevelId==='level0');
+  processPlayerActionHost(myId,{act:'enterLevel',levelId:'level37',via:'portal'});check('reentry_remains_peaceful',me.levelId==='level37'&&!Object.values(players).some(isHostileInPeacefulLevel));
+  check('level0_enemies_preserved',aiControllers.filter(a=>players[a.id]?.levelId==='level0').length===level0Enemies&&level0Enemies>0,level0Enemies);
+  const other=LEVEL_LIST.find(l=>l.id!=='level37'&&getOrCreateLevelMap(l.id).levelCfg?.entity);processPlayerActionHost(roster[5],{act:'enterLevel',levelId:other.id,via:'tp_panel'});check('other_level_enemy_spawns_preserved',aiControllers.some(a=>players[a.id]?.levelId===other.id),other.id);
+  window.__POOL_V5_AUDIT={passed:checks.every(c=>c.passed),checks,transport:'real host action/client handler integration; no remote WebRTC peers',zones:pool.POOL_ZONES.length};
+  window.__POOL_V5_CONTROL={view(code,idx=0){
+    const c=map.POOL_CELLS.find(c=>c.art&&c.zoneId==='zone_'+code.toLowerCase()),v=c.views[idx];
+    const p=players[myId],dx=v.target[0]-v.position[0],dy=v.target[1]-v.position[1],dz=v.target[2]-v.position[2];
+    p.x=v.position[0];p.y=v.position[1]-1.62;p.z=v.position[2];p.vy=0;p.yaw=Math.atan2(-dx,-dz);p.pitch=Math.atan2(dy,Math.hypot(dx,dz));p.state='ok';p.hp=2;camYaw=p.yaw;flashYaw=p.yaw;hVelX=0;hVelZ=0;paused=false;noclipDropLockUntil=performance.now()+5000;
+    const overlay=$('noclipOverlay');if(overlay){overlay.classList.add('hidden');overlay.style.opacity='0';}closePauseMenu();
+  },traverse(){
+    paused=true;const results=[];noclipMode=false;busyAct=null;tpOpen=false;for(const key of Object.keys(keys))keys[key]=false;
+    for(const [code,radius,height,turns,dx]of[['AL',18,12,1,-18],['AM',15,18,2.2,0],['Z',8,4.8,1,0]]){
+      const c=map.POOL_CELLS.find(c=>c.zoneId==='zone_'+code.toLowerCase()&&c.art),count=code==='AL'?84:Math.ceil(height/.145),cx=c.x+dx,cz=c.z;
+      me.x=cx+radius;me.z=cz;me.y=c.floorY;me.vy=0;me.state='ok';me.crouch=false;hVelX=0;hVelZ=0;keys[DEF_KB.fwd]=true;let missed=0;
+      for(let i=1;i<=count;i++){const angle=(i-.2)/count*Math.PI*2*turns,tx=cx+Math.cos(angle)*radius,tz=cz+Math.sin(angle)*radius;let steps=0;while(Math.hypot(tx-me.x,tz-me.z)>.23&&steps++<90){me.yaw=Math.atan2(-(tx-me.x),-(tz-me.z));camYaw=me.yaw;updateLocalPlayer(1/60,20+i);}if(steps>=90)missed++;}
+      keys[DEF_KB.fwd]=false;for(let j=0;j<15;j++)updateLocalPlayer(1/60,100+j);results.push({code,height:me.y,expected:height,missed,passed:me.y>=height-.5&&missed===0});
+    }
+    return results;
+  },slide(){
+    paused=true;noclipMode=false;busyAct=null;tpOpen=false;for(const key of Object.keys(keys))keys[key]=false;const s=map.SPIRAL_SLIDES[0],a=.18;
+    me.x=s.cx+Math.cos(a)*s.radius;me.z=s.cz+Math.sin(a)*s.radius;me.y=s.yTop-(s.yTop-s.yBot)*a/(s.turns*Math.PI*2);me.vy=0;me.state='ok';hVelX=0;hVelZ=0;let touched=false,frames=0;
+    for(;frames<3600;frames++){updateLocalPlayer(1/60,150+frames/60);const t=getTerrainAt(me.x,me.z,map,me.y);touched||=t.onSlide;if(touched&&!t.onSlide&&me.y<s.yBot+.5)break;}
+    const end=getTerrainAt(me.x,me.z,map,me.y);return {passed:touched&&frames<3600&&end.inWater,frames,height:me.y,inWater:end.inWater,touched};
+  },greenChutes(){
+    paused=true;noclipMode=false;busyAct=null;tpOpen=false;const results=[];
+    for(const s of map.SLIDES.filter(s=>s.richChute)){
+      for(const key of Object.keys(keys))keys[key]=false;
+      const x=(s.x0+s.x1)/2;me.x=s.stairX;me.z=s.z0+9;me.y=s.y0-3.65;me.vy=0;me.state='ok';me.crouch=false;hVelX=0;hVelZ=0;
+      const walk=(tx,tz,stopOnSlide=false)=>{keys[DEF_KB.fwd]=true;let frames=0;while(Math.hypot(tx-me.x,tz-me.z)>.22&&frames++<600){me.yaw=Math.atan2(-(tx-me.x),-(tz-me.z));camYaw=me.yaw;updateLocalPlayer(1/60,300+frames/60);if(stopOnSlide&&getTerrainAt(me.x,me.z,map,me.y).onSlide)break;}keys[DEF_KB.fwd]=false;return frames<600;};
+      const ascended=walk(s.stairX,s.z0+.15),topY=me.y,loaded=walk(x,s.z0+.15,true);hVelX=0;hVelZ=0;let touched=false,frames=0;
+      for(;frames<1200;frames++){updateLocalPlayer(1/60,320+frames/60);const t=getTerrainAt(me.x,me.z,map,me.y);touched||=t.onSlide;if(touched&&!t.onSlide&&me.y<s.y1+.5)break;}
+      const end=getTerrainAt(me.x,me.z,map,me.y);results.push({zone:s.zoneId,ascended,topY,expectedTop:s.y0,loaded,touched,frames,inWater:end.inWater,passed:ascended&&loaded&&topY>s.y0-.5&&touched&&frames<1200&&end.inWater});
+    }
+    return results;
+  },skyBalcony(){
+    paused=true;noclipMode=false;busyAct=null;tpOpen=false;for(const key of Object.keys(keys))keys[key]=false;
+    const c=map.POOL_CELLS.find(c=>c.zoneId==='zone_ak'&&c.art),x=c.x+21;me.x=x;me.z=c.z0+2;me.y=c.floorY;me.vy=0;me.state='ok';me.crouch=false;hVelX=0;hVelZ=0;
+    const walk=(tx,tz,limit=600)=>{keys[DEF_KB.fwd]=true;let n=0;while(Math.hypot(tx-me.x,tz-me.z)>.22&&n++<limit){me.yaw=Math.atan2(-(tx-me.x),-(tz-me.z));camYaw=me.yaw;updateLocalPlayer(1/60,400+n/60);}keys[DEF_KB.fwd]=false;return n<limit;};
+    const ascended=walk(x,c.z0+21),height=me.y,reached=walk(x,c.z1-5)&&walk(c.x-5,c.z1-5);
+    walk(c.x-5,c.z1+3,180);const inside=me.z<c.z1-.4&&me.y>c.floorY+5.5;
+    return {ascended,height,reached,glassStoppedPlayer:inside,position:[me.x,me.y,me.z],passed:ascended&&height>=c.floorY+5.8&&reached&&inside};
+  },async tubeRoutes(){
+    // Development-only regression through the actual player movement controller.
+    const {tubeDistance}=await import('./levels/poolrooms_tubes.js');
+    paused=true;noclipMode=false;busyAct=null;tpOpen=false;const results=[];let clock=500;
+    for(const code of['C','R']){const c=map.POOL_CELLS.find(c=>c.art&&c.zoneId==='zone_'+code.toLowerCase()),net=c.tubeNetwork;
+      const routes=[{name:'curved-circular-spine',points:Array.from({length:65},(_,i)=>{const t=.07+i/64*.86;return[c.x+Math.sin(t*Math.PI*2)*c.width*.19,c.z0-1+t*(c.depth+2)];})},{name:code==='C'?'elliptical-crossing':'barrel-crossing',points:Array.from({length:65},(_,i)=>{const t=.07+i/64*.86;return[c.x0-1+t*(c.width+2),c.z+Math.sin(t*Math.PI)*c.depth*.18];})}];
+      for(const entry of net.entries)routes.push({name:'sloped-socket-'+entry.id,points:entry.points.slice(1).flatMap((b,j)=>{const a=entry.points[j];return Array.from({length:17},(_,i)=>{const t=i/16;return[a[0]+(b[0]-a[0])*t,a[2]+(b[2]-a[2])*t];});})});
+      if(code==='C')routes.push({name:'half-submerged-raised-walk',points:Array.from({length:33},(_,i)=>[c.x-10,c.z+7-i/32*14])});
+      for(const route of[...routes,...routes.map(r=>({name:r.name+'-reverse',points:r.points.slice().reverse()}))]){for(const key of Object.keys(keys))keys[key]=false;const start=route.points[0];me.x=start[0];me.z=start[1];me.y=getTerrainAt(me.x,me.z,map,0).floorY;me.vy=0;me.state='ok';me.crouch=false;hVelX=0;hVelZ=0;let missed=0,maxDepth=0,maxStep=0,headCollisions=0,totalFrames=0;keys[DEF_KB.fwd]=true;
+        for(const[tx,tz]of route.points.slice(1)){let frames=0;while(Math.hypot(tx-me.x,tz-me.z)>.18&&frames++<240){me.yaw=Math.atan2(-(tx-me.x),-(tz-me.z));camYaw=me.yaw;const previous=me.y;clock+=1/60;updateLocalPlayer(1/60,clock);totalFrames++;const t=getTerrainAt(me.x,me.z,map,me.y);maxDepth=Math.max(maxDepth,t.waterDepth);maxStep=Math.max(maxStep,Math.abs(previous-me.y));if(tubeDistance(net,me.x,me.y-c.floorY+1.62,me.z)>.08)headCollisions++;}if(frames>=240){missed++;break;}}
+        keys[DEF_KB.fwd]=false;results.push({code,route:route.name,missed,totalFrames,maxWaterDepth:maxDepth,maxVerticalStep:maxStep,headCollisions,end:[me.x,me.y,me.z],passed:missed===0&&maxDepth<1.35&&headCollisions===0});
+      }
+    }return results;
+  },cam(x,y,z,yaw,pitch){
+    // Free review camera: absolute world coordinates + look angles (radians).
+    const p=players[myId];p.x=x;p.y=y-1.62;p.z=z;p.vy=0;p.yaw=yaw;camYaw=yaw;flashYaw=yaw;p.pitch=pitch||0;p.state='ok';p.hp=2;hVelX=0;hVelZ=0;paused=false;noclipDropLockUntil=performance.now()+5000;
+    const overlay=$('noclipOverlay');if(overlay){overlay.classList.add('hidden');overlay.style.opacity='0';}closePauseMenu();
+  },shot(name,m){
+    // Synchronous review capture through the real game pipeline. toDataURL must
+    // run in the same task as the final composite (preserveDrawingBuffer is off).
+    // Optional m: re-assert a review mode immediately before the composite —
+    // something intermittently restores preset defaults between mode() and the
+    // capture, so 'clean' is enforced here to keep captures deterministic.
+    if(m)this.mode(m);
+    gfx.update(0.016,{turnYawRate:0,turnPitchRate:0,shakeXRate:0,shakeYRate:0,speedRatio:0,panic:0,isKiller:false,elapsed:performance.now()*.001,nearLights:world.lightPool||[]});
+    gfx.render(0.016);
+    const url=renderer.domElement.toDataURL('image/png'),a=document.createElement('a');
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    return {name,bytes:url.length,fps:window.__BR_PERF?.fps,frameMs:window.__BR_PERF?.frameMs};
+  },mode(m){
+    // Review toggles: 'clean' = no film/CRT grade (Gate G), 'footage' = shipped ultra look.
+    if(m==='clean'){const f=getPresetDefaultFx('ultra');fxSettings={...f,footageFilterMode:'off',footageFilterStrength:0,lensCurve:0,scanlines:0,baseGrain:0,grain:0,vignette:0,motionBlur:0,dofBlur:0,halation:0,bloom:0.9,brightness:1.0,contrast:1.0,saturation:1.0};}
+    else fxSettings=getPresetDefaultFx('ultra');
+    applyFxSettings();
+    return {mode:m,footageFilterMode:fxSettings.footageFilterMode};
+  },cell(code){const c=map.POOL_CELLS.find(c=>c.zoneId==='zone_'+String(code).toLowerCase()&&c.art);return c?{zoneId:c.zoneId,x:c.x,z:c.z,x0:c.x0,x1:c.x1,z0:c.z0,z1:c.z1,floorY:c.floorY,ceiling:c.ceiling,width:c.width,depth:c.depth,views:c.views||[],composition:c.composition,grammar:c.art.grammar}:{code,error:'no authored cell'};},
+  perf(){return {...(window.__BR_PERF||{})};},fx:()=>({mode:fxSettings.footageFilterMode,strength:fxSettings.footageFilterStrength,scan:fxSettings.scanlines,vig:fxSettings.vignette,lens:fxSettings.lensCurve,grain:fxSettings.grain,bloom:fxSettings.bloom}),state:()=>({position:[me.x,me.y,me.z],hostiles:Object.values(players).filter(isHostileInPeacefulLevel).length,optics:world.opticsStats,daylight:world.daylightStats})};
 }
 
 // ---------- Boot Sequence ----------
@@ -5492,6 +6558,46 @@ async function runSelfTests() {
   lobbyScr.classList.remove('hidden');
 
   const params = new URLSearchParams(location.search);
+  if (import.meta.env.DEV && params.has('fpsreview')) {
+    window.__FPS_READY = (async () => {
+      net.startSolo('FPS Review', false, 2026); net.roster = net.roster.filter(p => !p.isAI); net.aiEnabled = false;
+      await beginMatch(2026, net.roster, net.myId);
+      fpsReviewFrozen = true; paused = false;
+      let qaTime = 0;
+      const updateWeapon = dt => { const p = players[myId]; weaponSystem.update(dt, { player: p, speed: p.spd || 0, visible: p.state === 'ok', sprint: p.spd > 4 && !p.sliding, sliding: !!p.sliding, breath: humanCamera.out.breath, turnX: 0, turnY: 0, light: zoneLightSmooth, reduced: fxSettings.reducedMotion, clean: fxSettings.cleanCamHud }); };
+      const info = () => { const p = players[myId]; return { player: JSON.parse(JSON.stringify(p)), stamina:{value:stam,max:SPEED.STAM_DRAIN,exhausted:stamExhausted}, hSpeed: Math.hypot(hVelX, hVelZ), cap: movementSpeedCap, hopBonus: movementAssist.hopBonus, jumps: movementAssist.jumps, slides: movementAssist.slides, eye: movementAssist.eye, state: weaponSystem.view.animation.state, age: weaponSystem.view.animation.age, cycle: weaponSystem.view.animation.cycle, weapon: weaponSystem.equipped, ammo: { ...weaponSystem.authority }, ads: weaponSystem.ads, sights: weaponSystem.view.sights(), camera: camera.position.toArray(), cameraQ: camera.quaternion.toArray(), weaponQ: weaponSystem.view.motion.quaternion.toArray(), handles: [weaponSystem.view.assets.butterfly.a.rotation.z, weaponSystem.view.assets.butterfly.b.rotation.z], animationMs: weaponSystem.view.costMs, perf: window.__BR_PERF, fx: { ...fxSettings }, hostiles: Object.values(players).filter(p => p.role === 'k' && p.levelId === activeLocalLevelId).length }; };
+      window.__FPS = {
+        info, weapons: weaponSystem, movement: movementAssist, camera, renderer, scene, net,
+        cameraMotion(){return {idle:{...humanCamera.out},handheld:structuredClone(handheldCamera.out),base:[camPitch,camYaw],locomotion:[camBobY,camSwayX,camNod,camRoll]};},
+        resetCamera(){humanCamera.reset();handheldCamera.reset();camForeZ=previousForwardSpeed=stepPhase=stepDist=0;stepFootSign=1;camBobY=camSwayX=camNod=camRoll=camRollPan=stepSpring=stepSpringVel=stepPulseT=smoothMoveMix=smoothSprintMix=0;},
+        world(){return world;},gfx,
+        freeze(value) { fpsReviewFrozen = value; },
+        input(code, value) { keys[code] = value; },
+        clear() { for (const key in keys) keys[key] = false; weaponSystem.clearInput(); movementAssist.clearInput(); },
+        setStamina(ratio){stam=Math.max(0,Math.min(1,ratio))*SPEED.STAM_DRAIN;stamExhausted=stam<=.02;players[myId].moveStam=stam;},
+        refill() { thirstT = WATER_LIFE; stam = SPEED.STAM_DRAIN; stamExhausted = false; const p = players[myId]; p.moveThirst = thirstT; p.moveStam = stam; },
+        settings(values) { Object.assign(fxSettings, values); if (Object.keys(values).some(k => FPS_SETTING_KEYS.includes(k))) saveFpsPreferences(); applyFxSettings(); },
+        step(count = 1, dt = 1 / 60) { for (let i = 0; i < count; i++) { qaTime += dt; updateLocalPlayer(dt, qaTime); updateWeapon(dt); } updateHUD(qaTime, fpsSmooth); return info(); },
+        render() { world.setRenderDistance?.(fxSettings.renderDistance,qaTime,camera.position);updateWorldLighting(world, map, camera.position, qaTime, []); world.updateExtra?.(qaTime, camera.position, map, scene.fog, null, camera.far); updateSceneOptics(qaTime,1/60); gfx.render(1 / 60); },
+        place(x, z, y = null, yaw = 0, pitch = 0) { const p = players[myId]; p.x = x; p.z = z; p.y = y ?? getTerrainAt(x, z, map, 0).floorY; p.vy = 0; p.yaw = camYaw = yaw; p.pitch = camPitch = pitch; hVelX = hVelZ = 0; stam = SPEED.STAM_DRAIN; stamExhausted = false; movementAssist.reset(); return info(); },
+        level(id) { sendAction({ act: 'enterLevel', levelId: id, via: 'tp_panel' }); movementAssist.reset(); hVelX = hVelZ = 0; },
+        zone(code, view = 0) { const c = map.POOL_CELLS?.find(c => c.art && c.zoneId === 'zone_' + code.toLowerCase()); if (!c) throw new Error('Unknown zone'); const v = c.views[view], dx = v.target[0] - v.position[0], dy = v.target[1] - v.position[1], dz = v.target[2] - v.position[2]; this.place(v.position[0], v.position[2], v.position[1] - 1.62, Math.atan2(-dx, -dz), Math.atan2(dy, Math.hypot(dx, dz))); return { x: c.x, z: c.z, x0: c.x0, x1: c.x1, z0: c.z0, z1: c.z1, floorY: c.floorY }; },
+        terrain(x, z, y = 0) { return getTerrainAt(x, z, map, y); },
+        map() { return map; },
+        hostAction(id, msg) { return processPlayerActionHost(id, msg); },
+        roster() { return players; },
+        events: [],
+        animateRemote(id, dt = 1 / 60) { const p = players[id]; if (!avatars[id]) { avatars[id] = buildSurvivorAvatar(1); scene.add(avatars[id].group); } const av = avatars[id]; av.group.visible = true; av.group.position.set(p.x, p.y, p.z); av.group.rotation.y = p.yaw; animateSurvivor(av, dt, p, qaTime); weaponSystem.updateRemote(id, av, p, dt); },
+        hostTick(dt = 1 / 60) { updateHostSimulation(dt); },
+        addChaser(kind,x,z){const id='__CHASE_'+aiControllers.length,arch=ENTITY_ARCHETYPES.find(a=>a.kind===kind)||ENTITY_ARCHETYPES[0],base=players[myId],p={...structuredClone(base),id,name:arch.name,role:'k',isAI:true,aiKind:arch.kind,x,z,y:0,hp:99,spd:0,carrying:null};players[id]=p;const ctrl=new EntityAIController(id,arch);ctrl.reset(x,z,[]);aiControllers.push(ctrl);const av=buildEntityAvatar(arch.kind);av.group.position.set(x,0,z);scene.add(av.group);avatars[id]=av;return id;},
+        chasers(){return aiControllers.filter(c=>c.id.startsWith('__CHASE_')).map(c=>({id:c.id,state:c.state,lost:c.lostT,lastKnown:c.targetPos,player:{...players[c.id]}}));},
+        clearChasers(){for(const c of aiControllers.filter(c=>c.id.startsWith('__CHASE_'))){delete players[c.id];if(avatars[c.id])scene.remove(avatars[c.id].group);delete avatars[c.id];}aiControllers=aiControllers.filter(c=>!c.id.startsWith('__CHASE_'));},
+        clearResources() { weaponSystem.effects.clear(); },
+        look(dx, dy) { applyCameraLookDelta(dx, dy); }
+      };
+      return true;
+    })();
+  }
   const joinCode = params.get('room');
   if (joinCode) {
     $('joinCodeInput').value = joinCode;
@@ -5499,6 +6605,20 @@ async function runSelfTests() {
   }
 
   requestAnimationFrame(animate);
+
+  // DEV-only watchdog: an occluded window never schedules rAF, so the whole
+  // render loop and every review capture would freeze. Drive frames by timer
+  // while rAF is stalled; it stays a no-op as soon as rAF ticks normally.
+  if (import.meta.env.DEV) {
+    window.__ANIMATE_WATCHDOG = setInterval(() => {
+      if (performance.now() - (window.__LAST_ANIMATE_MS || 0) < 60) return;
+      animate(performance.now());
+    }, 30);
+  }
+
+  if(import.meta.env.DEV&&params.has('poolreview')){
+    try{await runPoolV5Audit();}catch(e){window.__POOL_V5_AUDIT={passed:false,error:e.stack};}return;
+  }
 
   if (location.hash.includes('test')) {
     try {

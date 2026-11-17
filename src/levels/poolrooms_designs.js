@@ -1,0 +1,42 @@
+/*! Copyright (c) 2026 Vendreith. Licensing: see LICENSE.md and THIRD_PARTY_NOTICES.md. */
+import {POOL_REFERENCE_PROFILES} from './poolrooms_references.js';
+// Authored spatial briefs. Colour is deliberately excluded from the grammar key.
+const rows=[
+ ['A','vestibule',[22,24,5],'three offset entry courts','low cross vaults','three unequal entry pools','ground perimeter','offset triple threshold','three-way reveal'],
+ ['B','aquatic_atrium',[88,46,19],'small bath pavilions inside a giant hall','layered pavilion roofs below high ribs','linked oval courts','0 / 3 / 6m galleries','a city of bathing pavilions','pavilion loop and upper crossings'],
+ ['D','amphitheatre',[44,30,9],'terraced sunken auditorium','fan of low barrel vaults','sunken central oval','four descending terraces','submerged amphitheatre','descending fan and dry perimeter'],
+ ['E','cascade',[48,30,10],'three offset water terraces','stepped roof baffles','three raised bathing pools','0 / .6 / 1.2m basins','ascending water sequence','zigzag ascent and ground bypass'],
+ ['F','basilica',[52,32,12],'long nave between submerged aisles','pointed nave ribs','paired deep side pools','sunken aisles and dry nave','flooded basilica','axial nave and two wet aisles'],
+ ['G','scissor',[48,30,12],'opposing gallery flights','crossing structural ribs','water below diagonal bridges','0 / 2.4 / 4.8m routes','scissor galleries','opposed stairs and two crossings'],
+ ['H','pump_cloister',[28,24,7],'ring walk around three pump courts','low cloister arcades','three pocket reservoirs','submerged inspection stairs','three-bay pump cloister','perimeter service loop'],
+ ['J','braid',[54,30,10],'three parallel waterways and cross-links','transverse channel vaults','braided elongated pools','raised crossing islands','braided water channels','alternating crossings'],
+ ['K','compression',[18,24,3.8],'alternating narrow bays','low staggered slabs','small lateral basins','flat compressed route','pinched mint threshold','alternating left-right turns'],
+ ['L','split_lap',[24,26,6],'two lap channels around a dry spine','double barrel roof','twin slender lap pools','raised central spine','split-tile aqueduct','two parallel circuits'],
+ ['M','procession',[24,28,8],'successive nested arch thresholds','diminishing elliptical ribs','off-axis still pools','flat processional route','nested white arches','successive framed reveals'],
+ ['N','submerged_steps',[28,26,7],'broad descending wet staircase','lowering beam canopy','deep oval at stair foot','0 to -1.4m descent','stair beneath the waterline','wet descent and side return'],
+ ['O','mirror_island',[26,26,7],'single island inside a round reservoir','concentric ceiling rings','large circular mirror pool','isolated raised island','silent central island','ring walk and narrow causeway'],
+ ['P','glass_gallery',[20,28,7],'dry aisle beside deep observation water','low flat observation canopy','deep lateral oval','dry aisle and submerged window','waterline observation wall','parallel dry and wet routes'],
+ ['Q','serpent',[28,24,7],'sinuous channel threaded between piers','offset curved ribs','three bending connected views','descending ceramic chute','serpentine sluice','curved visual sequence'],
+ ['S','split_level',[28,26,9],'two offset deck levels','half-height suspended canopy','pool under displaced galleries','0 / 2.6m walkway','offset upper loop','switchback ascent and lower passage'],
+ ['T','sawtooth',[28,24,10],'light wells over a shallow water court','sawtooth roof baffles','one long shallow basin','low perimeter platforms','serial ceiling lanterns','perimeter route under changing light'],
+ ['U','reverse_echo',[26,28,8],'paired facing apses','opposing barrel caps','two unequal end pools','wide low central crossing','opposed empty apses','axial route then lateral return'],
+ ['V','hidden_wall',[24,28,6],'freestanding wall conceals second room','split low roof','concealed rear bath','level bypass behind screen','hidden wall walk','two blind corner reveals'],
+ ['W','drip',[24,24,8],'small pool under a tall well','concentric descending ceiling discs','single deep circular bowl','sunken rim and dry edge','luminous drip well','circular observation loop'],
+ ['X','underbridge',[28,26,9],'low water passage below an upper crossing','two crossing deck canopies','long oval beneath bridge','0 / 3m routes','underbridge reveal','upper crossing and wet lower return'],
+ ['Y','false_end',[24,26,6],'blind axial wall with side escape','compressed terminal vault','offset rear basin','level narrow turns','apparently sealed end wall','hidden lateral bypass'],
+ ['Z','helix',[26,26,10],'spiral stair around a central pool','circular stepped roof','central round pool','0 to 4.8m helical ascent','ceramic spiral stair','one-turn ascent and ground ring'],
+ ['AA','rose_cross',[22,26,7],'cruciform bathing chapel','four intersecting low vault views','four corner baths','central raised crossing','four quiet alcoves','cross plan with corner loops'],
+ ['AB','linked_baths',[26,28,7],'diagonal chain of unequal baths','three displaced lantern canopies','three linked oval pools','.3m staggered lips','amber chain of baths','diagonal reveal with perimeter return'],
+ ['AC','blue_depth',[24,28,8],'deep water trench beside dry ledge','low observation roof','one deep elongated reservoir','0 / -2m observation steps','ultramarine water trench','dry edge and submerged descent'],
+ ['AD','niches',[24,24,6],'three-sided alcove court','suspended square coffer','small central reflecting bowl','flat alcove circuit','inhabitable luminous niches','radial niches around open centre'],
+ ['AE','floodgate',[28,26,8],'reservoir divided by pierced gate wall','heavy transverse gate lintel','two separated water chambers','raised gate crossing','three-mouth floodgate','gate crossing and peripheral loop'],
+ ['AF','shadow_arcade',[26,28,8],'side arcade framing an empty court','alternating pointed and round ribs','slender off-centre pool','flat shaded arcade','paired shadow colonnade','arcade and exposed parallel route'],
+ ['AG','slide_exchange',[28,30,10],'two opposing chutes around receiving bath','high open rib canopy','central slide receiving pool','0 / 3m loading deck','paired ceramic chute exchange','stair ascent and two downhill returns'],
+ ['AH','rotunda',[50,42,13],'circular peristyle with radial baths','nested dome rings','central reservoir and satellite bowls','radial steps and upper ring','mosaic rotunda','concentric loops and radial crossings'],
+ ['AI','steam',[48,32,9],'three enclosed steam pavilions','low pavilion barrel roofs','warm separated chamber pools','low stepped bathing terraces','quiet steam pavilions','alternating interior and outer corridor'],
+ ['AJ','garden',[50,38,12],'islands and ceramic grove','displaced floating roof plates','many unequal island pools','raised stepping terraces','ceramic aquatic garden','branching island promenade'],
+ ['AK','observatory',[48,36,15],'deep reservoir overlooked by high balcony','single high canopy over low decks','wide deep reflecting basin','0 / 3 / 6m overlooks','reflection observatory','long ascent and two overlooks'],
+ ['AM','vertical_conduit',[84,44,28],'cylindrical shaft inside conduit hall','tall cylindrical drum and ring crown','deep lower reservoir','0 / 6 / 12 / 18m spiral route','vertical water shaft','helical ascent and crossing tubes'],
+ ['AN','chromatic',[96,54,23],'white nave with warm and cool side chapels','pointed cathedral vault ribs','three monumental turquoise pools','0 / 3 / 6m broad galleries','two-temperature ceramic cathedral','axial nave and paired gallery loops']
+];
+export const ADDITIONAL_POOL_DESIGNS=Object.fromEntries(rows.map(([code,grammar,size,shape,ceiling,water,elevation,primary,navigation])=>[code,{title:primary,grammar,size,shape,ceiling,water,elevation,primary,navigation,style:'white ceramic aquatic architecture',roomDistribution:[6,9,size[0]],waterBehavior:'calm surface, local ripples and scene depth attenuation',lighting:code==='AN'?['warm amber chapel','cool blue chapel']:['ivory key','aquatic reflected fill'],secondary:[ceiling,elevation],sound:grammar==='vertical_conduit'?'long vertical water resonance':`spatial decay for ${grammar} with sparse water transients`,liminal:`unoccupied ${shape}`,refs:POOL_REFERENCE_PROFILES[code].slice(0,3)} ]));

@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 // ---------- Canonical 20-Level Backrooms Architectural & Prop Populator ----------
 // Places lore-accurate 3D furnishings, ceiling fixtures, vehicles, foliage, stalactites,
 // machinery, balconies, shrines & animated beacons across every sub-level while preserving

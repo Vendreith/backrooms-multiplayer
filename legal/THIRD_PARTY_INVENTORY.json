@@ -1,0 +1,70 @@
+{
+  "generatedAt": "2026-11-15",
+  "project": "backrooms-multiplayer",
+  "runtimeDependencies": [
+    {
+      "name": "three",
+      "version": "0.170.0",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2010-2024 three.js authors",
+      "shippedInBundle": true
+    },
+    {
+      "name": "postprocessing",
+      "version": "6.39.6",
+      "license": "Zlib",
+      "copyright": "Copyright (c) 2015 Raoul van Rueschen",
+      "shippedInBundle": true
+    },
+    {
+      "name": "peerjs",
+      "version": "1.5.5",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2015 Michelle Bu and Eric Zhang",
+      "shippedInBundle": true
+    },
+    {
+      "name": "eventemitter3",
+      "version": "4.0.7",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2014 Arnout Kazemier",
+      "shippedInBundle": true
+    },
+    {
+      "name": "peerjs-js-binarypack",
+      "version": "2.1.0",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2012 Eric Zhang",
+      "shippedInBundle": true
+    },
+    {
+      "name": "sdp",
+      "version": "3.2.3",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2017 Philipp Hancke",
+      "shippedInBundle": true
+    },
+    {
+      "name": "webrtc-adapter",
+      "version": "9.0.6",
+      "license": "BSD-3-Clause",
+      "copyright": "Copyright (c) 2014 The WebRTC project authors; Copyright (c) 2018 The adapter.js project authors",
+      "shippedInBundle": true
+    }
+  ],
+  "devDependencies": [
+    { "name": "vite", "version": "5.4.21", "license": "MIT", "shippedInBundle": false },
+    { "name": "rollup", "version": "4.68.3", "license": "MIT", "shippedInBundle": false },
+    { "name": "esbuild", "version": "0.21.5", "license": "MIT", "shippedInBundle": false },
+    { "name": "postcss", "version": "8.5.33", "license": "MIT", "shippedInBundle": false },
+    { "name": "nanoid", "version": "3.3.20", "license": "MIT", "shippedInBundle": false },
+    { "name": "picocolors", "version": "1.1.1", "license": "ISC", "shippedInBundle": false },
+    { "name": "source-map-js", "version": "1.2.2", "license": "BSD-3-Clause", "shippedInBundle": false }
+  ],
+  "approvedExternalAssetLicenses": [
+    "CC-BY-SA-3.0",
+    "CC-BY-3.0",
+    "CC0-1.0",
+    "Public Domain"
+  ]
+}

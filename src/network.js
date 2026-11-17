@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith. All rights reserved (Original Engine & Code).
+ * Licensing information: see LICENSE.md
+ * Third-party notices: see THIRD_PARTY_NOTICES.md
+ */
+
 import { Peer, PEER_OPTS } from './engine.js';
 import { MAXP, SURV_COLORS, ENTITY_ARCHETYPES, selectMatchEntities } from './constants.js';
 
@@ -45,7 +51,7 @@ export class NetworkManager {
   }
 
   _appendAIEntities(seed) {
-    const selected = selectMatchEntities(seed ?? ((Math.random() * 89999 + 10000) | 0), 5);
+    const selected = selectMatchEntities(seed ?? ((Math.random() * 89999 + 10000) | 0), 9);
     for (const arch of selected) {
       this.roster.push({
         id: arch.id,

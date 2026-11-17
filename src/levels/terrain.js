@@ -1,43 +1,58 @@
+/*!
+ * Copyright (c) 2026 Vendreith. All rights reserved (Original Engine & Code).
+ * Licensing information: see LICENSE.md
+ * Third-party notices: see THIRD_PARTY_NOTICES.md
+ */
+
 // ---------- Unified Multi-Level Terrain, Water, Slide & Navigation Helpers ----------
 // Queries vertical floor elevation, deep water submersion, water-slide acceleration,
 // elevated platforms/stair ramps, and dynamic grid A* across variable-size Backrooms Levels.
 
 import { C, N } from '../constants.js';
+import { tubeFloor,tubeDistance } from './poolrooms_tubes.js';
+import { classicPitAt,inClassic } from './classic_layout.js';
+import {classicNavigationPath,transitionRoute} from './classic_navigation.js';
 
-function bucketBoxes(list, span, bucketSize = 24) {
+function bucketBoxes(list, spanX, bucketSize = 24, spanZ = spanX) {
   if (!list || !list.length) return null;
-  const cols = Math.max(1, Math.ceil(span / bucketSize));
-  const buckets = new Array(cols * cols);
+  const cols = Math.max(1, Math.ceil(spanX / bucketSize));
+  const rows = Math.max(1, Math.ceil(spanZ / bucketSize));
+  const buckets = new Array(cols * rows);
   for (let i = 0; i < buckets.length; i++) buckets[i] = [];
   for (const item of list) {
     const minC = Math.max(0, Math.min(cols - 1, Math.floor(item.x0 / bucketSize)));
     const maxC = Math.max(0, Math.min(cols - 1, Math.floor(item.x1 / bucketSize)));
-    const minR = Math.max(0, Math.min(cols - 1, Math.floor(item.z0 / bucketSize)));
-    const maxR = Math.max(0, Math.min(cols - 1, Math.floor(item.z1 / bucketSize)));
+    const minR = Math.max(0, Math.min(rows - 1, Math.floor(item.z0 / bucketSize)));
+    const maxR = Math.max(0, Math.min(rows - 1, Math.floor(item.z1 / bucketSize)));
     for (let r = minR; r <= maxR; r++) {
       for (let c = minC; c <= maxC; c++) {
         buckets[r * cols + c].push(item);
       }
     }
   }
-  return { cols, bucketSize, buckets };
+  return { cols, rows, bucketSize, buckets };
 }
 
 function queryBucket(grid, x, z) {
   if (!grid) return EMPTY_LIST;
+  const rows = grid.rows ?? grid.cols;
   const c = Math.max(0, Math.min(grid.cols - 1, Math.floor(x / grid.bucketSize)));
-  const r = Math.max(0, Math.min(grid.cols - 1, Math.floor(z / grid.bucketSize)));
+  const r = Math.max(0, Math.min(rows - 1, Math.floor(z / grid.bucketSize)));
   return grid.buckets[r * grid.cols + c];
 }
 const EMPTY_LIST = [];
 
 export function initTerrainIndex(map) {
-  const span = map.worldSpan || ((map.gridN || N) * (map.cellSize || C));
-  map._waterGrid = bucketBoxes(map.WATER_RECTS, span, 28);
-  map._rampGrid = bucketBoxes(map.RAMPS, span, 28);
-  map._platGrid = bucketBoxes(map.PLATFORMS, span, 28);
-  map._slideGrid = bucketBoxes(map.SLIDES, span, 28);
-  map._patchGrid = bucketBoxes(map.FLOOR_PATCHES, span, 28);
+  const gCols = map.gridCols || map.gridN || N;
+  const gRows = map.gridRows || map.gridN || N;
+  const gC = map.cellSize || C;
+  const spanX = map.spanX || map.worldSpan || (gCols * gC);
+  const spanZ = map.spanZ || map.worldSpan || (gRows * gC);
+  map._waterGrid = bucketBoxes(map.WATER_RECTS, spanX, 28, spanZ);
+  map._rampGrid = bucketBoxes(map.RAMPS, spanX, 28, spanZ);
+  map._platGrid = bucketBoxes(map.PLATFORMS, spanX, 28, spanZ);
+  map._slideGrid = bucketBoxes(map.SLIDES, spanX, 28, spanZ);
+  map._patchGrid = bucketBoxes(map.FLOOR_PATCHES, spanX, 28, spanZ);
 }
 
 /**
@@ -58,6 +73,8 @@ export function getTerrainAt(x, z, map, curY = 0) {
     };
   }
 
+  const classicPit=classicPitAt(map.classic,x,z,curY);
+  if(classicPit)return {floorY:-classicPit.depth,inWater:false,waterY:-99,waterDepth:0,slideVelX:0,slideVelZ:0,onSlide:false,surfaceKind:'concrete',pit:classicPit.id};
   let floorY = map.baseFloorY || 0;
   let surfaceKind = map.defaultSurface || 'tile';
   let inWater = false;
@@ -71,7 +88,7 @@ export function getTerrainAt(x, z, map, curY = 0) {
   const waters = map._waterGrid ? queryBucket(map._waterGrid, x, z) : (map.WATER_RECTS || EMPTY_LIST);
   for (let i = 0; i < waters.length; i++) {
     const w = waters[i];
-    if (x >= w.x0 && x <= w.x1 && z >= w.z0 && z <= w.z1) {
+    if (x >= w.x0 && x <= w.x1 && z >= w.z0 && z <= w.z1 && (w.shape!=='ellipse'||((x-w.cx)/w.rx)**2+((z-w.cz)/w.rz)**2<=1) && (w.shape!=='tube'||tubeDistance(w.network,x,w.waterY-w.floorY,z)<0)) {
       floorY = w.bedY ?? -0.68;
       waterY = w.waterY ?? 0.02;
       inWater = true;
@@ -81,19 +98,24 @@ export function getTerrainAt(x, z, map, curY = 0) {
     }
   }
 
+  const tube=map._poolCellGrid?.queryNear(x,z,0).find(c=>c.tubeNetwork&&x>=c.x0&&x<=c.x1&&z>=c.z0&&z<=c.z1);
+  if(tube){const f=tubeFloor(tube.tubeNetwork,x,z);if(Number.isFinite(f))floorY=f+tube.floorY;}
   // 2. Elevated decks, docks, castle plateaus, pool bridges & house interiors
   const plats = map._platGrid ? queryBucket(map._platGrid, x, z) : (map.PLATFORMS || EMPTY_LIST);
   for (let i = 0; i < plats.length; i++) {
     const p = plats[i];
+    if (p.terrainIgnore) continue;
     if (x >= p.x0 && x <= p.x1 && z >= p.z0 && z <= p.z1) {
-      const py = p.y ?? 0;
+      if(p.shape==='ellipse'&&((x-p.cx)/p.rx)**2+((z-p.cz)/p.rz)**2>1)continue;
+      if(p.holes?.some(h=>((x-h.cx)/h.rx)**2+((z-h.cz)/h.rz)**2<1))continue;
+      const py = p.y ?? p.topY ?? 0;
       // Allow walking onto elevated platforms when within step-up/down margin or above deck
       if (curY >= py - 1.15 || py <= floorY + 1.15) {
         if (py > floorY) {
           floorY = py;
           inWater = false;
           waterDepth = 0;
-          surfaceKind = p.surface || 'wood';
+          surfaceKind = p.surface || p.surfaceKind || 'wood';
         }
       }
     }
@@ -184,6 +206,7 @@ export function getTerrainAt(x, z, map, curY = 0) {
     }
   }
 
+  if(waterY>floorY+.04&&!onSlide){inWater=true;waterDepth=waterY-floorY;surfaceKind='water';}
   return { floorY, inWater, waterY, waterDepth, slideVelX, slideVelZ, onSlide, surfaceKind };
 }
 
@@ -191,27 +214,43 @@ export function getTerrainAt(x, z, map, curY = 0) {
  * Generalized A* pathfinder supporting dynamic map grid sizes & outdoor steering.
  */
 export function findDynamicGridPath(map, sx, sz, tx, tz) {
+  if(map.classic&&!map._classicRouting){
+    const c=map.classic,a=inClassic(c,sx,sz),b=inClassic(c,tx,tz);
+    const at=(x,z)=>c.connectors.find(con=>con.floors.some(r=>x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1)),ca=a?null:at(sx,sz),cb=b?null:at(tx,tz);
+    if(ca&&cb===ca)return transitionRoute(ca,sx,sz,tx,tz);
+    if(ca){const p=b||cb?ca.path[0]:ca.path.at(-1);return[...transitionRoute(ca,sx,sz,p[0],p[1]),...findDynamicGridPath(map,p[0],p[1],tx,tz)];}
+    if(cb){const p=a?cb.path[0]:cb.path.at(-1);return[...findDynamicGridPath(map,sx,sz,p[0],p[1]),...transitionRoute(cb,p[0],p[1],tx,tz)];}
+    if(a&&b)return classicNavigationPath(c,sx,sz,tx,tz);
+    if(a||b){const con=c.connectors.reduce((best,v)=>Math.abs(v.z-(a?tz:sz))<Math.abs(best.z-(a?tz:sz))?v:best,c.connectors[0]);const legacy={...map,_classicRouting:true};
+      if(a)return [...classicNavigationPath(c,sx,sz,con.x,con.z),...con.path,...findDynamicGridPath(legacy,con.oldX,con.legacyZ,tx,tz)];
+      return [...findDynamicGridPath(legacy,sx,sz,con.oldX,con.legacyZ),...[...con.path].reverse(),...classicNavigationPath(c,con.x,con.z,tx,tz)];
+    }
+  }
   const gN = map.gridN ?? N;
+  const gCols = map.gridCols ?? gN;
+  const gRows = map.gridRows ?? gN;
   const gC = map.cellSize ?? C;
 
   // For open outdoor realms without cell grids or huge plains, check line-of-sight first!
-  const span = map.worldSpan || gN * gC;
-  const clampCell = (v) => Math.max(0, Math.min(gN - 1, Math.floor(v / gC)));
-  const sr = clampCell(sz), sc = clampCell(sx);
-  const tr = clampCell(tz), tc = clampCell(tx);
+  const spanX = map.spanX || map.worldSpan || gCols * gC;
+  const spanZ = map.spanZ || map.worldSpan || gRows * gC;
+  const clampR = (v) => Math.max(0, Math.min(gRows - 1, Math.floor(v / gC)));
+  const clampC = (v) => Math.max(0, Math.min(gCols - 1, Math.floor(v / gC)));
+  const sr = clampR(sz), sc = clampC(sx);
+  const tr = clampR(tz), tc = clampC(tx);
   if (sr === tr && sc === tc) return [[tx, tz]];
 
   if (!map.cellSolid || !map.hEdges || !map.vEdges) {
     return [[tx, tz]];
   }
 
-  const total = gN * gN;
+  const total = gRows * gCols;
   const gScore = new Float32Array(total).fill(1e9);
   const fScore = new Float32Array(total).fill(1e9);
   const parent = new Int32Array(total).fill(-1);
   const closed = new Uint8Array(total);
 
-  const idx = (r, c) => r * gN + c;
+  const idx = (r, c) => r * gCols + c;
   const startId = idx(sr, sc);
   const goalId = idx(tr, tc);
 
@@ -256,19 +295,22 @@ export function findDynamicGridPath(map, sx, sz, tx, tz) {
   let expanded = 0;
   const waterOnly = !!map.waterOnlyAI;
 
-  while (heap.length > 0 && expanded++ < 9500) {
+  // V4's one-metre raster has many more nodes than the former six-metre grid.
+  // Retain the old budget elsewhere; permit complete district routes here.
+  const expansionLimit = map.architectureVersion === 4 ? Math.min(total, 120000) : 9500;
+  while (heap.length > 0 && expanded++ < expansionLimit) {
     const cid = popHeap();
     if (closed[cid]) continue;
     closed[cid] = 1;
 
-    const r = (cid / gN) | 0;
-    const c = cid % gN;
+    const r = (cid / gCols) | 0;
+    const c = cid % gCols;
     const h = Math.abs(tr - r) + Math.abs(tc - c);
     if (h < bestH) { bestH = h; reached = cid; }
     if (cid === goalId) break;
 
     const tryNeighbor = (nr, nc, cost = 1) => {
-      if (nr < 0 || nr >= gN || nc < 0 || nc >= gN) return;
+      if (nr < 0 || nr >= gRows || nc < 0 || nc >= gCols) return;
       if (cellSolid[nr]?.[nc]) return;
       if (waterOnly && map.waterCells && !map.waterCells[nr]?.[nc]) {
         // Discourage stepping far outside water except as fallback
@@ -287,20 +329,20 @@ export function findDynamicGridPath(map, sx, sz, tx, tz) {
 
     const passable = (v) => v === 0 || v === 3;
     if (r > 0 && passable(hEdges[r]?.[c])) tryNeighbor(r - 1, c);
-    if (r < gN - 1 && passable(hEdges[r + 1]?.[c])) tryNeighbor(r + 1, c);
+    if (r < gRows - 1 && passable(hEdges[r + 1]?.[c])) tryNeighbor(r + 1, c);
     if (c > 0 && passable(vEdges[r]?.[c])) tryNeighbor(r, c - 1);
-    if (c < gN - 1 && passable(vEdges[r]?.[c + 1])) tryNeighbor(r, c + 1);
+    if (c < gCols - 1 && passable(vEdges[r]?.[c + 1])) tryNeighbor(r, c + 1);
   }
 
   const endId = closed[goalId] ? goalId : reached;
   const path = [];
   let cur = endId;
   while (cur !== -1 && cur !== startId) {
-    const r = (cur / gN) | 0;
-    const c = cur % gN;
+    const r = (cur / gCols) | 0;
+    const c = cur % gCols;
     path.push([
-      Math.min(span - 1.5, Math.max(1.5, (c + 0.5) * gC)),
-      Math.min(span - 1.5, Math.max(1.5, (r + 0.5) * gC))
+      Math.min(spanX - 1.5, Math.max(1.5, (c + 0.5) * gC)),
+      Math.min(spanZ - 1.5, Math.max(1.5, (r + 0.5) * gC))
     ]);
     cur = parent[cur];
   }

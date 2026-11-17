@@ -1,7 +1,16 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 import { THREE, GLTFLoader, SkeletonUtils, BufferGeometryUtils, PreloaderSystem } from './engine.js';
 import { C, WH, N, SURV_COLORS, GFX_PRESETS, TASK_SYMBOLS } from './constants.js';
 import { buildSymbolPlateTexture } from './textures.js';
 import { buildSubLevelWorld, buildLevel0EntrancesGroup } from './levels/world_mesh.js';
+import { buildClassicWorld } from './levels/classic_world.js';
+import {buildEnvironmentWorld} from './levels/environment_world.js';
+import { inClassicPresentation } from './levels/classic_layout.js';
 
 let cachedSoldierGLTF = null;
 
@@ -39,22 +48,22 @@ function makeWallBoxGeom(dx, dy, dz) {
   return g;
 }
 
-function assignWorldLightMapUV1(geom, worldSpan, offsetX = 0, offsetZ = 0) {
+function assignWorldLightMapUV1(geom, spanX, offsetX = 0, offsetZ = 0, spanZ = spanX) {
   const pos = geom.attributes.position;
   const uv1 = new Float32Array(pos.count * 2);
   for (let i = 0; i < pos.count; i++) {
-    uv1[i * 2] = (pos.getX(i) + offsetX) / worldSpan;
-    uv1[i * 2 + 1] = 1.0 - (pos.getZ(i) + offsetZ) / worldSpan;
+    uv1[i * 2] = (pos.getX(i) + offsetX) / spanX;
+    uv1[i * 2 + 1] = 1.0 - (pos.getZ(i) + offsetZ) / spanZ;
   }
   geom.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2));
 }
 
 /**
- * Builds the 5x larger Backrooms Level 0 world with:
- * - Batched/merged non-smooth gritty matte block walls + 4-sided deep AO contact shadows + shadow casting
- * - Varied floor materials (Pool tile, Wet concrete, Terrazzo, Red carpet, Office tile) receiving baked lightmaps
- * - Huge Pitfall abyss chasms with steel catwalks & Liminal Curiosities
- * - Reactive HDR lighting where ceiling lights dynamically shift red around The Entity
+ * Builds the Front + Rear Backrooms Level 0 world with:
+ * - Chunk-culled non-smooth gritty matte block walls + deep AO contact shadows + shadow casting
+ * - Varied floor materials (Pool tile, Wet concrete, Terrazzo, Herringbone Parquet, Checker Linoleum, Hotel Carpet, etc.)
+ * - Climbable mezzanine platforms, ramps, Huge Pitfall abyss chasms & Liminal Curiosities
+ * - Spatial light-grid pooled HDR lighting where ceiling lights dynamically shift red around The Entity
  */
 export function buildWorld(scene, map, texStore, gfxKey = 'high') {
   if (map?.levelId && map.levelId !== 'level0') {
@@ -64,30 +73,62 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
   const root = new THREE.Group();
   scene.add(root);
 
-  const worldSpan = N * C;
-  const midSpan = worldSpan * 0.5;
+  const gCols = map.gridCols ?? map.gridN ?? N;
+  const gRows = map.gridRows ?? map.gridN ?? N;
+  const gC = map.cellSize ?? C;
+  const spanX = map.legacyBounds?.x1 ?? map.spanX ?? (gCols * gC);
+  const spanZ = map.spanZ ?? (gRows * gC);
+  const midX = spanX * 0.5;
+  const midZ = spanZ * 0.5;
+  const baseSpan = N * C;
+  const zTileRatio = spanZ / Math.max(1, baseSpan);
+  const xTileRatio = spanX / Math.max(1, baseSpan);
   const disposables = [];
   const track = (obj) => { disposables.push(obj); return obj; };
 
-  // 1. Damp Carpet Base Floor (with baked 2D ray-shadowed lightmap uv1 & real-time shadow receiving)
-  const floorGeom = track(new THREE.PlaneGeometry(worldSpan, worldSpan));
-  floorGeom.rotateX(-Math.PI / 2);
-  assignWorldLightMapUV1(floorGeom, worldSpan, midSpan, midSpan);
+  const L0_CHUNK_X = 8;
+  const L0_CHUNK_Z = 8;
+  const spatialChunks = [];
+  const registerChunk = (mesh, minX, maxX, minZ, maxZ, rangeMul = 1.0) => {
+    spatialChunks.push({ mesh, minX, maxX, minZ, maxZ, rangeMul });
+  };
+
+  // 1. Damp Carpet Base Floor (8x8 spatial chunks preserving continuous UVs & lightmap uv1 for Render Distance culling)
   const floorMat = track(new THREE.MeshStandardMaterial({
     color: 0xd8c376,
     map: texStore.carpetMap,
     normalMap: texStore.carpetNorm,
-    normalScale: new THREE.Vector2(1.4, 1.4),
+    normalScale: new THREE.Vector2(1.05, 1.05),
     roughnessMap: texStore.carpetRough,
     lightMap: texStore.floorAO,
     lightMapIntensity: 1.48,
     roughness: 0.96,
     metalness: 0.0
   }));
-  const floor = new THREE.Mesh(floorGeom, floorMat);
-  floor.position.set(midSpan, 0, midSpan);
-  floor.receiveShadow = true;
-  root.add(floor);
+  const tileW = spanX / L0_CHUNK_X;
+  const tileD = spanZ / L0_CHUNK_Z;
+  for (let czIdx = 0; czIdx < L0_CHUNK_Z; czIdx++) {
+    for (let cxIdx = 0; cxIdx < L0_CHUNK_X; cxIdx++) {
+      const fx0 = cxIdx * tileW;
+      const fz0 = czIdx * tileD;
+      const fcx = fx0 + tileW * 0.5;
+      const fcz = fz0 + tileD * 0.5;
+      const fg = track(new THREE.PlaneGeometry(tileW, tileD));
+      fg.rotateX(-Math.PI / 2);
+      fg.translate(fcx, 0, fcz);
+      const pos = fg.attributes.position;
+      const fuv = fg.attributes.uv;
+      for (let i = 0; i < pos.count; i++) {
+        fuv.setXY(i, (pos.getX(i) / spanX) * xTileRatio, (1.0 - pos.getZ(i) / spanZ) * zTileRatio);
+      }
+      fuv.needsUpdate = true;
+      assignWorldLightMapUV1(fg, spanX, 0, 0, spanZ);
+      const fm = new THREE.Mesh(fg, floorMat);
+      fm.receiveShadow = true;
+      root.add(fm);
+      registerChunk(fm, fx0, fx0 + tileW, fz0, fz0 + tileD, 1.05);
+    }
+  }
 
   // 1b. Varied Detailed Regional Floor Patches (`FLOOR_PATCHES`) & Metal Pitfall Catwalks
   if (map.FLOOR_PATCHES?.length) {
@@ -107,13 +148,15 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       cream_tile: track(new THREE.MeshStandardMaterial({ map: texStore.creamTileTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.72, 0.72), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.44, metalness: 0.05 })),
       brick: track(new THREE.MeshStandardMaterial({ map: texStore.brickWallTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(1.4, 1.4), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.90, metalness: 0.02 })),
       grey_carpet: track(new THREE.MeshStandardMaterial({ map: texStore.greyCarpetTex, normalMap: texStore.carpetNorm, normalScale: new THREE.Vector2(1.45, 1.45), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.95, metalness: 0.0 })),
-      dark_flood: track(new THREE.MeshStandardMaterial({ map: texStore.darkFloodWaterTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.28, 0.28), lightMap: texStore.floorAO, lightMapIntensity: 1.48, roughness: 0.06, metalness: 0.66 }))
+      dark_flood: track(new THREE.MeshStandardMaterial({ map: texStore.darkFloodWaterTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.28, 0.28), lightMap: texStore.floorAO, lightMapIntensity: 1.48, roughness: 0.06, metalness: 0.66 })),
+      parquet_herringbone: track(new THREE.MeshStandardMaterial({ map: texStore.parquetHerringboneTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.62, 0.62), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.36, metalness: 0.05 })),
+      checker_linoleum: track(new THREE.MeshStandardMaterial({ map: texStore.checkerLinoleumTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.45, 0.45), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.28, metalness: 0.08 })),
+      hotel_carpet: track(new THREE.MeshStandardMaterial({ map: texStore.hotelPatternCarpetTex, normalMap: texStore.carpetNorm, normalScale: new THREE.Vector2(1.5, 1.5), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.94, metalness: 0.0 })),
+      maple_lane: track(new THREE.MeshStandardMaterial({ map: texStore.mapleLaneTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.45, 0.45), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.20, metalness: 0.12 })),
+      raised_tile: track(new THREE.MeshStandardMaterial({ map: texStore.raisedAntiStaticTex, normalMap: texStore.wallNorm, normalScale: new THREE.Vector2(0.55, 0.55), lightMap: texStore.floorAO, lightMapIntensity: 1.38, roughness: 0.42, metalness: 0.28 }))
     };
-    const buckets = {
-      pool_tile: [], concrete: [], terrazzo: [], red_carpet: [], office_tile: [],
-      async_hazard: [], asphalt: [], rust_metal: [], glitch: [], sump: [],
-      hardwood: [], white_tile: [], cream_tile: [], brick: [], grey_carpet: [], dark_flood: []
-    };
+    const buckets = {};
+    for (const k of Object.keys(patchMats)) buckets[k] = [];
     for (const fp of map.FLOOR_PATCHES) {
       if (!buckets[fp.kind]) continue;
       const g = new THREE.PlaneGeometry(fp.w, fp.d);
@@ -127,7 +170,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       if (!geoms.length) continue;
       const merged = track(BufferGeometryUtils.mergeGeometries(geoms, false));
       for (const g of geoms) g.dispose();
-      assignWorldLightMapUV1(merged, worldSpan);
+      assignWorldLightMapUV1(merged, spanX, 0, 0, spanZ);
       const mesh = new THREE.Mesh(merged, patchMats[kind]);
       mesh.receiveShadow = true;
       root.add(mesh);
@@ -143,11 +186,53 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     });
     const cwMerged = track(BufferGeometryUtils.mergeGeometries(cwGeoms, false));
     for (const g of cwGeoms) g.dispose();
-    assignWorldLightMapUV1(cwMerged, worldSpan);
+    assignWorldLightMapUV1(cwMerged, spanX, 0, 0, spanZ);
     const cwMat = track(new THREE.MeshStandardMaterial({ map: texStore.pitGrate, lightMap: texStore.floorAO, lightMapIntensity: 1.45, color: 0x626864, roughness: 0.55, metalness: 0.72 }));
     const cwMesh = new THREE.Mesh(cwMerged, cwMat);
     cwMesh.receiveShadow = true;
     root.add(cwMesh);
+  }
+
+  // Walkable Mezzanine Decks & Stepped Concrete Tiers (`PLATFORMS` & `RAMPS`)
+  if (map.PLATFORMS?.length || map.RAMPS?.length) {
+    const deckMatMetal = track(new THREE.MeshStandardMaterial({ map: texStore.pitGrate, color: 0x6d767e, roughness: 0.46, metalness: 0.72 }));
+    const deckMatStone = track(new THREE.MeshStandardMaterial({ map: texStore.terrazzoFloorTex, color: 0xc2bcb0, roughness: 0.72, metalness: 0.06 }));
+    for (const pl of (map.PLATFORMS || [])) {
+      if(pl.classic)continue;
+      const py = pl.y ?? pl.topY ?? 0.5;
+      const pw = Math.max(0.2, pl.x1 - pl.x0);
+      const pd = Math.max(0.2, pl.z1 - pl.z0);
+      const pcx = (pl.x0 + pl.x1) * 0.5;
+      const pcz = (pl.z0 + pl.z1) * 0.5;
+      const isMetal = (pl.surface ?? pl.surfaceKind) === 'metal';
+      const th = isMetal ? 0.16 : py;
+      const deck = new THREE.Mesh(track(new THREE.BoxGeometry(pw, th, pd)), isMetal ? deckMatMetal : deckMatStone);
+      deck.position.set(pcx, isMetal ? py - th * 0.5 : py * 0.5, pcz);
+      deck.castShadow = true;
+      deck.receiveShadow = true;
+      root.add(deck);
+    }
+    for (const rm of (map.RAMPS || [])) {
+      if(rm.classic)continue;
+      const rw = Math.max(0.2, rm.x1 - rm.x0);
+      const rd = Math.max(0.2, rm.z1 - rm.z0);
+      const isX = rm.axis === 'x';
+      const span = isX ? rw : rd;
+      const cross = isX ? rd : rw;
+      const dy = rm.y1 - rm.y0;
+      const len = Math.hypot(span, dy);
+      const isMetal = (rm.surface ?? rm.surfaceKind) === 'metal';
+      const slab = new THREE.Mesh(
+        track(new THREE.BoxGeometry(isX ? len : cross, 0.12, isX ? cross : len)),
+        isMetal ? deckMatMetal : deckMatStone
+      );
+      slab.position.set((rm.x0 + rm.x1) * 0.5, (rm.y0 + rm.y1) * 0.5 - 0.05, (rm.z0 + rm.z1) * 0.5);
+      const pitch = Math.atan2(dy, span);
+      if (isX) slab.rotation.z = pitch;
+      else slab.rotation.x = -pitch;
+      slab.receiveShadow = true;
+      root.add(slab);
+    }
   }
 
   // Deep Bottomless Pitfalls Abyss Shafts & Chasm Darkness Drops
@@ -167,10 +252,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     }
   }
 
-  // 2. Acoustic Grid Ceiling (with matching world uv1 lightmap)
-  const ceilGeom = track(new THREE.PlaneGeometry(worldSpan, worldSpan));
-  ceilGeom.rotateX(Math.PI / 2);
-  assignWorldLightMapUV1(ceilGeom, worldSpan, midSpan, midSpan);
+  // 2. Acoustic Grid Ceiling (8x8 spatial chunks with continuous rectangular UV tiling & world uv1 lightmap)
   const ceilMat = track(new THREE.MeshStandardMaterial({
     color: 0xd4cb9e,
     map: texStore.ceilMap,
@@ -181,18 +263,36 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     roughness: 0.94,
     metalness: 0.0
   }));
-  const ceil = new THREE.Mesh(ceilGeom, ceilMat);
-  ceil.position.set(midSpan, WH, midSpan);
-  ceil.receiveShadow = !!preset.shadows;
-  root.add(ceil);
+  for (let czIdx = 0; czIdx < L0_CHUNK_Z; czIdx++) {
+    for (let cxIdx = 0; cxIdx < L0_CHUNK_X; cxIdx++) {
+      const cx0 = cxIdx * tileW;
+      const cz0 = czIdx * tileD;
+      const ccx = cx0 + tileW * 0.5;
+      const ccz = cz0 + tileD * 0.5;
+      const cg = track(new THREE.PlaneGeometry(tileW, tileD));
+      cg.rotateX(Math.PI / 2);
+      cg.translate(ccx, WH, ccz);
+      const pos = cg.attributes.position;
+      const cuv = cg.attributes.uv;
+      for (let i = 0; i < pos.count; i++) {
+        cuv.setXY(i, (pos.getX(i) / spanX) * xTileRatio, (pos.getZ(i) / spanZ) * zTileRatio);
+      }
+      cuv.needsUpdate = true;
+      assignWorldLightMapUV1(cg, spanX, 0, 0, spanZ);
+      const cm = new THREE.Mesh(cg, ceilMat);
+      cm.receiveShadow = !!preset.shadows;
+      root.add(cm);
+      registerChunk(cm, cx0, cx0 + tileW, cz0, cz0 + tileD, 1.05);
+    }
+  }
 
-  // 3. Monolithic Thick Block Walls (Merged per Material -> high FPS + matte non-smooth tooth + crisp shadow casting!)
+  // 3. Monolithic Thick Block Walls (Merged per Material x 4x8 Spatial Chunk -> frustum-culled high FPS!)
   const wallMaterials = {
     yellow: track(new THREE.MeshStandardMaterial({
       color: 0xf2dc82,
       map: texStore.wallMap,
       normalMap: texStore.wallNorm,
-      normalScale: new THREE.Vector2(2.4, 2.4),
+      normalScale: new THREE.Vector2(1.55, 1.55),
       roughnessMap: texStore.wallRough,
       roughness: 0.96,
       metalness: 0.0
@@ -201,7 +301,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       color: 0xb6322c,
       map: texStore.wallMap,
       normalMap: texStore.wallNorm,
-      normalScale: new THREE.Vector2(2.2, 2.2),
+      normalScale: new THREE.Vector2(1.45, 1.45),
       roughnessMap: texStore.wallRough,
       roughness: 0.95,
       metalness: 0.0
@@ -210,7 +310,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       color: 0xe6d6b0,
       map: texStore.wallMap,
       normalMap: texStore.wallNorm,
-      normalScale: new THREE.Vector2(1.8, 1.8),
+      normalScale: new THREE.Vector2(1.25, 1.25),
       roughness: 0.95,
       metalness: 0.0
     })),
@@ -270,10 +370,41 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       map: texStore.greyDrywallTex,
       roughness: 0.88,
       metalness: 0.0
+    })),
+    glass_block: track(new THREE.MeshStandardMaterial({
+      color: 0xdff6fa,
+      map: texStore.glassBlockWallTex,
+      emissive: 0x1b3a44,
+      emissiveIntensity: 0.35,
+      roughness: 0.18,
+      metalness: 0.12
+    })),
+    partition_fabric: track(new THREE.MeshStandardMaterial({
+      color: 0xd4ccbc,
+      map: texStore.partitionFabricTex,
+      roughness: 0.94,
+      metalness: 0.02
+    })),
+    parquet_dark: track(new THREE.MeshStandardMaterial({
+      color: 0xddd4c6,
+      map: texStore.wainscotWallTex,
+      normalMap: texStore.wallNorm,
+      normalScale: new THREE.Vector2(1.3, 1.3),
+      roughness: 0.78,
+      metalness: 0.04
+    })),
+    baffle_slate: track(new THREE.MeshStandardMaterial({
+      color: 0xb0b8c2,
+      map: texStore.acousticBaffleTex,
+      roughness: 0.96,
+      metalness: 0.02
     }))
   };
 
-  const wallGeomsByStyle = { yellow: [], red: [], manila: [], pool: [], concrete: [], white: [], pit: [], cream_tile: [], brick: [], stone: [], grey_drywall: [] };
+  const CHUNK_X = L0_CHUNK_X;
+  const CHUNK_Z = L0_CHUNK_Z;
+  const wallGeomsByStyle = {};
+  for (const st of Object.keys(wallMaterials)) wallGeomsByStyle[st] = [];
   const aoSkirtMatrices = [];
   const dummy = new THREE.Object3D();
   const crawlStripGeoms = [];
@@ -285,44 +416,45 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     const y0 = r.y0 ?? 0;
     const y1 = r.y1 ?? (r.h ?? WH);
     const dy = Math.max(0.2, y1 - y0);
+    const rcx = (r.x0 + r.x1) * 0.5;
+    const rcz = (r.z0 + r.z1) * 0.5;
     const geom = makeWallBoxGeom(dx, dy, dz);
-    geom.translate((r.x0 + r.x1) * 0.5, y0 + dy * 0.5, (r.z0 + r.z1) * 0.5);
+    geom.translate(rcx, y0 + dy * 0.5, rcz);
     const st = wallGeomsByStyle[r.style] ? r.style : 'yellow';
-    wallGeomsByStyle[st].push(geom);
+    const ckx = Math.max(0, Math.min(CHUNK_X - 1, Math.floor((rcx / Math.max(1, spanX)) * CHUNK_X)));
+    const ckz = Math.max(0, Math.min(CHUNK_Z - 1, Math.floor((rcz / Math.max(1, spanZ)) * CHUNK_Z)));
+    const chunkIdx = ckz * CHUNK_X + ckx;
+    if (!wallGeomsByStyle[st][chunkIdx]) wallGeomsByStyle[st][chunkIdx] = [];
+    wallGeomsByStyle[st][chunkIdx].push(geom);
 
     if (r.crawl) {
       const sg = new THREE.BoxGeometry(dx + 0.02, 0.12, dz + 0.02);
-      sg.translate((r.x0 + r.x1) * 0.5, y0 + 0.06, (r.z0 + r.z1) * 0.5);
+      sg.translate(rcx, y0 + 0.06, rcz);
       crawlStripGeoms.push(sg);
     }
 
     // Compact fallback Wall-Base Contact Skirt (hidden automatically when Real-Time Shadow Shader is active on High/Ultra)
-    if (y0 < 0.05 && dy > 1.2 && aoSkirtMatrices.length < 14500) {
-      const cx = (r.x0 + r.x1) * 0.5, cz = (r.z0 + r.z1) * 0.5;
+    if (y0 < 0.05 && dy > 1.2 && aoSkirtMatrices.length < 32000) {
       const sd = 0.24;
-      // +X face (yaw 0: -X dark edge touches wall r.x1 flush, +X fades smoothly onto carpet)
-      dummy.position.set(r.x1 + sd * 0.49, 0.013, cz);
+      dummy.position.set(r.x1 + sd * 0.49, 0.013, rcz);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.set(sd, 1, dz);
       dummy.updateMatrix();
       aoSkirtMatrices.push(dummy.matrix.clone());
 
-      // -X face
-      dummy.position.set(r.x0 - sd * 0.49, 0.013, cz);
+      dummy.position.set(r.x0 - sd * 0.49, 0.013, rcz);
       dummy.rotation.set(0, Math.PI, 0);
       dummy.scale.set(sd, 1, dz);
       dummy.updateMatrix();
       aoSkirtMatrices.push(dummy.matrix.clone());
 
-      // +Z face
-      dummy.position.set(cx, 0.013, r.z1 + sd * 0.49);
+      dummy.position.set(rcx, 0.013, r.z1 + sd * 0.49);
       dummy.rotation.set(0, -Math.PI / 2, 0);
       dummy.scale.set(sd, 1, dx);
       dummy.updateMatrix();
       aoSkirtMatrices.push(dummy.matrix.clone());
 
-      // -Z face
-      dummy.position.set(cx, 0.013, r.z0 - sd * 0.49);
+      dummy.position.set(rcx, 0.013, r.z0 - sd * 0.49);
       dummy.rotation.set(0, Math.PI / 2, 0);
       dummy.scale.set(sd, 1, dx);
       dummy.updateMatrix();
@@ -332,20 +464,31 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
 
   for (const a of (map.ARCHES || [])) {
     const dx = a.x1 - a.x0, dz = a.z1 - a.z0, dy = a.y1 - a.y0;
+    const acx = (a.x0 + a.x1) * 0.5;
+    const acz = (a.z0 + a.z1) * 0.5;
     const geom = makeWallBoxGeom(dx, dy, dz);
-    geom.translate((a.x0 + a.x1) * 0.5, a.y0 + dy * 0.5, (a.z0 + a.z1) * 0.5);
+    geom.translate(acx, a.y0 + dy * 0.5, acz);
     const st = wallGeomsByStyle[a.style] ? a.style : 'yellow';
-    wallGeomsByStyle[st].push(geom);
+    const ckx = Math.max(0, Math.min(CHUNK_X - 1, Math.floor((acx / Math.max(1, spanX)) * CHUNK_X)));
+    const ckz = Math.max(0, Math.min(CHUNK_Z - 1, Math.floor((acz / Math.max(1, spanZ)) * CHUNK_Z)));
+    const chunkIdx = ckz * CHUNK_X + ckx;
+    if (!wallGeomsByStyle[st][chunkIdx]) wallGeomsByStyle[st][chunkIdx] = [];
+    wallGeomsByStyle[st][chunkIdx].push(geom);
   }
 
-  for (const [st, geoms] of Object.entries(wallGeomsByStyle)) {
-    if (!geoms.length) continue;
-    const merged = track(BufferGeometryUtils.mergeGeometries(geoms, false));
-    for (const g of geoms) g.dispose();
-    const mesh = new THREE.Mesh(merged, wallMaterials[st]);
-    mesh.castShadow = !!preset.shadows;
-    mesh.receiveShadow = !!preset.shadows;
-    root.add(mesh);
+  for (const [st, chunkList] of Object.entries(wallGeomsByStyle)) {
+    for (const geoms of chunkList) {
+      if (!geoms || !geoms.length) continue;
+      const merged = track(BufferGeometryUtils.mergeGeometries(geoms, false));
+      for (const g of geoms) g.dispose();
+      merged.computeBoundingBox();
+      const mesh = new THREE.Mesh(merged, wallMaterials[st]);
+      mesh.castShadow = !!preset.shadows;
+      mesh.receiveShadow = !!preset.shadows;
+      root.add(mesh);
+      const bb = merged.boundingBox;
+      if (bb) registerChunk(mesh, bb.min.x, bb.max.x, bb.min.z, bb.max.z, 1.0);
+    }
   }
 
   if (crawlStripGeoms.length) {
@@ -549,6 +692,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       fg.add(cr);
     }
     root.add(fg);
+    registerChunk(fg, f.x - 1.5, f.x + 1.5, f.z - 1.5, f.z + 1.5, 0.72);
   }
 
   // Curious Liminal Oddities (Threshold Staircases to Ceiling, Freestanding Doors, CRT Monitor Banks, Tilted Pillars)
@@ -589,6 +733,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
         cg.add(tp);
       }
       root.add(cg);
+      registerChunk(cg, cur.x - 2.0, cur.x + 2.0, cur.z - 2.0, cur.z + 2.0, 0.85);
     }
   }
 
@@ -904,6 +1049,38 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
       animItems.push({ mesh: blades, kind: 'fan_y', baseY: 0 });
       return fanRoot;
     };
+
+    const darkSteelMat = track(new THREE.MeshStandardMaterial({ color: 0x262b30, roughness: 0.45, metalness: 0.78 }));
+    const brushedAlumMat = track(new THREE.MeshStandardMaterial({ color: 0xbac2c8, roughness: 0.34, metalness: 0.68 }));
+    const warmBrassMat = track(new THREE.MeshStandardMaterial({ color: 0xc29944, roughness: 0.36, metalness: 0.72 }));
+    const cyanLedMat = track(new THREE.MeshBasicMaterial({ color: 0x52e8ff, toneMapped: false }));
+    const rawPineMat = track(new THREE.MeshStandardMaterial({ map: texStore.deskWood, color: 0xd9b37c, roughness: 0.88 }));
+    const vinylRedMat = track(new THREE.MeshStandardMaterial({ color: 0x992822, roughness: 0.45 }));
+    const glassCubeMat = track(new THREE.MeshStandardMaterial({ color: 0xccf4ff, roughness: 0.14, metalness: 0.12, transparent: true, opacity: 0.42 }));
+    const rearSignTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = 512; c.height = 192;
+      const g = c.getContext('2d');
+      g.fillStyle = '#1b1914';
+      g.fillRect(0, 0, 512, 192);
+      g.strokeStyle = '#d9b54c';
+      g.lineWidth = 6;
+      g.strokeRect(8, 8, 496, 176);
+      g.fillStyle = '#f4d978';
+      g.font = 'bold 28px monospace';
+      g.textAlign = 'center';
+      g.fillText('A-SYNC SECTOR 0-S', 256, 58);
+      g.fillStyle = '#ece6cf';
+      g.font = '22px monospace';
+      g.fillText('REAR ATRIUM CONCOURSE', 256, 102);
+      g.fillStyle = '#7de8b2';
+      g.font = 'bold 22px monospace';
+      g.fillText('<-- FLANK ARCADES & GALLERIES -->', 256, 148);
+      const t = track(new THREE.CanvasTexture(c));
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })();
+    const rearSignMat = track(new THREE.MeshBasicMaterial({ map: rearSignTex, toneMapped: false }));
 
     for (const an of map.PROPS.anomalies) {
       const ag = new THREE.Group();
@@ -1725,6 +1902,209 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
         for (let p = 0; p < 5; p++) {
           ag.add(buildChair(greenCushionMat, 1.45 + (p % 2) * 0.35, (p - 2) * 0.28, p * 0.9, p * 0.45, -p * 0.35, 0.2 + p * 0.22));
         }
+      } else if (an.kind === 'v6_rear_sector_sign') {
+        const backing = new THREE.Mesh(track(new THREE.BoxGeometry(2.35, 0.96, 0.10)), darkSteelMat);
+        backing.position.set(0, 2.25, 0);
+        const face = new THREE.Mesh(track(new THREE.PlaneGeometry(2.22, 0.84)), rearSignMat);
+        face.position.set(0, 2.25, 0.06);
+        const sconce = new THREE.Mesh(track(new THREE.BoxGeometry(1.85, 0.08, 0.14)), amberGlowMat);
+        sconce.position.set(0, 2.84, 0.08);
+        ag.add(backing, face, sconce);
+      } else if (an.kind === 'v6_parquet_frame_stanchion') {
+        const postL = new THREE.Mesh(track(new THREE.CylinderGeometry(0.04, 0.05, 0.98, 10)), warmBrassMat);
+        postL.position.set(-0.75, 0.49, 0);
+        const postR = new THREE.Mesh(track(new THREE.CylinderGeometry(0.04, 0.05, 0.98, 10)), warmBrassMat);
+        postR.position.set(0.75, 0.49, 0);
+        const baseL = new THREE.Mesh(track(new THREE.CylinderGeometry(0.18, 0.20, 0.06, 12)), warmBrassMat);
+        baseL.position.set(-0.75, 0.03, 0);
+        const baseR = baseL.clone();
+        baseR.position.set(0.75, 0.03, 0);
+        const rope = new THREE.Mesh(track(new THREE.CylinderGeometry(0.025, 0.025, 1.5, 8)), vinylRedMat);
+        rope.rotation.z = Math.PI / 2;
+        rope.position.set(0, 0.84, 0);
+        ag.add(postL, postR, baseL, baseR, rope);
+      } else if (an.kind === 'v6_terrazzo_drain_curb') {
+        const curb = new THREE.Mesh(track(new THREE.BoxGeometry(4.4, 0.14, 4.4)), wallMaterials.cream_tile);
+        curb.position.y = 0.24;
+        const grate = new THREE.Mesh(track(new THREE.BoxGeometry(1.4, 0.04, 1.4)), darkSteelMat);
+        grate.position.y = 0.31;
+        ag.add(curb, grate);
+      } else if (an.kind === 'v6_bullpen_desk_cluster') {
+        const deskTop = new THREE.Mesh(track(new THREE.BoxGeometry(1.55, 0.06, 0.85)), oakChairMat);
+        deskTop.position.set(0, 0.74, 0);
+        const legL = new THREE.Mesh(track(new THREE.BoxGeometry(0.08, 0.74, 0.76)), darkSteelMat);
+        legL.position.set(-0.70, 0.37, 0);
+        const legR = legL.clone();
+        legR.position.set(0.70, 0.37, 0);
+        const monCase = new THREE.Mesh(track(new THREE.BoxGeometry(0.46, 0.42, 0.38)), whitePaintMat);
+        monCase.position.set(0, 0.98, -0.14);
+        const screen = new THREE.Mesh(track(new THREE.PlaneGeometry(0.36, 0.28)), emeraldGlowMat);
+        screen.position.set(0, 0.99, 0.056);
+        const kb = new THREE.Mesh(track(new THREE.BoxGeometry(0.44, 0.025, 0.16)), whitePaintMat);
+        kb.position.set(0, 0.78, 0.18);
+        ag.add(deskTop, legL, legR, monCase, screen, kb, buildChair(greenCushionMat, 0, 0.62, Math.PI));
+      } else if (an.kind === 'v6_checker_counter') {
+        const body = new THREE.Mesh(track(new THREE.BoxGeometry(4.4, 0.96, 1.05)), vinylRedMat);
+        body.position.set(0, 0.48, 0);
+        const topSlab = new THREE.Mesh(track(new THREE.BoxGeometry(4.65, 0.08, 1.25)), chromeMat);
+        topSlab.position.set(0, 1.0, 0);
+        ag.add(body, topSlab);
+        for (const sx of [-1.6, -0.55, 0.55, 1.6]) {
+          const post = new THREE.Mesh(track(new THREE.CylinderGeometry(0.05, 0.08, 0.62, 10)), chromeMat);
+          post.position.set(sx, 0.31, 0.95);
+          const seat = new THREE.Mesh(track(new THREE.CylinderGeometry(0.22, 0.22, 0.10, 14)), vinylRedMat);
+          seat.position.set(sx, 0.65, 0.95);
+          ag.add(post, seat);
+        }
+      } else if (an.kind === 'v6_stud_frame_bay') {
+        const sill = new THREE.Mesh(track(new THREE.BoxGeometry(3.2, 0.10, 0.16)), rawPineMat);
+        sill.position.set(0, 0.05, 0);
+        const topPl = sill.clone();
+        topPl.position.set(0, WH - 0.15, 0);
+        ag.add(sill, topPl);
+        for (const sx of [-1.45, -0.72, 0, 0.72, 1.45]) {
+          const stud = new THREE.Mesh(track(new THREE.BoxGeometry(0.09, WH - 0.2, 0.14)), rawPineMat);
+          stud.position.set(sx, (WH - 0.1) * 0.5, 0);
+          ag.add(stud);
+        }
+      } else if (an.kind === 'v6_laundromat_row') {
+        const base = new THREE.Mesh(track(new THREE.BoxGeometry(5.6, 1.08, 0.92)), whitePaintMat);
+        base.position.set(0, 0.54, 0);
+        const ctr = new THREE.Mesh(track(new THREE.BoxGeometry(5.72, 0.06, 0.98)), chromeMat);
+        ctr.position.set(0, 1.11, 0);
+        ag.add(base, ctr);
+        for (const bx of [-2.0, -1.0, 0, 1.0, 2.0]) {
+          const drum = new THREE.Mesh(track(new THREE.CylinderGeometry(0.28, 0.28, 0.12, 14)), chromeMat);
+          drum.rotation.x = Math.PI / 2;
+          drum.position.set(bx, 0.58, 0.44);
+          const porthole = new THREE.Mesh(track(new THREE.CylinderGeometry(0.20, 0.20, 0.14, 14)), voidBlackMat);
+          porthole.rotation.x = Math.PI / 2;
+          porthole.position.set(bx, 0.58, 0.45);
+          ag.add(drum, porthole);
+        }
+      } else if (an.kind === 'v6_mezzanine_truss') {
+        for (const [tx, tz] of [[-6.5, -4.1], [6.5, -4.1], [-6.5, 4.1], [6.5, 4.1]]) {
+          const col = new THREE.Mesh(track(new THREE.BoxGeometry(0.28, 1.78, 0.28)), darkSteelMat);
+          col.position.set(tx, 0.89, tz);
+          ag.add(col);
+        }
+        const railN = new THREE.Mesh(track(new THREE.BoxGeometry(13.2, 0.06, 0.06)), warmBrassMat);
+        railN.position.set(0, 2.65, -4.32);
+        const railS = railN.clone();
+        railS.position.set(0, 2.65, 4.32);
+        ag.add(railN, railS);
+      } else if (an.kind === 'v6_waiting_row_crt') {
+        const beam = new THREE.Mesh(track(new THREE.BoxGeometry(4.8, 0.10, 0.14)), darkSteelMat);
+        beam.position.set(0, 0.36, 0);
+        ag.add(beam);
+        for (let k = -2; k <= 2; k++) {
+          const leg = new THREE.Mesh(track(new THREE.BoxGeometry(0.08, 0.36, 0.48)), darkSteelMat);
+          leg.position.set(k * 0.95, 0.18, 0);
+          const seat = new THREE.Mesh(track(new THREE.BoxGeometry(0.56, 0.08, 0.50)), royalBlueMat);
+          seat.position.set(k * 0.95, 0.44, 0.05);
+          const back = new THREE.Mesh(track(new THREE.BoxGeometry(0.54, 0.46, 0.08)), royalBlueMat);
+          back.position.set(k * 0.95, 0.70, -0.20);
+          ag.add(leg, seat, back);
+        }
+        const tvMast = new THREE.Mesh(track(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8)), darkSteelMat);
+        tvMast.position.set(2.55, WH - 0.5, 0);
+        const tvBox = new THREE.Mesh(track(new THREE.BoxGeometry(0.68, 0.54, 0.46)), darkSteelMat);
+        tvBox.position.set(2.55, WH - 1.05, 0);
+        const tvGlow = new THREE.Mesh(track(new THREE.PlaneGeometry(0.54, 0.40)), cyanLedMat);
+        tvGlow.position.set(2.55, WH - 1.05, 0.24);
+        ag.add(tvMast, tvBox, tvGlow);
+      } else if (an.kind === 'v6_brutalist_buttress') {
+        const pier = new THREE.Mesh(track(new THREE.BoxGeometry(1.4, WH, 1.4)), wallMaterials.concrete);
+        pier.position.y = WH * 0.5;
+        const fin = new THREE.Mesh(track(new THREE.BoxGeometry(0.45, WH * 0.85, 2.2)), wallMaterials.concrete);
+        fin.position.set(0, WH * 0.425, 0.65);
+        const amberStrip = new THREE.Mesh(track(new THREE.BoxGeometry(0.50, 0.12, 1.55)), amberGlowMat);
+        amberStrip.position.set(0, 1.9, 0.55);
+        ag.add(pier, fin, amberStrip);
+      } else if (an.kind === 'v6_wallpaper_seam_rip') {
+        const panel = new THREE.Mesh(track(new THREE.BoxGeometry(3.2, WH - 0.1, 0.14)), voidBlackMat);
+        panel.position.set(0, WH * 0.5, 0);
+        const frame = new THREE.Mesh(track(new THREE.BoxGeometry(3.38, WH - 0.06, 0.10)), wireMat);
+        frame.position.set(0, WH * 0.5, 0.04);
+        ag.add(panel, frame);
+      } else if (an.kind === 'v6_baffle_fin_bank') {
+        for (let f = -2; f <= 2; f++) {
+          const fin = new THREE.Mesh(track(new THREE.BoxGeometry(0.10, 0.68, 5.2)), wallMaterials.baffle_slate);
+          fin.position.set(f * 0.72, WH - 0.36, 0);
+          ag.add(fin);
+        }
+      } else if (an.kind === 'v6_freight_shutter') {
+        const jamb = new THREE.Mesh(track(new THREE.BoxGeometry(3.8, 2.85, 0.24)), wallMaterials.pit);
+        jamb.position.y = 1.425;
+        const slat = new THREE.Mesh(track(new THREE.BoxGeometry(3.3, 2.45, 0.18)), brushedAlumMat);
+        slat.position.set(0, 1.65, 0.06);
+        ag.add(jamb, slat);
+      } else if (an.kind === 'v6_hotel_door_404') {
+        const frame = new THREE.Mesh(track(new THREE.BoxGeometry(1.38, 2.42, 0.20)), whitePaintMat);
+        frame.position.y = 1.21;
+        const leaf = new THREE.Mesh(track(new THREE.BoxGeometry(1.06, 2.24, 0.14)), oakChairMat);
+        leaf.position.set(0, 1.12, 0.04);
+        const plate = new THREE.Mesh(track(new THREE.BoxGeometry(0.24, 0.12, 0.04)), warmBrassMat);
+        plate.position.set(0, 1.72, 0.12);
+        const knob = new THREE.Mesh(track(new THREE.SphereGeometry(0.045, 8, 8)), warmBrassMat);
+        knob.position.set(0.38, 1.05, 0.14);
+        ag.add(frame, leaf, plate, knob);
+      } else if (an.kind === 'v6_boiler_tank') {
+        const tank = new THREE.Mesh(track(new THREE.CylinderGeometry(0.76, 0.76, 2.55, 16)), redPipeMat);
+        tank.position.y = 1.38;
+        const ring = new THREE.Mesh(track(new THREE.TorusGeometry(0.78, 0.05, 8, 18)), brushedAlumMat);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 1.75;
+        const valve = new THREE.Mesh(track(new THREE.TorusGeometry(0.22, 0.035, 8, 14)), warmBrassMat);
+        valve.position.set(0, 1.45, 0.80);
+        ag.add(tank, ring, valve);
+      } else if (an.kind === 'v6_museum_vitrine') {
+        const plinth = new THREE.Mesh(track(new THREE.BoxGeometry(1.15, 0.92, 1.15)), wallMaterials.white);
+        plinth.position.y = 0.46;
+        const cube = new THREE.Mesh(track(new THREE.BoxGeometry(0.95, 0.78, 0.95)), glassCubeMat);
+        cube.position.y = 1.31;
+        const relic = new THREE.Mesh(track(new THREE.OctahedronGeometry(0.22, 0)), warmBrassMat);
+        relic.position.y = 1.24;
+        ag.add(plinth, cube, relic);
+        animItems.push({ mesh: relic, baseY: 1.24, kind: 'spin' });
+      } else if (an.kind === 'v6_bowling_pinsetter') {
+        const hood = new THREE.Mesh(track(new THREE.BoxGeometry(6.8, 1.95, 1.25)), darkSteelMat);
+        hood.position.set(0, 1.55, 0);
+        const neonBar = new THREE.Mesh(track(new THREE.BoxGeometry(6.2, 0.14, 0.10)), amberGlowMat);
+        neonBar.position.set(0, 0.65, 0.64);
+        ag.add(hood, neonBar);
+        for (const px of [-2.4, -1.8, -1.2, 1.2, 1.8, 2.4]) {
+          const pin = new THREE.Mesh(track(new THREE.CylinderGeometry(0.04, 0.08, 0.42, 8)), whitePaintMat);
+          pin.position.set(px, 0.21, -0.32);
+          ag.add(pin);
+        }
+      } else if (an.kind === 'v6_tape_mainframe_rack') {
+        const cab = new THREE.Mesh(track(new THREE.BoxGeometry(0.96, 2.38, 2.45)), darkSteelMat);
+        cab.position.set(0, 1.19, 0);
+        const reelA = new THREE.Mesh(track(new THREE.CylinderGeometry(0.28, 0.28, 0.08, 16)), brushedAlumMat);
+        reelA.rotation.z = Math.PI / 2;
+        reelA.position.set(0.50, 1.65, -0.55);
+        const reelB = reelA.clone();
+        reelB.position.set(0.50, 1.65, 0.55);
+        const ledBar = new THREE.Mesh(track(new THREE.BoxGeometry(0.04, 0.10, 1.8)), emeraldGlowMat);
+        ledBar.position.set(0.50, 1.15, 0);
+        ag.add(cab, reelA, reelB, ledBar);
+      } else if (an.kind === 'v6_dry_fountain') {
+        const basin = new THREE.Mesh(track(new THREE.CylinderGeometry(1.95, 2.15, 0.52, 20)), wallMaterials.cream_tile);
+        basin.position.y = 0.26;
+        const inner = new THREE.Mesh(track(new THREE.CylinderGeometry(1.58, 1.58, 0.44, 18)), wallMaterials.pool);
+        inner.position.y = 0.32;
+        const col = new THREE.Mesh(track(new THREE.CylinderGeometry(0.28, 0.36, 1.25, 14)), wallMaterials.cream_tile);
+        col.position.y = 0.88;
+        const bowl = new THREE.Mesh(track(new THREE.CylinderGeometry(0.88, 0.35, 0.24, 16)), wallMaterials.cream_tile);
+        bowl.position.y = 1.48;
+        ag.add(basin, inner, col, bowl);
+      } else if (an.kind === 'v6_amphitheater_risers') {
+        for (const ox of [-5.1, 5.1]) {
+          const post = new THREE.Mesh(track(new THREE.BoxGeometry(0.32, WH, 0.32)), wallMaterials.concrete);
+          post.position.set(ox, WH * 0.5, 0);
+          ag.add(post);
+        }
       }
       root.add(ag);
     }
@@ -1894,6 +2274,7 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
 
     // Dedicated warm interior Elevator Cabin PointLight (fixed light count across entire match!)
     const cabinLight = new THREE.PointLight(0xffcf88, 1.05, 9.5, 1.45);
+    if(map.classic&&preset.shadows){cabinLight.castShadow=true;cabinLight.shadow.mapSize.set(256,256);cabinLight.shadow.camera.near=.1;cabinLight.shadow.camera.far=10;cabinLight.shadow.bias=-.0003;}
     cabinLight.position.set(0, ceilY - 0.35, 0);
     eg.add(cabinLight);
 
@@ -2049,9 +2430,9 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
     const dustGeom = track(new THREE.BufferGeometry());
     const pos = new Float32Array(preset.dustCount * 3);
     for (let i = 0; i < preset.dustCount; i++) {
-      pos[i * 3] = Math.random() * N * C;
+      pos[i * 3] = Math.random() * spanX;
       pos[i * 3 + 1] = 0.2 + Math.random() * (WH - 0.4);
-      pos[i * 3 + 2] = Math.random() * N * C;
+      pos[i * 3 + 2] = Math.random() * spanZ;
     }
     dustGeom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const dc = document.createElement('canvas');
@@ -2084,13 +2465,67 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
   const entrRes = buildLevel0EntrancesGroup(map.ENTRANCES, disposables, animItems);
   root.add(entrRes.group);
 
+  // Build O(1) spatial hash bucket index over map.LIGHTS so updateWorldLighting never scans 7,000+ lights per frame
+  const lightCellSize = 24;
+  const lightGrid = new Map();
+  for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
+    const l = map.LIGHTS[i];
+    if (l.dead) continue;
+    const kx = Math.floor(l.x / lightCellSize);
+    const kz = Math.floor(l.z / lightCellSize);
+    const k = `${kx},${kz}`;
+    let b = lightGrid.get(k);
+    if (!b) { b = []; lightGrid.set(k, b); }
+    b.push(i);
+  }
+
+  let l0RenderDist = 200;
+  let l0LastCamPos = map.SPAWN || { x: midX, z: midZ };
+  const l0StreamingStats = { visibleChunks: spatialChunks.length, totalChunks: spatialChunks.length, renderDistance: 200 };
+  const updateVisibility = (pos) => {
+    const p = pos || l0LastCamPos;
+    if (!p) return;
+    l0LastCamPos = p;
+    const px = p.x || 0;
+    const pz = p.z || 0;
+    let visCount = 0;
+    for (let i = 0; i < spatialChunks.length; i++) {
+      const ch = spatialChunks[i];
+      const detailLimit=ch.rangeMul<.8?110:ch.rangeMul<1?180:Infinity;
+      const baseR = Math.max(46, Math.min(detailLimit,l0RenderDist * (ch.rangeMul || 1.0)));
+      const effR = ch.mesh.visible ? baseR + 16 : baseR;
+      const dx = Math.max(ch.minX - px, 0, px - ch.maxX);
+      const dz = Math.max(ch.minZ - pz, 0, pz - ch.maxZ);
+      const vis = (dx * dx + dz * dz) < (effR * effR);
+      ch.mesh.visible = vis;
+      if (vis) visCount++;
+    }
+    l0StreamingStats.visibleChunks = visCount;
+    l0StreamingStats.renderDistance = l0RenderDist;
+  };
+  const classicWorld = map.classic ? buildClassicWorld(root,map.classic,track) : null;
+  const environmentWorld=map.ENVIRONMENT?buildEnvironmentWorld(root,map.ENVIRONMENT,track,texStore):null;
+  const updateAllVisibility=p=>{updateVisibility(p);if(p){classicWorld?.update(p,l0RenderDist);environmentWorld?.update(p,l0RenderDist);}};
+  updateAllVisibility(l0LastCamPos);
+
   return {
     root,
+    classicWorld,
+    environmentWorld,
+    spatialChunks,
+    streamingStats: l0StreamingStats,
+    updateVisibility:updateAllVisibility,
+    setRenderDistance(dist, _elapsed = 0, camPos = null) {
+      l0RenderDist = Math.max(50, Math.min(800, Number(dist) || 200));
+      updateAllVisibility(camPos);
+    },
     skirtInst,
     fixInst,
     haloInst,
     baseLightColors,
     dynamicRedSet: new Set(),
+    lightGrid,
+    lightCellSize,
     lightPool,
     flareLightPool,
     taskMeshes,
@@ -2117,7 +2552,8 @@ export function buildWorld(scene, map, texStore, gfxKey = 'high') {
 const _tmpLightCol = new THREE.Color();
 export function updateWorldLighting(world, map, camPos, elapsed, killerPos = null) {
   const killers = Array.isArray(killerPos) ? killerPos : (killerPos ? [killerPos] : []);
-  const redRadius2 = 10.5 * 10.5;
+  const redRadius = 10.5;
+  const redRadius2 = redRadius * redRadius;
   const newRedSet = new Set();
   let colorsDirty = false;
 
@@ -2163,24 +2599,53 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
     }
   }
 
+  if (world.updateVisibility && camPos) world.updateVisibility(camPos);
   if (world.updateExtra) world.updateExtra(elapsed, camPos, map);
 
-  // 1. Dynamically shift ceiling troffers blood-red inside tight localized bubbles around ANY Entity!
+  // 1. Dynamically shift ceiling troffers blood-red inside tight localized bubbles around ANY Entity (spatial grid accelerated!)
   if (killers.length && world.fixInst && world.baseLightColors) {
-    for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
-      const l = map.LIGHTS[i];
-      if (l.dead) continue;
-      let near = false;
+    if (world.lightGrid) {
+      const cs = world.lightCellSize || 24;
+      const cr = Math.ceil(redRadius / cs);
       for (const kp of killers) {
-        if ((l.x - kp.x) ** 2 + (l.z - kp.z) ** 2 < redRadius2) { near = true; break; }
+        const kx0 = Math.floor(kp.x / cs);
+        const kz0 = Math.floor(kp.z / cs);
+        for (let gz = kz0 - cr; gz <= kz0 + cr; gz++) {
+          for (let gx = kx0 - cr; gx <= kx0 + cr; gx++) {
+            const b = world.lightGrid.get(`${gx},${gz}`);
+            if (!b) continue;
+            for (let j = 0; j < b.length; j++) {
+              const i = b[j];
+              if (newRedSet.has(i)) continue;
+              const l = map.LIGHTS[i];
+              if ((l.x - kp.x) ** 2 + (l.z - kp.z) ** 2 < redRadius2) {
+                newRedSet.add(i);
+                const pulse = 0.72 + 0.32 * Math.sin(elapsed * 14 + (l.phase || 0));
+                _tmpLightCol.setRGB(3.3 * pulse, 0.16 * pulse, 0.12 * pulse);
+                world.fixInst.setColorAt(i, _tmpLightCol);
+                if (world.haloInst) world.haloInst.setColorAt(i, _tmpLightCol);
+                colorsDirty = true;
+              }
+            }
+          }
+        }
       }
-      if (near) {
-        newRedSet.add(i);
-        const pulse = 0.72 + 0.32 * Math.sin(elapsed * 14 + (l.phase || 0));
-        _tmpLightCol.setRGB(3.3 * pulse, 0.16 * pulse, 0.12 * pulse);
-        world.fixInst.setColorAt(i, _tmpLightCol);
-        if (world.haloInst) world.haloInst.setColorAt(i, _tmpLightCol);
-        colorsDirty = true;
+    } else {
+      for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
+        const l = map.LIGHTS[i];
+        if (l.dead) continue;
+        let near = false;
+        for (const kp of killers) {
+          if ((l.x - kp.x) ** 2 + (l.z - kp.z) ** 2 < redRadius2) { near = true; break; }
+        }
+        if (near) {
+          newRedSet.add(i);
+          const pulse = 0.72 + 0.32 * Math.sin(elapsed * 14 + (l.phase || 0));
+          _tmpLightCol.setRGB(3.3 * pulse, 0.16 * pulse, 0.12 * pulse);
+          world.fixInst.setColorAt(i, _tmpLightCol);
+          if (world.haloInst) world.haloInst.setColorAt(i, _tmpLightCol);
+          colorsDirty = true;
+        }
       }
     }
   }
@@ -2203,22 +2668,51 @@ export function updateWorldLighting(world, map, camPos, elapsed, killerPos = nul
   }
   world.dynamicRedSet = newRedSet;
 
-  // 2. Pool PointLights across 64m range (prioritizing brighter multi-tier zones & smooth fade!)
+  // 2. Pool PointLights across 58m-64m range using spatial grid lookup (O(local lights), zero linear scan hitching!)
   const isPool = !!map.customPoolrooms;
   const maxRange = isPool ? 64 : 58;
   const maxRange2 = maxRange * maxRange;
   const cands = [];
-  for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
-    const l = map.LIGHTS[i];
-    if (l.dead) continue;
-    const d2 = (l.x - camPos.x) ** 2 + (l.z - camPos.z) ** 2;
-    const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
-    if (d2 < maxRange2) cands.push({ l, idx: i, d2, score: d2 / (0.65 + lg * 0.75) });
+  if (world.lightGrid) {
+    const cs = world.lightCellSize || 24;
+    const cr = Math.ceil(maxRange / cs);
+    const kx0 = Math.floor(camPos.x / cs);
+    const kz0 = Math.floor(camPos.z / cs);
+    for (let gz = kz0 - cr; gz <= kz0 + cr; gz++) {
+      for (let gx = kx0 - cr; gx <= kx0 + cr; gx++) {
+        const b = world.lightGrid.get(`${gx},${gz}`);
+        if (!b) continue;
+        for (let j = 0; j < b.length; j++) {
+          const i = b[j];
+          const l = map.LIGHTS[i];
+          const d2 = (l.x - camPos.x) ** 2 + (l.z - camPos.z) ** 2;
+          if (d2 < maxRange2) {
+            const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
+            cands.push({ l, idx: i, d2, score: d2 / (0.65 + lg * 0.75) });
+          }
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < (map.LIGHTS?.length || 0); i++) {
+      const l = map.LIGHTS[i];
+      if (l.dead) continue;
+      const d2 = (l.x - camPos.x) ** 2 + (l.z - camPos.z) ** 2;
+      const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
+      if (d2 < maxRange2) cands.push({ l, idx: i, d2, score: d2 / (0.65 + lg * 0.75) });
+    }
   }
   cands.sort((a, b) => a.score - b.score);
 
   for (let i = 0; i < world.lightPool.length; i++) {
     const pl = world.lightPool[i];
+    if (inClassicPresentation(map.classic,camPos.x,camPos.z)) {
+      pl.intensity=0;
+      // Keep the shader light count stable, but don't render cube shadows for zero-intensity legacy fixtures.
+      if(pl.castShadow){pl.shadow.autoUpdate=false;pl.shadow.needsUpdate=false;}
+      continue;
+    }
+    if(pl.castShadow)pl.shadow.autoUpdate=true;
     const c = cands[i];
     if (!c) { pl.intensity = 0; continue; }
     const l = c.l;
@@ -2334,7 +2828,7 @@ export function animateSurvivor(av, dt, p, elapsed) {
   const down = p.state === 'down';
   const carried = p.state === 'carried';
   const hooked = p.state === 'hooked';
-  const air = (p.y || 0) > 0.08;
+  const air = typeof p.grounded === 'boolean' ? !p.grounded : (p.y || 0) > 0.08;
 
   if (av.flash) av.flash.visible = !!p.fl && p.state !== 'dead' && !hooked && !carried;
 
@@ -2368,6 +2862,8 @@ export function animateSurvivor(av, dt, p, elapsed) {
  * exposed jagged ribcage & spine vertebrae, asymmetrical bloody claws, and unhinging snapping jaw.
  */
 export function buildEntityAvatar(kind = 'bacteria') {
+  if (kind === 'skinStealer') kind = 'skin_stealer';
+  else if (kind === 'hound') kind = 'howler';
   const g = new THREE.Group();
   const root = new THREE.Group();
   g.add(root);

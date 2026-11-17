@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 import { THREE, PreloaderSystem } from './engine.js';
 import { C, WH, N } from './constants.js';
 
@@ -18,11 +24,14 @@ function makeCanvas(w, h) {
   return [c, c.getContext('2d')];
 }
 
-function texFromImage(img, { srgb = true, repeat = [1, 1], anisotropy = 8 } = {}) {
+function texFromImage(img, { srgb = true, repeat = [1, 1], anisotropy = 16 } = {}) {
   const t = new THREE.Texture(img);
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(repeat[0], repeat[1]);
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
   t.anisotropy = anisotropy;
   t.needsUpdate = true;
   return t;
@@ -382,6 +391,9 @@ function buildProceduralUIAndPropsTextures() {
     const tx = new THREE.CanvasTexture(canvas);
     tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
     tx.repeat.set(rx, ry);
+    tx.generateMipmaps = true;
+    tx.minFilter = THREE.LinearMipmapLinearFilter;
+    tx.magFilter = THREE.LinearFilter;
     tx.anisotropy = 16;
     tx.colorSpace = THREE.SRGBColorSpace;
     return tx;
@@ -879,6 +891,115 @@ function buildProceduralUIAndPropsTextures() {
   const paintingTex = new THREE.CanvasTexture(ptFrameC);
   paintingTex.colorSpace = THREE.SRGBColorSpace; paintingTex.anisotropy = 16;
 
+  // 23) V6 Rear-World Architectural Surfaces (Parquet, Checkerboard, Hotel Carpet, Glass Block, Partition, Baffle, Maple Lane, Raised Data Tile, Wainscot)
+  const [hqC, hqX] = makeCanvas(256, 256);
+  hqX.fillStyle = '#5c3c20'; hqX.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 256; y += 32) {
+    for (let x = 0; x < 256; x += 64) {
+      const alt = ((x / 64 + y / 32) & 1);
+      hqX.fillStyle = alt ? '#6f4a28' : '#4f3219';
+      hqX.fillRect(x + 1, y + 1, 62, 30);
+      hqX.strokeStyle = 'rgba(20,10,4,0.45)';
+      hqX.lineWidth = 2;
+      hqX.strokeRect(x + 1, y + 1, 62, 30);
+    }
+  }
+  const parquetHerringboneTex = makeRepeating(hqC, 2, 2);
+
+  const [ckC, ckX] = makeCanvas(256, 256);
+  for (let y = 0; y < 256; y += 64) {
+    for (let x = 0; x < 256; x += 64) {
+      const dark = ((x / 64 + y / 64) & 1) === 0;
+      ckX.fillStyle = dark ? '#1f2326' : '#ddd5be';
+      ckX.fillRect(x, y, 64, 64);
+      ckX.fillStyle = dark ? 'rgba(255,255,255,0.04)' : 'rgba(20,18,12,0.06)';
+      ckX.fillRect(x + 4, y + 4, 56, 56);
+    }
+  }
+  const checkerLinoleumTex = makeRepeating(ckC, 2, 2);
+
+  const [hcC, hcX] = makeCanvas(256, 256);
+  hcX.fillStyle = '#521518'; hcX.fillRect(0, 0, 256, 256);
+  hcX.strokeStyle = '#c89c46'; hcX.lineWidth = 4;
+  for (let y = 0; y < 256; y += 64) {
+    for (let x = 0; x < 256; x += 64) {
+      hcX.beginPath();
+      hcX.moveTo(x + 32, y + 4); hcX.lineTo(x + 60, y + 32);
+      hcX.lineTo(x + 32, y + 60); hcX.lineTo(x + 4, y + 32);
+      hcX.closePath(); hcX.stroke();
+      hcX.fillStyle = 'rgba(28,8,10,0.42)';
+      hcX.fillRect(x + 26, y + 26, 12, 12);
+    }
+  }
+  const hotelPatternCarpetTex = makeRepeating(hcC, 2, 2);
+
+  const [gbC, gbX] = makeCanvas(256, 256);
+  gbX.fillStyle = '#7bb8b0'; gbX.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 256; y += 64) {
+    for (let x = 0; x < 256; x += 64) {
+      const g = gbX.createRadialGradient(x + 32, y + 32, 4, x + 32, y + 32, 34);
+      g.addColorStop(0, '#c8f2ec'); g.addColorStop(0.65, '#86c6be'); g.addColorStop(1, '#50827c');
+      gbX.fillStyle = g; gbX.fillRect(x + 3, y + 3, 58, 58);
+      gbX.strokeStyle = '#d8e4e0'; gbX.lineWidth = 5; gbX.strokeRect(x + 1, y + 1, 62, 62);
+    }
+  }
+  const glassBlockWallTex = makeRepeating(gbC, 2, 2);
+
+  const [pfC, pfX] = makeCanvas(256, 256);
+  pfX.fillStyle = '#8b8e78'; pfX.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 256; y += 4) {
+    pfX.fillStyle = (y % 8 === 0) ? 'rgba(42,46,36,0.22)' : 'rgba(218,220,198,0.14)';
+    pfX.fillRect(0, y, 256, 2);
+  }
+  for (let x = 0; x < 256; x += 4) {
+    pfX.fillStyle = (x % 8 === 0) ? 'rgba(30,32,24,0.12)' : 'rgba(240,242,224,0.08)';
+    pfX.fillRect(x, 0, 2, 256);
+  }
+  const partitionFabricTex = makeRepeating(pfC, 2, 2);
+
+  const [abC, abX] = makeCanvas(256, 256);
+  abX.fillStyle = '#383d42'; abX.fillRect(0, 0, 256, 256);
+  for (let x = 0; x < 256; x += 16) {
+    abX.fillStyle = (x % 32 === 0) ? '#272b2f' : '#464d54';
+    abX.fillRect(x, 0, 12, 256);
+  }
+  const acousticBaffleTex = makeRepeating(abC, 2, 2);
+
+  const [mlC, mlX] = makeCanvas(256, 256);
+  mlX.fillStyle = '#c89b52'; mlX.fillRect(0, 0, 256, 256);
+  for (let x = 0; x < 256; x += 16) {
+    mlX.fillStyle = ((x / 16) & 1) ? 'rgba(130,82,24,0.16)' : 'rgba(255,232,168,0.14)';
+    mlX.fillRect(x, 0, 14, 256);
+  }
+  mlX.fillStyle = '#48240c';
+  for (let a = 32; a < 256; a += 44) {
+    mlX.beginPath(); mlX.moveTo(a, 168); mlX.lineTo(a - 6, 186); mlX.lineTo(a + 6, 186); mlX.closePath(); mlX.fill();
+  }
+  const mapleLaneTex = makeRepeating(mlC, 1, 3);
+
+  const [rsC, rsX] = makeCanvas(256, 256);
+  rsX.fillStyle = '#c8cfd2'; rsX.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 256; y += 64) {
+    for (let x = 0; x < 256; x += 64) {
+      rsX.strokeStyle = '#6c747a'; rsX.lineWidth = 3; rsX.strokeRect(x + 1, y + 1, 62, 62);
+      rsX.fillStyle = '#8b959a';
+      for (let dy = 20; dy <= 44; dy += 8) for (let dx = 20; dx <= 44; dx += 8) rsX.fillRect(x + dx - 1, y + dy - 1, 3, 3);
+    }
+  }
+  const raisedAntiStaticTex = makeRepeating(rsC, 2, 2);
+
+  const [wsC, wsX] = makeCanvas(256, 256);
+  wsX.fillStyle = '#dcd4b0'; wsX.fillRect(0, 0, 256, 168);
+  for (let x = 0; x < 256; x += 32) {
+    wsX.fillStyle = 'rgba(120,108,72,0.08)'; wsX.fillRect(x, 0, 8, 168);
+  }
+  wsX.fillStyle = '#563820'; wsX.fillRect(0, 168, 256, 88);
+  wsX.fillStyle = '#8a6234'; wsX.fillRect(0, 164, 256, 8);
+  for (let x = 10; x < 256; x += 64) {
+    wsX.strokeStyle = '#382210'; wsX.lineWidth = 4; wsX.strokeRect(x, 180, 44, 62);
+  }
+  const wainscotWallTex = makeRepeating(wsC, 1, 1);
+
   return {
     fixTex, haloTex, puddleTex, ventTex, cabTex, warnTex,
     itemWater, itemScan, itemJelly, itemRation, itemFlare,
@@ -887,6 +1008,8 @@ function buildProceduralUIAndPropsTextures() {
     asphaltFloorTex, rustMetalTex, glitchErrorTex, sumpWaterTex, asyncHazardTex,
     hardwoodFloorTex, whitePlasterTex, dontMoveTex, keepClearTex,
     creamTileTex, brickWallTex, stoneWallTex, greyCarpetTex, greyDrywallTex, darkFloodWaterTex,
+    parquetHerringboneTex, checkerLinoleumTex, hotelPatternCarpetTex, glassBlockWallTex,
+    partitionFabricTex, acousticBaffleTex, mapleLaneTex, raisedAntiStaticTex, wainscotWallTex,
     unrealizedMuralTex, nightCitySkyTex, mallSignTex, dollarSignTex, openNeonTex, stopSignTex, roadWorkTex, paintingTex,
     guideCableTex, guideConduitTex, guideTapeTex, guideLedTex, sectorSignTex,
     aoSkirtTex, crtScreenTex
@@ -928,130 +1051,162 @@ function bakeLightmap(map, forCeiling = false) {
     ctx.fillRect(0, 0, res, res);
     return c;
   }
-  const res = forCeiling ? 512 : 1536;
-  const [c, ctx] = makeCanvas(res, res);
-  ctx.fillStyle = forCeiling ? '#2f2916' : '#141106';
-  ctx.fillRect(0, 0, res, res);
-
   const gN = map?.gridN ?? N;
+  const gCols = map?.gridCols ?? gN;
+  const gRows = map?.gridRows ?? gN;
   const gC = map?.cellSize ?? C;
-  const worldSpan = map?.worldSpan ?? (gN * gC);
+  const spanX = map?.legacyBounds?.x1 ?? map?.spanX ?? map?.worldSpan ?? (gCols * gC);
+  const spanZ = map?.spanZ ?? map?.worldSpan ?? (gRows * gC);
+  const isRect = Math.abs(spanZ - spanX) > 4;
+  const resX = forCeiling ? 512 : (isRect ? 1024 : 1536);
+  const resZ = isRect ? Math.min(2048, Math.max(resX, Math.round(resX * (spanZ / Math.max(1, spanX))))) : resX;
+  const c = document.createElement('canvas');
+  c.width = resX;
+  c.height = resZ;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = forCeiling ? '#2f2916' : '#141106';
+  ctx.fillRect(0, 0, resX, resZ);
+
   const scaleC = gC;
+  const scaleX = resX / spanX;
+  const scaleZ = resZ / spanZ;
+
+  // Cache radial light sprites on CPU-backed canvases to eliminate 7,000+ GPU Skia sync flushes
+  const spriteCache = new Map();
+  const pSize = 144;
+  const pHalf = pSize * 0.5;
+  const getLightSprite = (l) => {
+    const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
+    const tierKey = l.red ? 'red' : l.green ? 'green' : l.purple ? 'purple' : `w_${Math.min(5, Math.max(0, Math.round(lg * 4)))}`;
+    let sp = spriteCache.get(tierKey);
+    if (sp) return sp;
+    sp = document.createElement('canvas');
+    sp.width = sp.height = pSize;
+    const sctx = sp.getContext('2d', { willReadFrequently: true });
+    const pg = sctx.createRadialGradient(pHalf, pHalf, 1.5, pHalf, pHalf, pHalf - 2);
+    if (l.red) {
+      pg.addColorStop(0, 'rgba(240, 46, 32, 0.56)');
+      pg.addColorStop(0.45, 'rgba(175, 28, 20, 0.25)');
+      pg.addColorStop(1, 'rgba(110, 16, 10, 0)');
+    } else if (l.green) {
+      pg.addColorStop(0, 'rgba(110, 224, 154, 0.62)');
+      pg.addColorStop(0.45, 'rgba(56, 168, 96, 0.28)');
+      pg.addColorStop(1, 'rgba(24, 96, 52, 0)');
+    } else if (l.purple) {
+      pg.addColorStop(0, 'rgba(210, 88, 240, 0.58)');
+      pg.addColorStop(0.45, 'rgba(130, 38, 170, 0.26)');
+      pg.addColorStop(1, 'rgba(65, 16, 92, 0)');
+    } else {
+      const qLg = Math.min(5, Math.max(0, Math.round(lg * 4))) / 4;
+      const coreA = Math.min(0.76, 0.26 + qLg * 0.42).toFixed(2);
+      const midA = Math.min(0.42, 0.10 + qLg * 0.24).toFixed(2);
+      const cR = Math.round(195 + Math.min(1, qLg) * 60);
+      const cG = Math.round(168 + Math.min(1, qLg) * 76);
+      const cB = Math.round(92 + Math.min(1, qLg) * 98);
+      pg.addColorStop(0, `rgba(${cR}, ${cG}, ${cB}, ${coreA})`);
+      pg.addColorStop(0.45, `rgba(${Math.round(cR * 0.82)}, ${Math.round(cG * 0.78)}, ${Math.round(cB * 0.58)}, ${midA})`);
+      pg.addColorStop(1, 'rgba(105, 84, 38, 0)');
+    }
+    sctx.fillStyle = pg;
+    sctx.beginPath();
+    sctx.arc(pHalf, pHalf, pHalf - 2, 0, Math.PI * 2);
+    sctx.fill();
+    spriteCache.set(tierKey, sp);
+    return sp;
+  };
 
   if (forCeiling) {
+    ctx.globalCompositeOperation = 'lighter';
     for (const l of map.LIGHTS || []) {
       if (l.dead) continue;
-      const lx = (l.x / worldSpan) * res;
-      const lz = (l.z / worldSpan) * res;
-      const rad = Math.max(2.5, (scaleC * 1.55 / worldSpan) * res);
-      const g = ctx.createRadialGradient(lx, lz, 0.5, lx, lz, rad);
-      if (l.red) {
-        g.addColorStop(0, 'rgba(245, 58, 44, 0.88)');
-        g.addColorStop(1, 'rgba(245, 58, 44, 0)');
-      } else if (l.green) {
-        g.addColorStop(0, 'rgba(130, 245, 164, 0.86)');
-        g.addColorStop(1, 'rgba(90, 220, 140, 0)');
-      } else if (l.purple) {
-        g.addColorStop(0, 'rgba(215, 110, 255, 0.86)');
-        g.addColorStop(1, 'rgba(170, 70, 240, 0)');
-      } else {
-        g.addColorStop(0, 'rgba(255, 248, 200, 0.86)');
-        g.addColorStop(1, 'rgba(250, 232, 152, 0)');
-      }
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(lx, lz, rad, 0, Math.PI * 2); ctx.fill();
+      const rad = Math.max(2.5, scaleC * 1.55 * scaleX);
+      ctx.drawImage(getLightSprite(l), l.x * scaleX - rad, l.z * scaleZ - rad, rad * 2, rad * 2);
     }
+    ctx.globalCompositeOperation = 'source-over';
   } else {
-    // Reusable scratch buffer to ray-occlude each ceiling fixture cleanly behind nearby walls & pillars
-    const pSize = 144;
-    const pHalf = pSize * 0.5;
-    const [pc, pctx] = makeCanvas(pSize, pSize);
-    const lightReach = scaleC * 3.1;
-    const pScale = (pHalf - 2) / lightReach;
-    const drawWorldSpan = ((lightReach * 2) / worldSpan) * res;
+    // CPU-backed scratch buffer to ray-occlude each ceiling fixture cleanly behind nearby walls & pillars
+    const pc = document.createElement('canvas');
+    pc.width = pc.height = pSize;
+    const pctx = pc.getContext('2d', { willReadFrequently: true });
 
     for (const l of map.LIGHTS || []) {
       if (l.dead) continue;
 
       const lg = l.gain ?? (l.bright ? 1.14 : 0.58);
       const curReach = scaleC * (2.6 + lg * 1.15);
-      const drawSpanCur = ((curReach * 2) / worldSpan) * res;
+      const drawWCur = curReach * 2 * scaleX;
+      const drawHCur = curReach * 2 * scaleZ;
       const curScale = (pHalf - 2) / curReach;
+      const sprite = getLightSprite(l);
 
-      pctx.globalCompositeOperation = 'source-over';
-      pctx.clearRect(0, 0, pSize, pSize);
-      const pg = pctx.createRadialGradient(pHalf, pHalf, 1.5, pHalf, pHalf, pHalf - 2);
-      if (l.red) {
-        pg.addColorStop(0, 'rgba(240, 46, 32, 0.56)');
-        pg.addColorStop(0.45, 'rgba(175, 28, 20, 0.25)');
-        pg.addColorStop(1, 'rgba(110, 16, 10, 0)');
-      } else if (l.green) {
-        pg.addColorStop(0, 'rgba(110, 224, 154, 0.62)');
-        pg.addColorStop(0.45, 'rgba(56, 168, 96, 0.28)');
-        pg.addColorStop(1, 'rgba(24, 96, 52, 0)');
-      } else if (l.purple) {
-        pg.addColorStop(0, 'rgba(210, 88, 240, 0.58)');
-        pg.addColorStop(0.45, 'rgba(130, 38, 170, 0.26)');
-        pg.addColorStop(1, 'rgba(65, 16, 92, 0)');
-      } else {
-        const coreA = Math.min(0.76, 0.26 + lg * 0.42).toFixed(2);
-        const midA = Math.min(0.42, 0.10 + lg * 0.24).toFixed(2);
-        const cR = Math.round(195 + Math.min(1, lg) * 60);
-        const cG = Math.round(168 + Math.min(1, lg) * 76);
-        const cB = Math.round(92 + Math.min(1, lg) * 98);
-        pg.addColorStop(0, `rgba(${cR}, ${cG}, ${cB}, ${coreA})`);
-        pg.addColorStop(0.45, `rgba(${Math.round(cR * 0.82)}, ${Math.round(cG * 0.78)}, ${Math.round(cB * 0.58)}, ${midA})`);
-        pg.addColorStop(1, 'rgba(105, 84, 38, 0)');
-      }
-      pctx.fillStyle = pg;
-      pctx.beginPath(); pctx.arc(pHalf, pHalf, pHalf - 2, 0, Math.PI * 2); pctx.fill();
+      const dx = (l.x - curReach) * scaleX;
+      const dz = (l.z - curReach) * scaleZ;
 
-      // Punch real 2D directional cast shadows behind nearby solid walls & pillars
-      if (map.wallGrid) {
-        pctx.globalCompositeOperation = 'destination-out';
-        pctx.fillStyle = 'rgba(0,0,0,0.88)';
-        const nearWalls = map.wallGrid.queryNear(l.x, l.z, curReach);
-        for (const r of nearWalls) {
+      const nearWalls = map.wallGrid ? map.wallGrid.queryNear(l.x, l.z, curReach) : null;
+      let hasShadowCaster = false;
+      if (nearWalls) {
+        for (let wi = 0; wi < nearWalls.length; wi++) {
+          const r = nearWalls[wi];
           if (r.hidden) continue;
-          const y0 = r.y0 ?? 0;
-          const y1 = r.y1 ?? WH;
+          const y0 = r.y0 ?? 0, y1 = r.y1 ?? WH;
           if (y0 > 0.35 || y1 < 1.25) continue;
           if (l.x > r.x0 && l.x < r.x1 && l.z > r.z0 && l.z < r.z1) continue;
-
-          const corners = [
-            [pHalf + (r.x0 - l.x) * curScale, pHalf + (r.z0 - l.z) * curScale],
-            [pHalf + (r.x1 - l.x) * curScale, pHalf + (r.z0 - l.z) * curScale],
-            [pHalf + (r.x1 - l.x) * curScale, pHalf + (r.z1 - l.z) * curScale],
-            [pHalf + (r.x0 - l.x) * curScale, pHalf + (r.z1 - l.z) * curScale]
-          ];
-          for (let e = 0; e < 4; e++) {
-            const [ax, az] = corners[e];
-            const [bx, bz] = corners[(e + 1) & 3];
-            const dax = ax - pHalf, daz = az - pHalf;
-            const dbx = bx - pHalf, dbz = bz - pHalf;
-            const la = Math.hypot(dax, daz) || 1;
-            const lb = Math.hypot(dbx, dbz) || 1;
-            pctx.beginPath();
-            pctx.moveTo(ax, az);
-            pctx.lineTo(bx, bz);
-            pctx.lineTo(bx + (dbx / lb) * 140, bz + (dbz / lb) * 140);
-            pctx.lineTo(ax + (dax / la) * 140, az + (daz / la) * 140);
-            pctx.closePath();
-            pctx.fill();
-          }
+          hasShadowCaster = true;
+          break;
         }
       }
 
-      const dx = ((l.x - curReach) / worldSpan) * res;
-      const dz = ((l.z - curReach) / worldSpan) * res;
+      if (!hasShadowCaster) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(sprite, dx, dz, drawWCur, drawHCur);
+        continue;
+      }
+
+      pctx.globalCompositeOperation = 'source-over';
+      pctx.clearRect(0, 0, pSize, pSize);
+      pctx.drawImage(sprite, 0, 0);
+
+      // Punch real 2D directional cast shadows behind nearby solid walls & pillars
+      pctx.globalCompositeOperation = 'destination-out';
+      pctx.fillStyle = 'rgba(0,0,0,0.88)';
+      for (const r of nearWalls) {
+        if (r.hidden) continue;
+        const y0 = r.y0 ?? 0;
+        const y1 = r.y1 ?? WH;
+        if (y0 > 0.35 || y1 < 1.25) continue;
+        if (l.x > r.x0 && l.x < r.x1 && l.z > r.z0 && l.z < r.z1) continue;
+
+        const corners = [
+          [pHalf + (r.x0 - l.x) * curScale, pHalf + (r.z0 - l.z) * curScale],
+          [pHalf + (r.x1 - l.x) * curScale, pHalf + (r.z0 - l.z) * curScale],
+          [pHalf + (r.x1 - l.x) * curScale, pHalf + (r.z1 - l.z) * curScale],
+          [pHalf + (r.x0 - l.x) * curScale, pHalf + (r.z1 - l.z) * curScale]
+        ];
+        for (let e = 0; e < 4; e++) {
+          const [ax, az] = corners[e];
+          const [bx, bz] = corners[(e + 1) & 3];
+          const dax = ax - pHalf, daz = az - pHalf;
+          const dbx = bx - pHalf, dbz = bz - pHalf;
+          const la = Math.hypot(dax, daz) || 1;
+          const lb = Math.hypot(dbx, dbz) || 1;
+          pctx.beginPath();
+          pctx.moveTo(ax, az);
+          pctx.lineTo(bx, bz);
+          pctx.lineTo(bx + (dbx / lb) * 140, bz + (dbz / lb) * 140);
+          pctx.lineTo(ax + (dax / la) * 140, az + (daz / la) * 140);
+          pctx.closePath();
+          pctx.fill();
+        }
+      }
+
       ctx.globalCompositeOperation = 'lighter';
-      ctx.drawImage(pc, dx, dz, drawSpanCur, drawSpanCur);
+      ctx.drawImage(pc, dx, dz, drawWCur, drawHCur);
     }
 
     // Bake smooth ROUNDED multi-band ambient-occlusion wall footprint & penumbra (zero square corner notches!)
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineJoin = 'round';
-    const wScale = res / worldSpan;
+    const wScale = (scaleX + scaleZ) * 0.5;
     const strokeBands = [
       { w: 1.50 * wScale, col: 'rgba(3,2,1,0.18)' },
       { w: 0.90 * wScale, col: 'rgba(3,2,1,0.28)' },
@@ -1063,10 +1218,10 @@ function bakeLightmap(map, forCeiling = false) {
       const y0 = r.y0 ?? 0;
       const y1 = r.y1 ?? WH;
       if (y0 > 0.25 || y1 < 1.2) continue;
-      const rx = r.x0 * wScale;
-      const rz = r.z0 * wScale;
-      const rw = (r.x1 - r.x0) * wScale;
-      const rd = (r.z1 - r.z0) * wScale;
+      const rx = r.x0 * scaleX;
+      const rz = r.z0 * scaleZ;
+      const rw = (r.x1 - r.x0) * scaleX;
+      const rd = (r.z1 - r.z0) * scaleZ;
       for (const b of strokeBands) {
         ctx.strokeStyle = b.col;
         ctx.lineWidth = b.w;
@@ -1124,7 +1279,7 @@ export function registerTextureTasks(preloader, texStore) {
       }
     }
     for (let i = 0; i < 14000; i++) {
-      gwX.fillStyle = (i & 1) ? 'rgba(22,18,8,0.13)' : 'rgba(72,60,24,0.09)';
+      gwX.fillStyle = (i & 1) ? 'rgba(22,18,8,0.08)' : 'rgba(72,60,24,0.05)';
       gwX.fillRect((i * 113) % 1024, (i * 197) % 964, (i % 3) + 1, 2);
     }
     // Vertical wallpaper seam joints + wet bottom baseboard water soak gradient + ceiling top grime
@@ -1147,6 +1302,9 @@ export function registerTextureTasks(preloader, texStore) {
     gwX.fillStyle = topGrad; gwX.fillRect(0, 0, 1024, 160);
     const weatheredWallTex = new THREE.CanvasTexture(gwC);
     weatheredWallTex.wrapS = weatheredWallTex.wrapT = THREE.RepeatWrapping;
+    weatheredWallTex.generateMipmaps = true;
+    weatheredWallTex.minFilter = THREE.LinearMipmapLinearFilter;
+    weatheredWallTex.magFilter = THREE.LinearFilter;
     weatheredWallTex.anisotropy = 16;
     weatheredWallTex.colorSpace = THREE.SRGBColorSpace;
     texStore.wallMap = weatheredWallTex;
@@ -1156,16 +1314,19 @@ export function registerTextureTasks(preloader, texStore) {
     const [cpC, cpX] = makeCanvas(1024, 1024);
     cpX.drawImage(imgs.carpC, 0, 0, 1024, 1024);
     for (let y = 0; y < 1024; y += 4) {
-      cpX.fillStyle = (y % 8 === 0) ? 'rgba(24,18,6,0.16)' : 'rgba(155,132,68,0.09)';
+      cpX.fillStyle = (y % 8 === 0) ? 'rgba(24,18,6,0.11)' : 'rgba(155,132,68,0.06)';
       cpX.fillRect(0, y, 1024, 2);
     }
     for (let i = 0; i < 16000; i++) {
-      cpX.fillStyle = (i & 1) ? 'rgba(18,14,4,0.18)' : 'rgba(136,114,54,0.12)';
+      cpX.fillStyle = (i & 1) ? 'rgba(18,14,4,0.10)' : 'rgba(136,114,54,0.07)';
       cpX.fillRect((i * 131) % 1024, (i * 241) % 1024, 2, 2);
     }
     const detailedCarpetTex = new THREE.CanvasTexture(cpC);
     detailedCarpetTex.wrapS = detailedCarpetTex.wrapT = THREE.RepeatWrapping;
     detailedCarpetTex.repeat.set(floorRep[0], floorRep[1]);
+    detailedCarpetTex.generateMipmaps = true;
+    detailedCarpetTex.minFilter = THREE.LinearMipmapLinearFilter;
+    detailedCarpetTex.magFilter = THREE.LinearFilter;
     detailedCarpetTex.anisotropy = 16;
     detailedCarpetTex.colorSpace = THREE.SRGBColorSpace;
     texStore.carpetMap = detailedCarpetTex;
@@ -1177,12 +1338,15 @@ export function registerTextureTasks(preloader, texStore) {
     const [clC, clX] = makeCanvas(1024, 1024);
     clX.drawImage(imgs.ceilC, 0, 0, 1024, 1024);
     for (let i = 0; i < 12000; i++) {
-      clX.fillStyle = (i % 3 === 0) ? 'rgba(22,20,14,0.22)' : 'rgba(68,62,46,0.12)';
+      clX.fillStyle = (i % 3 === 0) ? 'rgba(22,20,14,0.12)' : 'rgba(68,62,46,0.07)';
       clX.fillRect((i * 89) % 1024, (i * 173) % 1024, (i & 1) ? 3 : 2, 2);
     }
     const detailedCeilTex = new THREE.CanvasTexture(clC);
     detailedCeilTex.wrapS = detailedCeilTex.wrapT = THREE.RepeatWrapping;
     detailedCeilTex.repeat.set(ceilRep[0], ceilRep[1]);
+    detailedCeilTex.generateMipmaps = true;
+    detailedCeilTex.minFilter = THREE.LinearMipmapLinearFilter;
+    detailedCeilTex.magFilter = THREE.LinearFilter;
     detailedCeilTex.anisotropy = 16;
     detailedCeilTex.colorSpace = THREE.SRGBColorSpace;
     texStore.ceilMap = detailedCeilTex;

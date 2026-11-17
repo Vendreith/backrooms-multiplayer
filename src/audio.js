@@ -1,4 +1,11 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 import { THREE, PreloaderSystem } from './engine.js';
+import { getPoolroomsCellAt } from './levels/poolrooms_cells.js';
 
 export const MUSIC_TRACKS = {
   burning: './audio/burning_memory.mp3',
@@ -11,12 +18,33 @@ export const MUSIC_TRACKS = {
   async_atmo: './audio/async_threshold.mp3',
   bewildered: './audio/bewildered.mp3',
   spacial: './audio/ambient_spacial.mp3',
+  lvl0_hum: './audio/backrooms_level0_theme.mp3',
+  lvl2_pipes: './audio/backrooms_level2_theme.mp3',
+  lvl5_hotel: './audio/backrooms_level5_hotel.mp3',
+  lvl6_dark: './audio/backrooms_level6_dark.mp3',
+  lvlfun_party: './audio/backrooms_level_fun.mp3',
+  lvl122_mall: './audio/backrooms_level122_mall.mp3',
+  lvl18_abyss: './audio/backrooms_level18_abyss.mp3',
+  lvl_hub: './audio/backrooms_the_hub.mp3',
+  deep_noise: './audio/ambient_deep_noise.mp3',
+  phantom_space: './audio/ambient_phantom.mp3',
+  ghost_story: './audio/ambient_ghost_story.mp3',
+  come_play: './audio/ambient_come_play.mp3',
   apprehension: './audio/chase_apprehension.mp3',
   chaos: './audio/chase_chaos.mp3',
-  null_chase: './audio/null_protocol_chase.mp3'
+  null_chase: './audio/null_protocol_chase.mp3',
+  chase_pulse: './audio/chase_pulse.mp3',
+  chase_faster: './audio/chase_pulse_faster.mp3',
+  chase_night: './audio/chase_night_chaos.mp3',
+  chase_nerves: './audio/chase_nerves.mp3',
+  chase_redlands: './audio/chase_redlands.mp3',
+  chase_evacuation: './audio/chase_evacuation.mp3'
 };
 
 export const HORROR_SFX_TRACKS = {
+  sfx_jumpscare: './audio/sfx_jumpscare.ogg',
+  sfx_sprint_breath: './audio/sfx_sprint_breath.ogg',
+  sfx_horror_breath: './audio/sfx_horror_breath.ogg',
   sfx_whisper: './audio/sfx_whisper.ogg',
   sfx_creak: './audio/sfx_creak.ogg',
   sfx_metal_bang: './audio/sfx_metal_bang.ogg',
@@ -44,7 +72,19 @@ export const CREEPY_RANDOM_KEYS = [
 ];
 
 export const AMBIENT_TRACK_KEYS = [
+  'lvl0_hum',
   'burning',
+  'ghost_story',
+  'deep_noise',
+  'lvl2_pipes',
+  'lvl5_hotel',
+  'lvl6_dark',
+  'lvl18_abyss',
+  'lvl122_mall',
+  'lvlfun_party',
+  'lvl_hub',
+  'phantom_space',
+  'come_play',
   'ballroom',
   'sweetest',
   'faded',
@@ -56,7 +96,31 @@ export const AMBIENT_TRACK_KEYS = [
   'spacial'
 ];
 
+export const CHASE_TRACK_KEYS = [
+  'chaos',
+  'chase_faster',
+  'chase_night',
+  'chase_redlands',
+  'chase_evacuation',
+  'chase_pulse',
+  'chase_nerves',
+  'apprehension',
+  'null_chase'
+];
+
 export const MUSIC_LABELS = {
+  lvl0_hum: 'Backrooms Level 0 Theme (Piem Ion)',
+  lvl2_pipes: 'Backrooms Level 2 Pipe Dreams (Piem Ion)',
+  lvl5_hotel: 'Backrooms Level 5 Terror Hotel (Piem Ion)',
+  lvl6_dark: 'Backrooms Level 6 Lights Out (Piem Ion)',
+  lvlfun_party: 'Backrooms Level Fun (Piem Ion)',
+  lvl122_mall: 'Backrooms Level 122 Mallsoft (Piem Ion)',
+  lvl18_abyss: 'Backrooms Level 18.1 Lucid Abyss (Piem Ion)',
+  lvl_hub: 'Backrooms The Hub Theme (Piem Ion)',
+  deep_noise: 'Deep Noise (Kevin MacLeod)',
+  phantom_space: 'Phantom from Space (Kevin MacLeod)',
+  ghost_story: 'Ghost Story (Kevin MacLeod)',
+  come_play: 'Come Play with Me (Kevin MacLeod)',
   burning: 'Burning Memory (1931 Ballroom)',
   ballroom: 'The Very Thought of You (Slowed)',
   sweetest: 'Love is the Sweetest Thing (Warped)',
@@ -66,7 +130,41 @@ export const MUSIC_LABELS = {
   poolrooms: 'Poolrooms Tiled Reverie',
   async_atmo: 'A-Sync KV-31 Threshold Resonance',
   bewildered: 'Slightly Bewildered',
-  spacial: 'Spacial Winds'
+  spacial: 'Spacial Winds (Kevin MacLeod)'
+};
+
+const LEVEL_AMBIENT_HINTS = {
+  level0: ['lvl0_hum', 'burning', 'ghost_story', 'bewildered'],
+  level1: ['lvl_hub', 'deep_noise', 'async_atmo'],
+  level2: ['lvl2_pipes', 'deep_noise', 'lvl_hub'],
+  level3: ['lvl2_pipes', 'deep_noise', 'async_atmo'],
+  level4: ['lvl122_mall', 'lvl0_hum', 'spacial'],
+  level5: ['lvl5_hotel', 'ballroom', 'velvet'],
+  level6: ['lvl6_dark', 'deep_noise', 'phantom_space'],
+  level7: ['lvl18_abyss', 'phantom_space', 'deep_noise'],
+  level8: ['lvl6_dark', 'deep_noise', 'ghost_story'],
+  level9: ['ghost_story', 'phantom_space', 'faded'],
+  level10: ['spacial', 'phantom_space', 'lvl18_abyss'],
+  level11: ['lvl122_mall', 'spacial', 'velvet'],
+  level14: ['lvl18_abyss', 'phantom_space', 'ghost_story'],
+  level19: ['lvl5_hotel', 'faded', 'come_play'],
+  level37: ['poolrooms', 'lvl18_abyss', 'spacial'],
+  level48: ['lvl18_abyss', 'spacial', 'faded'],
+  level94: ['lvlfun_party', 'come_play', 'daisy'],
+  level188: ['lvl5_hotel', 'sweetest', 'lvl122_mall'],
+  level974: ['come_play', 'lvlfun_party', 'daisy'],
+  level9223: ['lvl18_abyss', 'phantom_space', 'lvl6_dark'],
+  levelrun: ['lvl6_dark', 'deep_noise']
+};
+
+const LEVEL_CHASE_HINTS = {
+  levelrun: 'chase_redlands',
+  level2: 'chase_evacuation',
+  level3: 'chase_nerves',
+  level6: 'chase_night',
+  level37: 'chase_pulse',
+  level94: 'chase_faster',
+  level0: 'chaos'
 };
 
 class AudioManager {
@@ -94,13 +192,18 @@ class AudioManager {
     this._breathBuffer = null;
     this._breathT = 0;
     this._breathInhale = true;
+    this._wasExhausted = false;
+    this._sprintDurationT = 0;
     this.staticGain = null;
     this.staticFilter = null;
     this.repairOsc = null;
     this.repairGain = null;
     this._repairClickT = 0;
-    this.currentAmbKey = 'burning';
+    this.currentAmbKey = 'lvl0_hum';
+    this.currentChaseKey = 'chaos';
+    this._levelId = 'level0';
     this.ambCycleT = 0;
+    this.chaseCycleT = 0;
     this.muted = false;
     this.musicVol = 0.72;
     this.sfxVol = 0.85;
@@ -110,6 +213,20 @@ class AudioManager {
     this._poolAudio = null;
     this._phantomTimers = [];
     this._nextPadChimeT = 0;
+  }
+
+  setLevelMusicContext(levelId = 'level0') {
+    this._levelId = levelId || 'level0';
+    const ambPool = LEVEL_AMBIENT_HINTS[this._levelId];
+    if (ambPool && ambPool.length) {
+      this.currentAmbKey = ambPool[0];
+      this.ambCycleT = 0;
+    }
+    const chaseHint = LEVEL_CHASE_HINTS[this._levelId];
+    if (chaseHint && CHASE_TRACK_KEYS.includes(chaseHint)) {
+      this.currentChaseKey = chaseHint;
+      this.chaseCycleT = 0;
+    }
   }
 
   /**
@@ -208,11 +325,29 @@ class AudioManager {
 
   async _decodeAllAvailable() {
     if (!this.ctx) return;
-    const order = [
-      'burning', 'ballroom', 'daisy', 'chaos', 'apprehension', 'null_chase',
-      'sweetest', 'faded', 'velvet', 'poolrooms', 'async_atmo', 'spacial', 'bewildered'
+    const sfxOrder = [
+      'sfx_jumpscare', 'sfx_sprint_breath', 'sfx_horror_breath',
+      ...Object.keys(HORROR_SFX_TRACKS)
     ];
-    for (const key of order) {
+    for (const key of new Set(sfxOrder)) {
+      const raw = this.sfxRawBuffers[key];
+      if (!raw || this.sfxBuffers[key] || this.decoding.has(`sfx:${key}`)) continue;
+      this.decoding.add(`sfx:${key}`);
+      try {
+        const copy = raw.slice(0);
+        this.sfxBuffers[key] = await this.ctx.decodeAudioData(copy);
+      } catch (e) {
+        console.warn('SFX decode failed:', key, e);
+      } finally {
+        this.decoding.delete(`sfx:${key}`);
+      }
+    }
+    const musicOrder = [
+      'lvl0_hum', 'burning', 'chaos', 'apprehension', 'chase_pulse', 'chase_faster',
+      'chase_redlands', 'chase_evacuation', 'poolrooms', 'daisy', 'ghost_story',
+      'deep_noise', 'null_chase', ...Object.keys(MUSIC_TRACKS)
+    ];
+    for (const key of new Set(musicOrder)) {
       const raw = this.rawBuffers[key];
       if (!raw || this.audioBuffers[key] || this.decoding.has(key)) continue;
       this.decoding.add(key);
@@ -222,19 +357,6 @@ class AudioManager {
         this._ensureTrackPlaying(key);
       } catch (e) {
         console.warn('Audio decode failed:', key, e);
-      } finally {
-        this.decoding.delete(key);
-      }
-    }
-    for (const key of Object.keys(HORROR_SFX_TRACKS)) {
-      const raw = this.sfxRawBuffers[key];
-      if (!raw || this.sfxBuffers[key] || this.decoding.has(key)) continue;
-      this.decoding.add(key);
-      try {
-        const copy = raw.slice(0);
-        this.sfxBuffers[key] = await this.ctx.decodeAudioData(copy);
-      } catch (e) {
-        console.warn('SFX decode failed:', key, e);
       } finally {
         this.decoding.delete(key);
       }
@@ -250,7 +372,7 @@ class AudioManager {
     const trackGain = this.ctx.createGain();
     trackGain.gain.value = 0;
 
-    const isChase = (key === 'apprehension' || key === 'chaos' || key === 'null_chase');
+    const isChase = CHASE_TRACK_KEYS.includes(key);
     src.connect(trackGain);
     trackGain.connect(isChase ? this.chaseGain : this.ambGain);
     src.start(0);
@@ -442,12 +564,16 @@ class AudioManager {
     speedRatio = 0,
     stamRatio = 1,
     zoneLight = 0.55,
+    zoneAcoustic = 'standard',
     panic = 0
   }) {
     if (!this.ctx || !this.ambGain || !this.chaseGain) return;
     const now = this.ctx.currentTime;
+    this._zoneAcoustic = zoneAcoustic || 'standard';
 
     if (!inGame) {
+      this._classicHum?.gain.gain.setTargetAtTime(0,now,.25);
+      if(this._classicHum)this._classicHum.target=0;
       // Soft haunting Backrooms lobby music + subtle quiet lobby room atmosphere
       this.ambGain.gain.setTargetAtTime(0.32 * this.musicVol, now, 0.35);
       this.chaseGain.gain.setTargetAtTime(0, now, 0.25);
@@ -469,20 +595,43 @@ class AudioManager {
       this._poolAudio.bus.gain.setTargetAtTime(0, now, 0.35);
     }
 
-    // Rotate across all 10 Backrooms ambient tracks smoothly every 52s
+    // Rotate across all 22 Backrooms ambient tracks smoothly every 50s
     this.ambCycleT += dt;
-    if (this.ambCycleT > 52) {
+    if (this.ambCycleT > 50 || (!this.sources[this.currentAmbKey] && Object.keys(this.sources).length)) {
       this.ambCycleT = 0;
-      const next = AMBIENT_TRACK_KEYS[(AMBIENT_TRACK_KEYS.indexOf(this.currentAmbKey) + 1) % AMBIENT_TRACK_KEYS.length];
-      this.currentAmbKey = next;
+      const curIdx = AMBIENT_TRACK_KEYS.indexOf(this.currentAmbKey);
+      for (let step = 1; step <= AMBIENT_TRACK_KEYS.length; step++) {
+        const cand = AMBIENT_TRACK_KEYS[(Math.max(0, curIdx) + step) % AMBIENT_TRACK_KEYS.length];
+        if (this.sources[cand]) {
+          this.currentAmbKey = cand;
+          break;
+        }
+      }
     }
 
     // Danger / Proximity calculation
-    const prox = Math.max(0, Math.min(1, 1 - (entityDist - 4) / 22)); // 0 at >=26m, 1 at <=4m
+    const prox = Math.max(0, Math.min(1, 1 - (entityDist - 4) / 26)); // 0 at >=30m, 1 at <=4m
     const chaseUrgency =
-      (entityVisible && entityDist < 26) ? Math.max(0.72, prox) :
-      (revealActive || scanActive) ? Math.max(0.58, prox) :
-      (entityDist < 14 ? prox * 0.9 : 0);
+      (entityVisible && entityDist < 30) ? Math.max(0.76, prox) :
+      (revealActive || scanActive) ? Math.max(0.62, prox) :
+      (entityDist < 17 ? prox * 0.94 : 0);
+
+    // Rotate active intense chase tracks during prolonged hunts
+    const hardChasePool = ['chaos', 'chase_faster', 'chase_night', 'chase_redlands', 'chase_evacuation', 'chase_pulse'];
+    if (chaseUrgency > 0.35) {
+      this.chaseCycleT += dt;
+      if (this.chaseCycleT > 26 || !this.sources[this.currentChaseKey]) {
+        this.chaseCycleT = 0;
+        const ci = hardChasePool.indexOf(this.currentChaseKey);
+        for (let step = 1; step <= hardChasePool.length; step++) {
+          const cand = hardChasePool[(Math.max(0, ci) + step) % hardChasePool.length];
+          if (this.sources[cand]) {
+            this.currentChaseKey = cand;
+            break;
+          }
+        }
+      }
+    }
 
     // 1. Proximity Audio Ducking: ambient music gets quieter AND muffled as Entity closes in
     const ambTargetVol = (1 - chaseUrgency * 0.92) * (1 - prox * 0.65) * 0.48 * this.musicVol;
@@ -491,52 +640,72 @@ class AudioManager {
     this.ambGain.gain.setTargetAtTime(ambTargetVol, now, 0.14);
     this.ambFilter.frequency.setTargetAtTime(ambCutoff, now, 0.14);
 
-    // 2. Tense Chase Music ramps IMMEDIATELY (fast attack 0.18s, slow decay 0.9s)
-    const chaseTau = chaseUrgency > 0.25 ? 0.18 : 0.95;
-    const chaseTargetVol = chaseUrgency * (isKiller ? 0.42 : 0.78) * this.musicVol;
+    // 2. Tense Chase Music ramps IMMEDIATELY (fast attack 0.16s, slow decay 0.9s)
+    const chaseTau = chaseUrgency > 0.25 ? 0.16 : 0.95;
+    const chaseTargetVol = chaseUrgency * (isKiller ? 0.46 : 0.84) * this.musicVol;
     this.chaseGain.gain.setTargetAtTime(chaseTargetVol, now, chaseTau);
 
-    // Blend between 'apprehension' (reveal / mid-range dread), 'chaos' (direct sight), and 'null_chase' (close distortion)
-    const chaosWeight = (entityVisible && entityDist < 22) || entityDist < 11
-      ? Math.max(0.55, prox)
+    // Blend pre-chase dread ('apprehension'/'chase_nerves') with active intense chase track + close 'null_chase' static distortion
+    const activeChaseKey = this.sources[this.currentChaseKey] ? this.currentChaseKey : (this.sources.chaos ? 'chaos' : 'apprehension');
+    const chaosWeight = (entityVisible && entityDist < 26) || entityDist < 13
+      ? Math.max(0.62, prox)
       : 0.0;
-    const nullChaseWeight = entityDist < 9.5 ? Math.max(0.0, (9.5 - entityDist) / 9.5) * 0.65 : 0.0;
-    const appWeight = Math.max(0, Math.min(1, 1 - chaosWeight * 0.75));
+    const nullChaseWeight = entityDist < 10.5 ? Math.max(0.0, (10.5 - entityDist) / 10.5) * 0.62 : 0.0;
+    const dreadKey = this.sources.chase_nerves && this._levelId !== 'level0' ? 'chase_nerves' : 'apprehension';
+    const appWeight = Math.max(0, Math.min(1, 1 - chaosWeight * 0.78));
 
     for (const [k, s] of Object.entries(this.sources)) {
       if (AMBIENT_TRACK_KEYS.includes(k)) {
         s.gain.gain.setTargetAtTime(k === this.currentAmbKey ? 1.0 : 0.0, now, 0.75);
-      } else if (k === 'apprehension') {
-        s.gain.gain.setTargetAtTime(appWeight, now, 0.16);
-      } else if (k === 'chaos') {
+      } else if (k === activeChaseKey) {
         s.gain.gain.setTargetAtTime(chaosWeight, now, 0.14);
+      } else if (k === dreadKey) {
+        s.gain.gain.setTargetAtTime(appWeight, now, 0.16);
       } else if (k === 'null_chase') {
         s.gain.gain.setTargetAtTime(nullChaseWeight, now, 0.14);
+      } else if (CHASE_TRACK_KEYS.includes(k)) {
+        s.gain.gain.setTargetAtTime(0.0, now, 0.28);
       }
     }
 
-    // 3. Fluorescent Ceiling Hum + Organic Liminal Atmosphere (adapts across bright/dark zones & dread)
+    // 3. Fluorescent Ceiling Hum + Organic Liminal Atmosphere (adapts across bright/dark & acoustic zone types)
+    const ac = this._zoneAcoustic || 'standard';
     if (this.humGain) {
-      const humZone = 0.022 + zoneLight * 0.036;
-      const humTarget = Math.max(0.006, humZone * (1 - prox * 0.72));
+      const acHum = ac === 'industrial' ? 1.24 : ac === 'muffled' ? 0.68 : ac === 'cathedral' ? 0.80 : 1.0;
+      const humZone = (0.022 + zoneLight * 0.036) * acHum;
+      const humTarget = Math.max(0.005, humZone * (1 - prox * 0.72));
       this.humGain.gain.setTargetAtTime(humTarget, now, 0.16);
     }
     if (this.atmoGain && this.atmoDroneFilter && this.atmoAirFilter) {
       const darkBoost = 1.0 + (1.0 - zoneLight) * 0.55;
+      const acBoost = ac === 'cathedral' ? 1.18 : ac === 'industrial' ? 1.12 : ac === 'muffled' ? 0.78 : 1.0;
       const drift = 0.85 + 0.15 * Math.sin(now * 0.23) * Math.cos(now * 0.11);
-      const atmoLvl = (paused ? 0.07 : 0.18 * darkBoost) * (1 - prox * 0.35) * drift;
+      const atmoLvl = (paused ? 0.07 : 0.18 * darkBoost * acBoost) * (1 - prox * 0.35) * drift;
       this.atmoGain.gain.setTargetAtTime(atmoLvl, now, 0.25);
-      this.atmoDroneFilter.frequency.setTargetAtTime(110 + zoneLight * 42 + Math.sin(now * 0.17) * 24, now, 0.25);
-      this.atmoAirFilter.frequency.setTargetAtTime(440 + (1 - zoneLight) * 160 + Math.cos(now * 0.13) * 110, now, 0.25);
+      const droneFreq = ac === 'industrial' ? 132 : ac === 'cathedral' ? 88 : ac === 'muffled' ? 76 : 110;
+      const airFreq = ac === 'corridor' ? 560 : ac === 'muffled' ? 280 : ac === 'cathedral' ? 350 : 440;
+      this.atmoDroneFilter.frequency.setTargetAtTime(droneFreq + zoneLight * 42 + Math.sin(now * 0.17) * 24, now, 0.25);
+      this.atmoAirFilter.frequency.setTargetAtTime(airFreq + (1 - zoneLight) * 160 + Math.cos(now * 0.13) * 110, now, 0.25);
     }
 
-    // 4. Running / Sprint / Exhaustion Breathing Cycle (Survivors & guttural rasp for Entity)
+    // 4. Tactile Heavy Sprint / Exhaustion Breathing Cycle (clear audible panting while sprinting!)
     if (!paused) {
-      const moveExert = sprinting ? 0.72 + speedRatio * 0.28 : (speedRatio > 0.6 ? (speedRatio - 0.6) * 0.9 : 0);
-      const tiredExert = stamRatio < 0.72 ? Math.min(1, (0.72 - stamRatio) / 0.65) : 0;
-      const effort = Math.max(moveExert, tiredExert * 0.95, panic * 0.72);
-      if (effort > 0.18) {
-        const halfCycle = Math.max(0.24, 0.52 - effort * 0.24);
+      const activeSprint = sprinting && speedRatio > 0.42;
+      this._sprintDurationT = activeSprint
+        ? Math.min(10, this._sprintDurationT + dt)
+        : Math.max(0, this._sprintDurationT - dt * 1.45);
+      const moveExert = activeSprint
+        ? Math.min(1.0, 0.76 + speedRatio * 0.22 + Math.min(0.18, this._sprintDurationT * 0.04))
+        : (speedRatio > 0.65 ? (speedRatio - 0.60) * 0.85 : 0);
+      const tiredExert = stamRatio < 0.76 ? Math.min(1, (0.76 - stamRatio) / 0.68) : 0;
+      if (!isKiller && !this._wasExhausted && stamRatio < 0.20) {
+        this.playExhaustedGasp();
+      }
+      this._wasExhausted = stamRatio < 0.30;
+
+      const effort = Math.max(moveExert, tiredExert, panic * 0.72);
+      if (effort > 0.15) {
+        const halfCycle = Math.max(0.20, 0.43 - effort * 0.20);
         this._breathT += dt;
         if (this._breathT >= halfCycle) {
           this._breathT = 0;
@@ -549,10 +718,10 @@ class AudioManager {
       }
     }
 
-    // 5. Entity Proximity Electrical Static & Crackle ("tiếng quái vật rè rè khi đến gần")
+    // 5. Entity Proximity Electrical Static & Crackle
     if (this.staticGain && this.staticFilter) {
-      const staticLvl = !isKiller && entityDist < 19
-        ? Math.pow(Math.max(0, 1 - (entityDist - 2.2) / 16.8), 1.45) * 0.24 * this.sfxVol
+      const staticLvl = !isKiller && entityDist < 20
+        ? Math.pow(Math.max(0, 1 - (entityDist - 2.2) / 17.8), 1.45) * 0.24 * this.sfxVol
         : 0;
       const flutter = staticLvl * (0.78 + 0.32 * Math.sin(now * 27.0) * Math.cos(now * 11.3));
       this.staticGain.gain.setTargetAtTime(Math.max(0, flutter), now, 0.08);
@@ -560,42 +729,87 @@ class AudioManager {
     }
 
     // 6. Heartbeat thump scales with danger for Survivors
-    if (!paused && !isKiller && prox > 0.18) {
-      const interval = Math.max(0.32, 0.92 - prox * 0.58);
+    if (!paused && !isKiller && prox > 0.16) {
+      const interval = Math.max(0.30, 0.90 - prox * 0.58);
       this._heartT += dt;
       if (this._heartT >= interval) {
         this._heartT = 0;
-        this._playHeartbeat(0.12 + prox * 0.36);
+        this._playHeartbeat(0.14 + prox * 0.38);
       }
     }
   }
 
-  _playBreath(inhale, effort, exhausted = 0, isKiller = false) {
-    if (!this.ctx || !this._breathBuffer || !this.sfxGain) return;
+  playExhaustedGasp() {
+    if (!this.ctx || !this.sfxGain) return;
     const t = this.ctx.currentTime;
-    const dur = Math.max(0.18, (inhale ? 0.26 : 0.33) - effort * 0.07);
+    const clip = this.sfxBuffers.sfx_horror_breath || this.sfxBuffers.sfx_sprint_breath;
+    if (clip) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = clip;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'lowpass';
+      bp.frequency.value = 2800;
+      const g = this.ctx.createGain();
+      const dur = Math.min(0.68, Math.max(0.25, clip.duration * 0.35));
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.46, t + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      src.connect(bp); bp.connect(g); g.connect(this.sfxGain);
+      const off = Math.random() * Math.max(0.05, clip.duration - dur - 0.05);
+      src.start(t, off, dur + 0.03);
+    }
+  }
 
+  _playBreath(inhale, effort, exhausted = 0, isKiller = false) {
+    if (!this.ctx || !this.sfxGain) return;
+    const t = this.ctx.currentTime;
+    const dur = Math.max(0.18, (inhale ? 0.25 : 0.32) - effort * 0.07);
+
+    // 1. Prefer real recorded CC0 breathing clip layer when decoded (makes sprint panting vividly tactile!)
+    const realClip = (!isKiller && (exhausted > 0.45 && this.sfxBuffers.sfx_horror_breath))
+      ? this.sfxBuffers.sfx_horror_breath
+      : (!isKiller ? this.sfxBuffers.sfx_sprint_breath : null);
+    if (realClip) {
+      const rSrc = this.ctx.createBufferSource();
+      rSrc.buffer = realClip;
+      rSrc.playbackRate.value = (inhale ? 1.06 : 0.94) + effort * 0.14;
+      const rFilt = this.ctx.createBiquadFilter();
+      rFilt.type = 'bandpass';
+      rFilt.frequency.setValueAtTime(inhale ? 780 : 520, t);
+      rFilt.Q.value = 0.85;
+      const rGain = this.ctx.createGain();
+      const rPeak = Math.min(0.56, (0.28 + effort * 0.20 + exhausted * 0.14) * (inhale ? 0.86 : 1.15));
+      rGain.gain.setValueAtTime(0.0001, t);
+      rGain.gain.linearRampToValueAtTime(rPeak, t + dur * (inhale ? 0.36 : 0.22));
+      rGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      const off = Math.random() * Math.max(0.05, realClip.duration - dur - 0.12);
+      rSrc.connect(rFilt); rFilt.connect(rGain); rGain.connect(this.sfxGain);
+      rSrc.start(t, off, dur + 0.04);
+    }
+
+    // 2. Procedural respiratory formant cushion / fallback before OGG decode
+    if (!this._breathBuffer) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this._breathBuffer;
     const offset = Math.random() * Math.max(0.1, this._breathBuffer.duration - dur - 0.1);
 
-    // Formant bandpass shapes human inhale ("hít") vs warm chesty exhale ("thở")
     const bp = this.ctx.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.Q.value = inhale ? 2.4 : 1.75;
-    const startF = isKiller ? (inhale ? 240 : 190) : (inhale ? 520 : 690);
-    const endF = isKiller ? (inhale ? 320 : 125) : (inhale ? 940 : 310);
+    bp.Q.value = inhale ? 2.2 : 1.65;
+    const startF = isKiller ? (inhale ? 240 : 190) : (inhale ? 540 : 710);
+    const endF = isKiller ? (inhale ? 320 : 125) : (inhale ? 980 : 320);
     bp.frequency.setValueAtTime(startF, t);
     bp.frequency.exponentialRampToValueAtTime(endF, t + dur);
 
     const lp = this.ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = isKiller ? 650 : 1950;
+    lp.frequency.value = isKiller ? 650 : 2100;
 
-    const peak = Math.min(0.42, (isKiller ? 0.14 : 0.16 + effort * 0.18 + exhausted * 0.12) * (inhale ? 0.85 : 1.12));
+    const scaleSynth = realClip ? 0.45 : 1.12;
+    const peak = Math.min(0.46, (isKiller ? 0.16 : 0.22 + effort * 0.20 + exhausted * 0.14) * (inhale ? 0.86 : 1.14) * scaleSynth);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(peak, t + dur * (inhale ? 0.42 : 0.28));
+    g.gain.linearRampToValueAtTime(peak, t + dur * (inhale ? 0.40 : 0.26));
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
 
     src.connect(bp);
@@ -604,15 +818,14 @@ class AudioManager {
     g.connect(this.sfxGain);
     src.start(t, offset, dur + 0.02);
 
-    // Subtle vocal chest rasp on heavy sprint exhale
-    if (!inhale && (effort > 0.55 || isKiller)) {
+    if (!inhale && (effort > 0.50 || isKiller)) {
       const osc = this.ctx.createOscillator();
       const og = this.ctx.createGain();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(isKiller ? 78 : 138, t);
+      osc.frequency.setValueAtTime(isKiller ? 78 : 142, t);
       osc.frequency.exponentialRampToValueAtTime(isKiller ? 52 : 98, t + dur);
       og.gain.setValueAtTime(0.0001, t);
-      og.gain.linearRampToValueAtTime(peak * (isKiller ? 0.22 : 0.10), t + dur * 0.25);
+      og.gain.linearRampToValueAtTime(peak * (isKiller ? 0.24 : 0.14), t + dur * 0.25);
       og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       osc.connect(og);
       og.connect(this.sfxGain);
@@ -861,6 +1074,82 @@ class AudioManager {
       osc.start(t);
       osc.stop(t + 0.75);
     }
+  }
+
+  /**
+   * High-impact terrifying monster Jumpscare burst combining recorded shriek + chest-thumping sub slam + dissonant shriek.
+   */
+  playJumpscare(aiKind = 'bacteria', isDown = false, isAmbush = false) {
+    if (!this.ensureContext() || this.muted) return;
+    const t = this.ctx.currentTime;
+    const mult = isDown ? 1.0 : isAmbush ? 0.78 : 0.92;
+
+    // 1. Pre-baked CC0 multi-monster jumpscare shriek
+    const clip = this.sfxBuffers.sfx_jumpscare;
+    if (clip) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = clip;
+      src.playbackRate.value = aiKind === 'smiler' || aiKind === 'howler' ? 1.07 : aiKind === 'duller' || aiKind === 'skin_stealer' ? 0.90 : 1.0;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.95 * mult, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + Math.min(1.65, clip.duration));
+      src.connect(g);
+      g.connect(this.sfxGain);
+      src.start(t);
+    }
+
+    // 2. Massive sub-bass impact slam (85Hz -> 28Hz) so the hit feels physical
+    const slam = this.ctx.createOscillator();
+    const slamG = this.ctx.createGain();
+    slam.type = 'sine';
+    slam.frequency.setValueAtTime(92, t);
+    slam.frequency.exponentialRampToValueAtTime(27, t + 0.42);
+    slamG.gain.setValueAtTime(0.001, t);
+    slamG.gain.linearRampToValueAtTime(0.85 * mult, t + 0.012);
+    slamG.gain.exponentialRampToValueAtTime(0.001, t + 0.48);
+    slam.connect(slamG);
+    slamG.connect(this.sfxGain);
+    slam.start(t);
+    slam.stop(t + 0.5);
+
+    // 3. Dissonant metallic screech chord & clipped static burst (ensures visceral punch even before decode)
+    const freqs = (aiKind === 'smiler' || aiKind === 'howler')
+      ? [515, 742, 1080]
+      : (aiKind === 'skin_stealer' || aiKind === 'duller')
+        ? [165, 238, 490]
+        : [330, 472, 845];
+    for (const f0 of freqs) {
+      const osc = this.ctx.createOscillator();
+      const og = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(f0, t);
+      osc.frequency.linearRampToValueAtTime(f0 * (isDown ? 1.16 : 0.86), t + 0.22);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.44, t + 0.92);
+      og.gain.setValueAtTime(0.001, t);
+      og.gain.linearRampToValueAtTime((clip ? 0.14 : 0.28) * mult, t + 0.018);
+      og.gain.exponentialRampToValueAtTime(0.001, t + 0.96);
+      osc.connect(og);
+      og.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 0.98);
+    }
+
+    const noiseLen = Math.floor(this.ctx.sampleRate * 0.45);
+    const nBuf = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const nd = nBuf.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      nd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLen * 0.36));
+    }
+    const nSrc = this.ctx.createBufferSource();
+    nSrc.buffer = nBuf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1750, t);
+    bp.Q.value = 0.7;
+    const ng = this.ctx.createGain();
+    ng.gain.value = 0.52 * mult;
+    nSrc.connect(bp); bp.connect(ng); ng.connect(this.sfxGain);
+    nSrc.start(t);
   }
 
   playRevealStinger(pos) {
@@ -1238,6 +1527,21 @@ class AudioManager {
     }
   }
 
+  updateClassicAmbience(classic,player){
+    if(!this.ctx)return;
+    if(!classic||!player){this._classicHum?.gain.gain.setTargetAtTime(0,this.ctx.currentTime,.25);return;}
+    if(!this._classicHum){
+      const gain=this.ctx.createGain(),pan=this.ctx.createPanner(),filter=this.ctx.createBiquadFilter();
+      gain.gain.value=0;pan.panningModel='HRTF';pan.distanceModel='inverse';pan.refDistance=4;pan.maxDistance=45;pan.rolloffFactor=1.6;filter.type='lowpass';filter.frequency.value=650;
+      const oscillators=[90,180.7].map((frequency,i)=>{const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type='sine';o.frequency.value=frequency;g.gain.value=i?.3:1;o.connect(g);g.connect(filter);o.start();return o;});
+      filter.connect(gain);gain.connect(pan);pan.connect(this.sfxGain);this._classicHum={gain,pan,filter,oscillators};
+    }
+    const h=this._classicHum,con=classic.connectors[0],x=classic.x0-24,z=con.z+6,d=Math.hypot(player.x-x,player.z-z),now=this.ctx.currentTime,target=d<42?.008:0,cutoff=player.x<classic.x0?900:320;
+    if(h.x!==x||h.z!==z){h.pan.positionX.setValueAtTime(x,now);h.pan.positionY.setValueAtTime(2.1,now);h.pan.positionZ.setValueAtTime(z,now);h.x=x;h.z=z;}
+    if(h.target!==target){h.gain.gain.setTargetAtTime(target,now,.3);h.target=target;}
+    if(h.cutoff!==cutoff){h.filter.frequency.setTargetAtTime(cutoff,now,.4);h.cutoff=cutoff;}
+  }
+
   _ensurePoolAudio() {
     if (this._poolAudio || !this.ensureContext()) return this._poolAudio;
     const ctx = this.ctx;
@@ -1324,7 +1628,8 @@ class AudioManager {
     }
 
     // Acoustic architecture presets (corridor vs cathedral vs tube vs maintenance)
-    const preset = zone.acousticPreset || 'large_chamber';
+    const cell = me && map ? getPoolroomsCellAt(me.x, me.z, map) : null;
+    const preset = cell?.acoustics?.preset || zone.acousticPreset || 'large_chamber';
     let delayT = 0.21;
     let fbGain = 0.34;
     let cutoff = 1850;
@@ -1333,6 +1638,7 @@ class AudioManager {
     else if (preset === 'underwater_passage') { delayT = 0.26; fbGain = 0.44; cutoff = 680; }
     else if (preset === 'maintenance_room') { delayT = 0.13; fbGain = 0.22; cutoff = 960; }
     else if (preset === 'vaulted_cathedral') { delayT = 0.35; fbGain = 0.56; cutoff = 2600; }
+    if(cell?.art&&cell.acoustics){delayT=cell.acoustics.delay??delayT;fbGain=cell.acoustics.feedback??fbGain;cutoff=cell.acoustics.cutoff??cutoff;}
 
     if (inWater) cutoff = Math.min(cutoff, 480);
     pa.delay.delayTime.setTargetAtTime(delayT, t, 0.35);
@@ -1342,7 +1648,7 @@ class AudioManager {
     // Sparse delicate glass-chime note inside peaceful/colored/slide sanctuary zones (almost silent in silent_horror)
     this._nextPadChimeT -= dt;
     if (this._nextPadChimeT <= 0) {
-      this._nextPadChimeT = activeLayer === 'silent_horror' ? 14 : (2.8 + Math.random() * 4.2);
+      this._nextPadChimeT = activeLayer === 'silent_horror' ? 14 : ((cell?.acoustics?.noteGap??2.8) + Math.random() * 4.2);
       if (activeLayer !== 'silent_horror' && Math.random() < 0.85) {
         const scales = {
           peaceful_shallow: [523.25, 587.33, 659.25, 783.99, 880.0],

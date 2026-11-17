@@ -1,0 +1,21 @@
+#weaponBar { position:absolute; right:22px; bottom:83px; z-index:22; color:#dce3d9; font:11px/1.5 monospace; text-align:right; pointer-events:auto; text-shadow:0 1px 3px #000; }
+#weaponBar[hidden] { display:none; }
+#weaponBar button { cursor:pointer; color:#b5bcb2; border:1px solid #ffffff26; background:#101710b3; padding:6px 9px; font:10px monospace; border-radius:3px; }
+#weaponBar button.selected { color:#f1e0a8; border-color:#d4c59488; background:#30362ce0; }
+#weaponBar kbd { margin-right:6px; color:#929c8c; }
+.weapon-slots { display:flex; gap:5px; justify-content:flex-end; }
+.weapon-status { display:flex; gap:14px; align-items:baseline; justify-content:flex-end; margin-top:9px; letter-spacing:1px; }
+.weapon-status b { font-size:23px; font-weight:400; color:#f3edcf; }
+.weapon-help { margin-top:5px; opacity:.58; font-size:9px; }
+.weapon-touch { display:none; }
+#weaponBar.minimal .weapon-help { display:none; }
+#weaponBar.minimal .weapon-slots { opacity:.25; transition:opacity .2s; }
+#weaponBar.minimal:hover .weapon-slots { opacity:1; }
+#weaponBar.touch { bottom:170px; right:15px; }
+#weaponBar.touch .weapon-touch { display:flex; gap:6px; margin-top:8px; }
+#weaponBar.touch .weapon-touch button { padding:14px 10px; touch-action:none; }
+@media(max-width:700px) { #weaponBar { right:12px; bottom:90px; } .weapon-help { max-width:230px; } }
+.fps-settings-details { border:1px solid #ffffff18; border-radius:5px; padding:10px 12px; margin:8px 0; }
+.fps-settings-details summary { cursor:pointer; color:#c9d9ca; font:12px monospace; padding:2px 0; }
+.fps-settings-details[open] summary { margin-bottom:10px; }
+.fps-settings-details input:disabled { opacity:.3; cursor:default; }

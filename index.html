@@ -87,6 +87,17 @@
     .fx-val { font-size: 11px; color: var(--y); font-weight: bold; min-width: 38px; text-align: right; }
     .fx-toggle-wrap { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #e8dea9; cursor: pointer; margin: 2px 0; }
     .fx-row select { padding: 4px 6px; font-size: 11px; margin-top: 2px; }
+    .fx-group-head {
+      grid-column: 1 / -1;
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin-top: 6px; padding: 5px 8px;
+      background: rgba(230, 210, 122, 0.08);
+      border-left: 3px solid var(--yb);
+      border-bottom: 1px solid rgba(230, 210, 122, 0.24);
+      font-size: 11px; font-weight: bold; letter-spacing: 0.7px; color: var(--yb); text-transform: uppercase;
+    }
+    .fx-group-head:first-child { margin-top: 0; }
+    .fx-group-sub { font-size: 9.5px; color: #b6ab83; font-weight: normal; text-transform: none; letter-spacing: 0.2px; }
 
     .box {
       padding: 14px 16px; background: rgba(255, 250, 220, 0.03);
@@ -353,6 +364,84 @@
       position: fixed; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15;
       background: radial-gradient(circle, transparent 52%, rgba(160, 14, 10, 0) 100%);
       opacity: 0; transition: opacity 0.15s;
+    }
+
+    /* Terrifying Monster Attack Jumpscare Overlay (strictly non-blocking pointer-events: none) */
+    #jumpscareFx {
+      position: fixed;
+      inset: 0;
+      z-index: 65;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      opacity: 0;
+      background: radial-gradient(circle at 50% 48%, rgba(165, 8, 8, 0.25) 0%, rgba(18, 0, 2, 0.94) 68%, rgba(0, 0, 0, 0.98) 100%);
+    }
+    #jumpscareFx.active {
+      opacity: 1;
+      animation: jsFlash 0.95s cubic-bezier(0.12, 0.9, 0.2, 1) forwards;
+    }
+    #jumpscareFx.active .js-face-wrap {
+      animation: jsLunge 0.95s cubic-bezier(0.1, 0.96, 0.22, 1) forwards;
+    }
+    #jumpscareFx.active .js-tear {
+      animation: jsTear 0.16s steps(2, end) infinite;
+    }
+    #jumpscareFx .js-face-wrap {
+      width: min(86vw, 760px);
+      height: min(86vh, 760px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      filter: drop-shadow(0 0 28px rgba(255, 22, 22, 0.72)) contrast(1.45);
+    }
+    #jumpscareFx .js-tear {
+      position: absolute;
+      inset: -12px;
+      background:
+        repeating-linear-gradient(180deg, rgba(255, 36, 24, 0.24) 0px, rgba(255, 36, 24, 0.24) 3px, transparent 3px, transparent 14px),
+        linear-gradient(128deg, transparent 43%, rgba(255, 24, 16, 0.55) 44.5%, rgba(255, 225, 220, 0.75) 45%, rgba(255, 24, 16, 0.55) 45.5%, transparent 47%),
+        linear-gradient(52deg, transparent 48%, rgba(210, 12, 12, 0.52) 49.5%, rgba(255, 210, 200, 0.65) 50%, transparent 51.5%);
+      mix-blend-mode: screen;
+      opacity: 0.78;
+    }
+    #jumpscareFx .js-tag {
+      position: absolute;
+      bottom: 13%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: clamp(18px, 3vw, 34px);
+      font-weight: 900;
+      letter-spacing: 5px;
+      color: #ffded8;
+      text-shadow: 0 0 18px #ff1e1e, 3px 0 #ff2626, -3px 0 #1ce8ff;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+    @keyframes jsFlash {
+      0% { opacity: 1; background-color: rgba(255, 28, 18, 0.85); }
+      7% { opacity: 1; background-color: rgba(5, 0, 0, 0.94); }
+      14% { opacity: 0.98; background-color: rgba(175, 10, 10, 0.72); }
+      26% { opacity: 0.94; background-color: rgba(10, 0, 2, 0.88); }
+      68% { opacity: 0.68; }
+      100% { opacity: 0; }
+    }
+    @keyframes jsLunge {
+      0% { transform: scale(0.42) rotate(-6deg); }
+      8% { transform: scale(1.48) translate(-18px, 12px) rotate(4deg); }
+      16% { transform: scale(1.28) translate(16px, -14px) rotate(-5deg); }
+      25% { transform: scale(1.40) translate(-12px, -8px) rotate(3deg); }
+      38% { transform: scale(1.22) translate(10px, 9px) rotate(-2deg); }
+      60% { transform: scale(1.16) translate(-4px, 4px) rotate(1deg); }
+      100% { transform: scale(1.36) translate(0, 0) rotate(0deg); opacity: 0; }
+    }
+    @keyframes jsTear {
+      0% { transform: translate(-8px, -2px) skewX(3deg); }
+      50% { transform: translate(9px, 3px) skewX(-4deg); }
+      100% { transform: translate(-4px, 1px) skewX(2deg); }
     }
 
     /* ==================== MOBILE & TOUCH CONTROLS ==================== */
@@ -878,6 +967,116 @@
       .tp-coords-bar { justify-content: flex-start; }
       .tp-scroll { grid-template-columns: 1fr; max-height: 46vh; }
     }
+
+    /* Legal Footer & Credits Modal */
+    .legal-footer {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-top: 1px dashed var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: #bdb48d;
+    }
+    .legal-footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .legal-footer a, .credits-links a {
+      color: #8af0ff;
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(138, 240, 255, 0.45);
+    }
+    .legal-footer a:hover, .credits-links a:hover {
+      color: #fff6c8;
+      border-bottom-color: #fff6c8;
+    }
+    .credits-card {
+      width: min(920px, 95vw);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(12, 11, 8, 0.97);
+      border: 1px solid var(--border);
+      box-shadow: 0 0 38px rgba(0, 0, 0, 0.88), inset 0 0 24px rgba(230, 210, 122, 0.08);
+      padding: 16px 20px;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .credits-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .credits-tab {
+      padding: 6px 11px;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 3px;
+      background: rgba(24, 22, 16, 0.92);
+      color: #cfc7a8;
+      border: 1px solid rgba(230, 210, 122, 0.28);
+      cursor: pointer;
+    }
+    .credits-tab.active {
+      background: rgba(58, 52, 28, 0.9);
+      color: var(--yb);
+      border-color: var(--yb);
+    }
+    .credits-body {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 6px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #e6dfc1;
+    }
+    .credits-sec.hidden { display: none; }
+    .credits-sec h3 {
+      margin: 10px 0 6px;
+      font-size: 13px;
+      color: var(--yb);
+      border-bottom: 1px solid rgba(230, 210, 122, 0.22);
+      padding-bottom: 4px;
+    }
+    .credits-sec h3:first-child { margin-top: 0; }
+    .credits-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0 12px;
+      font-size: 11.5px;
+    }
+    .credits-table th, .credits-table td {
+      text-align: left;
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(230, 210, 122, 0.14);
+      vertical-align: top;
+    }
+    .credits-table th {
+      color: var(--y);
+      background: rgba(230, 210, 122, 0.08);
+    }
+    .credits-warn {
+      padding: 8px 10px;
+      margin: 8px 0;
+      border-radius: 4px;
+      background: rgba(224, 60, 50, 0.12);
+      border: 1px solid rgba(224, 60, 50, 0.42);
+      color: #ffd0ca;
+      font-size: 11.5px;
+    }
+    .credits-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin: 8px 0;
+    }
   </style>
 </head>
 <body>
@@ -901,9 +1100,12 @@
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <div>
           <h1>BACKROOMS // LEVEL 0</h1>
-          <div class="sub">Found Footage Multiplayer & AI Survival • VHS CRT • Bunny-Hop Physics</div>
+          <div class="sub">Found Footage Multiplayer & AI Survival • VHS CRT • Bunny-Hop Physics • By Vendreith</div>
         </div>
-        <div class="vhs-tag"><span class="dot-rec"></span><span id="netStatus">Sẵn sàng</span></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button id="lobbyCreditsBtn" type="button" class="sm" title="Thông tin Bản quyền, Ghi công & Giấy phép">CREDITS &amp; LEGAL</button>
+          <div class="vhs-tag"><span class="dot-rec"></span><span id="netStatus">Sẵn sàng</span></div>
+        </div>
       </div>
 
       <div class="grid2">
@@ -998,6 +1200,22 @@
         </div>
         <div id="lobbyFxMount" class="fx-grid"></div>
       </div>
+
+      <footer id="legalFooter" class="legal-footer" aria-label="Thông tin bản quyền và giấy phép">
+        <div>
+          <strong>© 2026 Vendreith</strong> (Original Engine &amp; Code) • Backrooms Adapted Lore:
+          <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>
+          • Free-to-Play Web Build
+        </div>
+        <div class="legal-footer-links">
+          <button id="footerCreditsBtn" type="button" class="sm">Credits &amp; Legal</button>
+          <a href="./LICENSE.md" target="_blank" rel="noopener">License</a>
+          <a href="./ATTRIBUTION.md" target="_blank" rel="noopener">Attribution</a>
+          <a href="./THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Third-Party Notices</a>
+          <a href="./legal/PRIVACY_POLICY.md" target="_blank" rel="noopener">Privacy</a>
+          <a href="./legal/TERMS_OF_PLAY.md" target="_blank" rel="noopener">Terms</a>
+        </div>
+      </footer>
     </div>
   </div>
 
@@ -1037,7 +1255,8 @@
           <input id="pauseSfx" type="range" min="0" max="1" step="0.02" value="1.0" />
           <div class="btn-row" style="margin-top:14px;">
             <button id="resumeBtn" class="primary">Tiếp tục chơi (Khóa chuột)</button>
-            <button id="pauseTpBtn" type="button">Teleport &amp; No-Clip [T]</button>
+            <button id="pauseTpBtn" type="button">Teleport &amp; No-Clip [F2]</button>
+            <button id="pauseCreditsBtn" type="button">Credits &amp; Legal</button>
             <button id="leaveBtn" class="danger">Thoát ra Menu</button>
           </div>
         </div>
@@ -1065,6 +1284,13 @@
 
   <!-- 5. FEAR / BLOOD SCREEN OVERLAY -->
   <div id="fearFx"></div>
+
+  <!-- 5B. MONSTER ATTACK JUMPSCARE OVERLAY -->
+  <div id="jumpscareFx" class="hidden" aria-hidden="true">
+    <div class="js-tear"></div>
+    <div id="jsFaceWrap" class="js-face-wrap"></div>
+    <div id="jsTag" class="js-tag"></div>
+  </div>
 
   <!-- 6. IN-GAME FOUND FOOTAGE CAMCORDER HUD -->
   <div id="hud" class="hidden">
@@ -1136,8 +1362,8 @@
       <button id="noclipOffBtn" type="button">TẮT</button>
     </div>
 
-    <button id="tpHudBtn" type="button" class="hud-tp-btn" title="Mở bảng Teleport (T) / Bật tắt No-Clip (N)">
-      <span>TELEPORT [T]</span>
+    <button id="tpHudBtn" type="button" class="hud-tp-btn" title="Mở bảng Teleport (F2) / Bật tắt No-Clip (N)">
+      <span>TELEPORT [F2]</span>
       <span id="tpHudNcBtn" class="tp-nc-pill">NOCLIP [N]</span>
     </button>
 
@@ -1215,6 +1441,117 @@
       </div>
 
       <div id="tpList" class="tp-scroll"></div>
+    </div>
+  </div>
+
+  <!-- 8. CREDITS & LEGAL MODAL -->
+  <div id="creditsModal" class="screen hidden" style="z-index:92;">
+    <div class="credits-card" role="dialog" aria-modal="true" aria-labelledby="creditsModalTitle">
+      <div class="tp-header">
+        <div>
+          <h2 id="creditsModalTitle" style="margin:0;font-size:17px;color:var(--yb);">CREDITS &amp; LEGAL // BẢN QUYỀN &amp; GHI CÔNG</h2>
+          <div style="font-size:11px;color:#cfc7a8;margin-top:2px;">Backrooms // Level 0 — Free-to-Play Web Build • Developer: Vendreith (2026)</div>
+        </div>
+        <button id="creditsCloseBtn" type="button" class="danger" style="padding:6px 12px;">Đóng [ESC]</button>
+      </div>
+
+      <div id="creditsTabs" class="credits-tabs">
+        <button type="button" class="credits-tab active" data-credits-tab="overview">Tổng quan &amp; Bản quyền</button>
+        <button type="button" class="credits-tab" data-credits-tab="backrooms">Backrooms (CC BY-SA 3.0)</button>
+        <button type="button" class="credits-tab" data-credits-tab="thirdparty">Thư viện &amp; Media Bên thứ 3</button>
+        <button type="button" class="credits-tab" data-credits-tab="privacy">Quyền riêng tư &amp; Tài liệu</button>
+      </div>
+
+      <div id="creditsBody" class="credits-body">
+        <section class="credits-sec" data-credits-panel="overview">
+          <h3>Nhà phát triển &amp; Cấu trúc Pháp lý Phân tách</h3>
+          <p><strong>Developer:</strong> Vendreith (<a href="https://github.com/Vendreith/backrooms-multiplayer" target="_blank" rel="noopener">github.com/Vendreith/backrooms-multiplayer</a>) • <strong>Năm phát hành ban đầu:</strong> 2026 (xác minh lịch sử Git).</p>
+          <p><strong>Free-to-Play:</strong> Trò chơi hoàn toàn miễn phí để chơi trên trình duyệt. Tuy nhiên, miễn phí trải nghiệm không đồng nghĩa với việc từ bỏ quyền tác giả đối với mã nguồn gốc, shader hoặc hệ thống kỹ thuật do Vendreith tạo ra.</p>
+          <table class="credits-table">
+            <thead><tr><th>Thành phần</th><th>Quyền sở hữu / Tác giả</th><th>Giấy phép</th></tr></thead>
+            <tbody>
+              <tr><td>Mã nguồn Engine, Shader (VHS/CRT &amp; Preset 5 Dreamcam), WebRTC Netcode, UI HUD &amp; Vật lý</td><td>Vendreith (2026)</td><td><strong>Copyright © 2026 Vendreith. All rights reserved.</strong> (tách bạch khỏi nội dung CC BY-SA 3.0)</td></tr>
+              <tr><td>Nội dung chuyển thể 21 Tầng Backrooms, Thực thể &amp; Lore mô tả</td><td>Cộng đồng &amp; Tác giả Backrooms Wiki + chuyển thể của Vendreith</td><td><strong>CC BY-SA 3.0</strong> (<a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">creativecommons.org/licenses/by-sa/3.0/</a>)</td></tr>
+              <tr><td>Thư viện JavaScript &amp; Tài nguyên mở</td><td>Three.js, postprocessing, PeerJS, Kevin MacLeod, ambientCG, NASA/JPL, Stephan</td><td>MIT, Zlib, BSD-3-Clause, CC BY 3.0, CC0 1.0, Public Domain</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Liên hệ bản quyền / sửa ghi công / báo lỗi:</strong> Mở issue tại <a href="https://github.com/Vendreith/backrooms-multiplayer/issues" target="_blank" rel="noopener">GitHub Issues</a> (mục <code>[COPYRIGHT / ATTRIBUTION REQUEST]</code>). Dự án này không tuyên bố bảo chứng chính thức từ cộng đồng Wiki hay bất kỳ hãng phim/tác giả độc lập nào.</p>
+        </section>
+
+        <section class="credits-sec hidden" data-credits-panel="backrooms">
+          <h3>Ghi công Tác giả Backrooms Wiki (CC BY-SA 3.0)</h3>
+          <p>Hệ thống 21 tầng chơi, tên gọi, khái niệm thực thể (<em>Smilers</em>, <em>Hounds</em>, <em>Skin-Stealers</em>, <em>Facelings</em>, <em>Kitty</em>) và vật phẩm (<em>Almond Water</em>, <em>M.E.G.</em>) được chuyển thể từ <a href="https://backrooms-wiki.wikidot.com/" target="_blank" rel="noopener">The Backrooms Wiki (Wikidot)</a> và <a href="https://backrooms.fandom.com/" target="_blank" rel="noopener">Backrooms Fandom Wiki</a> theo <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">Creative Commons Attribution-ShareAlike 3.0 (CC BY-SA 3.0)</a> (<a href="https://backrooms-wiki.wikidot.com/licensing-guide" target="_blank" rel="noopener">Hướng dẫn cấp phép Wikidot</a>).</p>
+          <p><strong>Thay đổi đã thực hiện (Modifications):</strong> Chuyển thể thành mê cung &amp; kiến trúc 3D procedural (Three.js), đặt tên và mô tả tiếng Việt, thêm vòng lặp sửa máy thoát hiểm, chế độ Co-op/PvP và Teleport/No-Clip.</p>
+          <table class="credits-table">
+            <thead><tr><th>Tầng / Thực thể tiêu biểu</th><th>Nguồn Wiki</th><th>Tác giả ghi nhận (Authors)</th><th>Giấy phép</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Level 0</strong> — The Lobby</td><td><code>backrooms-wiki.wikidot.com/level-0</code></td><td>4chan /x/ (2019); Wikidot rewrite: DivineAtlas, DrAkimoto, Robert Goerman</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 1</strong> — Habitable Zone</td><td><code>backrooms-wiki.wikidot.com/level-1</code></td><td>u/ThePizzaEater1000; Wikidot: Praetor3005, DivineAtlas</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 5</strong> — Terror Hotel</td><td><code>backrooms-wiki.wikidot.com/level-5</code></td><td>Discord13 (Fandom); Wikidot: Stretchsterz, ratscrapz</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 7</strong> — Thalassophobia</td><td><code>backrooms-wiki.wikidot.com/level-7</code></td><td>Bart0nius, u/M654z</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 9</strong> — The Suburbs</td><td><code>backrooms-wiki.wikidot.com/level-9</code></td><td>Bart0nius; Wikidot: Stretchsterz</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 11</strong> — The Endless City</td><td><code>backrooms-wiki.wikidot.com/level-11</code></td><td>u/Nerdykiddo4884; Stretchsterz; Greggita Mahayfaio</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 37</strong> — The Poolrooms</td><td><code>backrooms-wiki.wikidot.com/level-37</code></td><td>egglord (Wikidot). <em>Cảm hứng mỹ thuật kiến trúc: Dream Pools của Jared Pike (không sử dụng file ảnh/3D gốc của Jared Pike).</em></td><td>CC BY-SA 3.0 (Wiki)</td></tr>
+              <tr><td><strong>Level 94</strong> — Motion</td><td><code>backrooms-wiki.wikidot.com/level-94</code></td><td>Stretchsterz, Dr Bierre, ShadowOfTheProphet</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 188</strong> — Courtyard of Windows</td><td><code>backrooms-wiki.wikidot.com/level-188</code></td><td>1000dumplings, Kai4C</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 974</strong> — Kitty's House</td><td><code>backrooms-wiki.wikidot.com/level-974</code></td><td>jikupa, AndromedeadReal</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 2, 3, 4, 6, 8, 10, 14, 19, 48, !, 9223...</strong></td><td>Wikidot &amp; Fandom</td><td>Các tác giả đóng góp Wiki Backrooms tương ứng (xem <code>legal/BACKROOMS_ATTRIBUTION.md</code>)</td><td>CC BY-SA 3.0</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Lưu ý tác giả độc lập:</strong> Các thuật ngữ tham khảo như <em>A-Sync</em>, <em>KV-31</em>, <em>Bacteria</em> lấy cảm hứng từ series của <strong>Kane Parsons (Kane Pixels)</strong> — không thuộc CC BY-SA 3.0 và hoàn toàn độc lập với dự án này.</p>
+        </section>
+
+        <section class="credits-sec hidden" data-credits-panel="thirdparty">
+          <h3>Thư viện Mã nguồn Mở (Runtime Dependencies)</h3>
+          <table class="credits-table">
+            <thead><tr><th>Gói thư viện</th><th>Phiên bản</th><th>Tác giả</th><th>Giấy phép</th></tr></thead>
+            <tbody>
+              <tr><td><code>three</code></td><td>0.170.0</td><td>three.js authors</td><td>MIT</td></tr>
+              <tr><td><code>postprocessing</code></td><td>6.39.6</td><td>Raoul van Rüschen</td><td>Zlib</td></tr>
+              <tr><td><code>peerjs</code> (+ <code>eventemitter3</code>, <code>binarypack</code>, <code>sdp</code>)</td><td>1.5.5</td><td>Michelle Bu, Eric Zhang &amp; contributors</td><td>MIT</td></tr>
+              <tr><td><code>webrtc-adapter</code></td><td>9.0.6</td><td>WebRTC &amp; adapter.js authors</td><td>BSD-3-Clause</td></tr>
+            </tbody>
+          </table>
+          <h3>Nhạc, Âm thanh &amp; Texture Đã Xác minh</h3>
+          <table class="credits-table">
+            <thead><tr><th>Tác phẩm</th><th>Tác giả / Nguồn</th><th>Giấy phép</th></tr></thead>
+            <tbody>
+              <tr><td><em>Spacial Winds</em>, <em>Apprehension</em>, <em>Controlled Chaos</em> + additional ambient &amp; chase tracks</td><td>Kevin MacLeod (<code>incompetech.com</code>)</td><td><strong>CC BY 3.0</strong></td></tr>
+              <tr><td><em>The Backrooms OST</em> (Level themes &amp; Chase tracks, Archive.org)</td><td>Piem Ión</td><td><strong>CC BY-SA 4.0</strong></td></tr>
+              <tr><td>PBR Carpet, Ceiling, Wall &amp; Leak/Asphalt Decals</td><td>Lennart Demes (<code>ambientCG.com</code>)</td><td><strong>CC0 1.0 Universal</strong></td></tr>
+              <tr><td><em>rusty clasp</em>, <em>door creak</em>, <em>elevator door</em>, <em>knocking</em>, <em>metal cabinet</em></td><td>Stephan (SoundBible)</td><td><strong>CC BY 3.0</strong></td></tr>
+              <tr><td>Sprint breathing &amp; Jumpscare shriek/slam SFX (OpenGameArt)</td><td>Phani29 &amp; OpenGameArt contributors</td><td><strong>CC0 1.0 Universal</strong></td></tr>
+              <tr><td>Cassini Saturn Radio Emissions (<code>sfx_saturn_radio.wav</code>)</td><td>NASA / JPL (US Gov)</td><td><strong>Public Domain</strong></td></tr>
+              <tr><td><em>Daisy Bell</em> melody synth (<code>daisy_bell_tape.mp3</code>)</td><td>Harry Dacre (1892) / Procedural synth</td><td><strong>Public Domain</strong></td></tr>
+            </tbody>
+          </table>
+          <div class="credits-warn">
+            <strong>Cảnh báo minh bạch (Category E Review):</strong> Một số file audio kế thừa (nhạc ballroom 1930s, trích đoạn từ video tham chiếu, <em>Burning Memory</em>, <code>sfx_static.wav</code>, <code>sfx_growl*</code>, <code>sfx_whisper.ogg</code>) và <code>Soldier.glb</code> (Mixamo qua Three.js examples) đã được gắn cờ cần rà soát/thay thế trong <code>legal/ASSET_PROVENANCE.md</code> và <strong>không</strong> thuộc quyền sở hữu của Vendreith.
+          </div>
+        </section>
+
+        <section class="credits-sec hidden" data-credits-panel="privacy">
+          <h3>Tóm tắt Quyền riêng tư &amp; Chế độ Multiplayer (PeerJS / WebRTC)</h3>
+          <p>• Game không thu thập tài khoản, email hay sử dụng cookie theo dõi/quảng cáo.<br>
+             • Tùy chọn đồ họa và âm lượng được lưu cục bộ trên trình duyệt qua <code>localStorage</code> (<code>br_gfx_v2</code>, <code>br_fx_v2</code>, <code>br_fps_v2</code>, <code>br_aspect_v2</code>, <code>br_sens_v2</code>, <code>br_mvol_v2</code>, <code>br_svol_v2</code>).<br>
+             • Khi dùng <strong>Multiplayer Online</strong>, kết nối WebRTC P2P qua PeerJS Cloud (<code>0.peerjs.com</code>) và máy chủ STUN công cộng (Google / Cloudflare / Metered) làm lộ địa chỉ IP kết nối giữa các người chơi trong cùng phòng. Chỉ chia sẻ mã phòng với người bạn tin tưởng hoặc chơi chế độ Solo.</p>
+          <h3>Toàn văn Tài liệu Pháp lý (Mở trực tiếp từ GitHub Pages)</h3>
+          <div class="credits-links">
+            <a href="./LICENSE.md" target="_blank" rel="noopener">LICENSE.md</a>
+            <a href="./COPYRIGHT.md" target="_blank" rel="noopener">COPYRIGHT.md</a>
+            <a href="./NOTICE.md" target="_blank" rel="noopener">NOTICE.md</a>
+            <a href="./ATTRIBUTION.md" target="_blank" rel="noopener">ATTRIBUTION.md</a>
+            <a href="./THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">THIRD_PARTY_NOTICES.md</a>
+            <a href="./legal/LICENSING_MATRIX.md" target="_blank" rel="noopener">LICENSING_MATRIX.md</a>
+            <a href="./legal/ASSET_PROVENANCE.md" target="_blank" rel="noopener">ASSET_PROVENANCE.md</a>
+            <a href="./legal/BACKROOMS_ATTRIBUTION.md" target="_blank" rel="noopener">BACKROOMS_ATTRIBUTION.md</a>
+            <a href="./legal/PRIVACY_POLICY.md" target="_blank" rel="noopener">PRIVACY_POLICY.md</a>
+            <a href="./legal/TERMS_OF_PLAY.md" target="_blank" rel="noopener">TERMS_OF_PLAY.md</a>
+            <a href="./legal/CONTENT_USAGE_POLICY.md" target="_blank" rel="noopener">CONTENT_USAGE_POLICY.md</a>
+            <a href="./legal/TAKEDOWN_CONTACT.md" target="_blank" rel="noopener">TAKEDOWN_CONTACT.md</a>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 

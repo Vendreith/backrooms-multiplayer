@@ -26,8 +26,12 @@ jobs:
           node-version: 20
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Run runtime regression checks
+        run: npm run check:runtime
       - name: Build production bundle
         run: npm run build
+      - name: Run automated legal & notice checks
+        run: npm run check:legal
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

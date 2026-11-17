@@ -1,3 +1,9 @@
+/*!
+ * Copyright (c) 2026 Vendreith (Original Code & Procedural Implementation).
+ * Adapted Backrooms level/entity concepts & lore: licensed under CC BY-SA 3.0.
+ * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
+ */
+
 // ---------- Procedural PBR Texture Pack for 20 Iconic Backrooms Levels ----------
 // Generates 512px seamless diffuse + ceiling + bump CanvasTextures cached per level theme
 // so every corridor, street, hotel, cave, and pool reacts richly to flashlights and dynamic lamps.
@@ -37,7 +43,10 @@ function toRepeatTex(canvas, repX = 1, repY = 1, srgb = true) {
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(repX, repY);
   if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 16;
   tex.needsUpdate = true;
   return tex;
 }
@@ -69,11 +78,11 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 512, seed = 101) {
     const step = size / gridN;
     const isMint = pattern === 'pool_tile_mint';
     const isSub = pattern === 'pool_tile_submerged';
-    ctx.fillStyle = isSub ? 'rgba(20, 92, 92, 0.94)' : isMint ? 'rgba(46, 122, 116, 0.90)' : 'rgba(78, 118, 114, 0.84)';
+    ctx.fillStyle = isSub ? 'rgba(85, 136, 127, 0.94)' : isMint ? 'rgba(111, 160, 147, 0.90)' : 'rgba(178, 190, 180, 0.94)';
     ctx.fillRect(0, 0, size, size);
     for (let y = 0; y < gridN; y++) {
       for (let x = 0; x < gridN; x++) {
-        const tint = 0.96 + (rnd() - 0.5) * 0.11;
+        const tint = 0.98 + (rnd() - 0.5) * 0.04;
         const tx = x * step;
         const ty = y * step;
         if (rnd() > 0.90 && !isSub) {
@@ -84,17 +93,17 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 512, seed = 101) {
           ctx.fillStyle = rgba(rgb, 1, tint);
         }
         ctx.fillRect(tx + 1.4, ty + 1.4, step - 2.8, step - 2.8);
-        // Subtle porcelain glaze top/left highlight & crisp bottom/right edge
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
-        ctx.fillRect(tx + 1.6, ty + 1.6, step - 3.6, 1.8);
-        ctx.fillRect(tx + 1.6, ty + 1.6, 1.8, step - 3.6);
-        ctx.fillStyle = 'rgba(42, 86, 84, 0.18)';
-        ctx.fillRect(tx + 1.8, ty + step - 3.2, step - 3.4, 1.6);
-        ctx.fillRect(tx + step - 3.2, ty + 1.8, 1.6, step - 3.4);
+        // Subtle porcelain glaze top/left highlight & softer bottom/right edge (minimizes distant tile sparkle)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.11)';
+        ctx.fillRect(tx + 1.8, ty + 1.8, step - 3.6, 2.0);
+        ctx.fillRect(tx + 1.8, ty + 1.8, 2.0, step - 3.6);
+        ctx.fillStyle = 'rgba(42, 86, 84, 0.14)';
+        ctx.fillRect(tx + 1.8, ty + step - 3.4, step - 3.4, 2.0);
+        ctx.fillRect(tx + step - 3.4, ty + 1.8, 2.0, step - 3.4);
       }
     }
-    ctx.strokeStyle = isSub ? 'rgba(18, 86, 86, 0.86)' : isMint ? 'rgba(42, 116, 110, 0.82)' : 'rgba(72, 114, 112, 0.78)';
-    ctx.lineWidth = 2.1;
+    ctx.strokeStyle = isSub ? 'rgba(75, 130, 120, 0.56)' : isMint ? 'rgba(95, 145, 130, 0.52)' : 'rgba(150, 167, 153, 0.48)';
+    ctx.lineWidth = 1.65;
     ctx.beginPath();
     for (let i = 0; i <= gridN; i++) {
       ctx.moveTo(i * step, 0); ctx.lineTo(i * step, size);
@@ -485,7 +494,7 @@ export function getLevelMaterials(levelCfg) {
       metalness: 0.03,
       vertexColors: true,
       emissive: 0x6ecac0,
-      emissiveIntensity: 0.08
+      emissiveIntensity: 0.015
     });
     submergedTileMat = new THREE.MeshStandardMaterial({
       map: subTex,
@@ -495,7 +504,7 @@ export function getLevelMaterials(levelCfg) {
       metalness: 0.03,
       vertexColors: true,
       emissive: 0x269e98,
-      emissiveIntensity: 0.16
+      emissiveIntensity: 0.015
     });
   }
 
@@ -526,7 +535,7 @@ export function getLevelMaterials(levelCfg) {
       metalness: pal.wallPattern === 'dark_metal' ? 0.45 : isPoolrooms ? 0.02 : 0.04,
       vertexColors: isPoolrooms,
       emissive: isPoolrooms ? 0xd6ded8 : 0x000000,
-      emissiveIntensity: isPoolrooms ? 0.07 : 0
+      emissiveIntensity: isPoolrooms ? 0.015 : 0
     }),
     floorMat: new THREE.MeshStandardMaterial({
       map: floorTex,
@@ -536,7 +545,7 @@ export function getLevelMaterials(levelCfg) {
       metalness: pal.floorPattern === 'grate_concrete' ? 0.22 : 0.02,
       vertexColors: isPoolrooms,
       emissive: isPoolrooms ? 0xcadcd6 : 0x000000,
-      emissiveIntensity: isPoolrooms ? 0.05 : 0
+      emissiveIntensity: isPoolrooms ? 0.008 : 0
     }),
     ceilMat: new THREE.MeshStandardMaterial({
       map: ceilTex,
@@ -544,7 +553,7 @@ export function getLevelMaterials(levelCfg) {
       metalness: 0.03,
       vertexColors: isPoolrooms,
       emissive: isPoolrooms ? 0xe6eae0 : 0x000000,
-      emissiveIntensity: isPoolrooms ? 0.28 : 0
+      emissiveIntensity: isPoolrooms ? 0.006 : 0
     }),
     mintTileMat,
     submergedTileMat,
