@@ -15,8 +15,8 @@ export const LEVEL_CATALOG = {
     order: 1,
     code: 'LEVEL 37',
     name: 'The Poolrooms',
-    vnName: 'Hồ Bơi Vô Tận',
-    tagline: 'Sublimity — mê cung nước yên tĩnh, kiến trúc trong mơ và đại thánh đường gốm trắng. Không có thực thể thù địch.',
+    vnName: 'Infinite Pool',
+    tagline: 'Sublimity — serene water maze, dreamlike architecture, and white ceramic cathedral. No hostile entities.',
     archetype: 'poolrooms',
     gridN: 672,
     cellSize: 1.0,
@@ -56,8 +56,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'pool_tile'
     },
     entryType: 'portal',
-    entryLabel: 'Cổng Vòm Gạch Nước (Level 37)',
-    entryDesc: 'Cổng vòm gạch men rỉ nước xanh ngọc — bước vào The Poolrooms.',
+    entryLabel: 'Brick Water Dome (Level 37)',
+    entryDesc: 'Emerald-tiled arched doorway dripping with water — enter The Poolrooms.',
     entity: null,
     peaceful: true,
     audioMood: 'pool',
@@ -69,8 +69,8 @@ export const LEVEL_CATALOG = {
     order: 2,
     code: 'LEVEL !',
     name: 'Red City / Run For Your Life',
-    vnName: 'Thành Phố Đỏ (!)',
-    tagline: 'Hành lang bệnh viện báo động đỏ mở ra hẻm núi cao tầng sương mù máu rùng rợn.',
+    vnName: 'Red City (!)',
+    tagline: 'Red alarm hospital corridor opens into a foggy, blood-chilling high-rise canyon.',
     archetype: 'redcity',
     gridN: 120,
     cellSize: 6.2,
@@ -106,8 +106,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'red_asphalt'
     },
     entryType: 'portal',
-    entryLabel: 'Cửa Đôi Cấp Cứu (!) Đỏ Rực',
-    entryDesc: 'Cửa bệnh viện chớp đèn báo động đỏ chói — lối vào Thành Phố Đỏ.',
+    entryLabel: 'Blazing Red Double Emergency Exit (!)',
+    entryDesc: 'Flashing red alarm lights at the hospital — entrance to Red City.',
     entity: {
       name: 'Crimson Pursuer',
       archKey: 'hound',
@@ -118,7 +118,7 @@ export const LEVEL_CATALOG = {
       sightRange: 43.0,
       hearRange: 33.0,
       color: 0xcc1818,
-      hint: 'Đèn báo động đỏ thu hút Quái Đỏ săn lùng liên tục dọc phố!'
+      hint: 'Red alarm lights attract relentless Red Monsters hunting along the street!'
     },
     audioMood: 'red_siren',
     features: ['sky', 'crawl']
@@ -129,8 +129,8 @@ export const LEVEL_CATALOG = {
     order: 3,
     code: 'LEVEL 4',
     name: 'Abandoned Office',
-    vnName: 'Văn Phòng Bỏ Hoang',
-    tagline: 'Mê cung bàn làm việc, vách ngăn cubicle, máy in & cửa sổ nhìn ra sương mù trắng xám.',
+    vnName: 'Abandoned Office',
+    tagline: 'Cubicle maze, office partitions, printers & windows overlooking a gray-white fog.',
     archetype: 'office',
     gridN: 108,
     cellSize: 5.4,
@@ -166,8 +166,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'office_carpet'
     },
     entryType: 'pickup',
-    entryLabel: 'Màn Hình CRT Văn Phòng Nhiễu Sóng',
-    entryDesc: 'Nhặt màn hình CRT kêu rè từ bàn bỏ hoang — noclip vào Level 4.',
+    entryLabel: 'Office CRT Monitor Static',
+    entryDesc: 'Pick up the CRT monitor\'s buzzing sound from the abandoned desk — noclip into Level 4.',
     entity: {
       name: 'Stationary Faceling',
       archKey: 'smiler',
@@ -178,7 +178,7 @@ export const LEVEL_CATALOG = {
       sightRange: 30.0,
       hearRange: 23.0,
       color: 0x8ea0b2,
-      hint: 'Tầng văn phòng khá rộng và có nhiều ống thông gió trên trần để cúi người né.'
+      hint: 'The office floor is quite spacious with many ceiling vents to duck under.'
     },
     audioMood: 'office',
     features: ['furniture', 'crawl']
@@ -189,8 +189,8 @@ export const LEVEL_CATALOG = {
     order: 4,
     code: 'LEVEL 10',
     name: 'The Infinite Field',
-    vnName: 'Cánh Đồng Bất Tận',
-    tagline: 'Đồng bằng lúa mì & cỏ xanh ngút ngàn dưới bầu trời u ám vàng nhạt, nông trại & đường chân trời vô tận.',
+    vnName: 'Endless Field',
+    tagline: 'Vast wheat & green grass plains under a gloomy yellowish sky, farm & endless horizon.',
     archetype: 'field',
     gridN: 120,
     cellSize: 7.4,
@@ -226,8 +226,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'field_grass'
     },
     entryType: 'pickup',
-    entryLabel: 'Bó Lúa Mì Vàng Rung Gió',
-    entryDesc: 'Chạm vào bó lúa mì tỏa ánh nắng kỳ lạ giữa sàn — dịch chuyển ra Đồng Cỏ Level 10.',
+    entryLabel: 'Golden Wheat in the Wind',
+    entryDesc: 'Touch the sunlit wheat stalks on the floor — warp to Grass Level 10.',
     entity: {
       name: 'Scarecrow Faceling',
       archKey: 'bacteria',
@@ -238,7 +238,7 @@ export const LEVEL_CATALOG = {
       sightRange: 41.0,
       hearRange: 27.0,
       color: 0x6b5130,
-      hint: 'Đồng bằng mênh mông với đường chân trời rộng lớn — trốn trong kho thóc hoặc sau hàng rào gỗ.'
+      hint: 'Vast plains with a wide horizon — hide in the grain silo or behind the wooden fence.'
     },
     audioMood: 'wind_plain',
     features: ['sky', 'horizon', 'plain', 'houses', 'furniture']
@@ -249,8 +249,8 @@ export const LEVEL_CATALOG = {
     order: 5,
     code: 'LEVEL 1',
     name: 'Habitable Zone',
-    vnName: 'Nhà Kho Bê Tông',
-    tagline: 'Bãi đỗ xe & nhà kho bê tông khổng lồ mù sương với thùng hàng, cột trụ và hành lang ngoằn ngoèo.',
+    vnName: 'Concrete Warehouse',
+    tagline: 'Massive foggy concrete warehouse with cargo containers, pillars & winding corridors.',
     archetype: 'warehouse',
     gridN: 112,
     cellSize: 5.5,
@@ -277,8 +277,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'warehouse_floor'
     },
     entryType: 'noclip_floor',
-    entryLabel: 'Sàn Thảm Nứt Ảo (Noclip Level 1)',
-    entryDesc: 'Mặt sàn phẳng lì giữa ngã tư hay có người qua lại — bước lên sẽ xuyên thẳng xuống Nhà Kho Level 1!',
+    entryLabel: 'Virtual Carpet Glitch (Noclip Level 1)',
+    entryDesc: 'Flat floor in the middle of an intersection or where people pass by — stepping up will drop you straight into Warehouse Level 1!',
     entity: {
       name: 'Skin-Stealer',
       archKey: 'skinStealer',
@@ -289,7 +289,7 @@ export const LEVEL_CATALOG = {
       sightRange: 30.0,
       hearRange: 23.0,
       color: 0xa68978,
-      hint: 'Đèn kho đôi lúc chập chờn — tận dụng hàng thùng gỗ để nấp.'
+      hint: 'Warehouse lights flicker occasionally — use the wooden crates to hide.'
     },
     audioMood: 'warehouse',
     features: ['crawl']
@@ -300,8 +300,8 @@ export const LEVEL_CATALOG = {
     order: 6,
     code: 'LEVEL 2',
     name: 'Pipe Dreams',
-    vnName: 'Đường Ống Nóng',
-    tagline: 'Mê cung bảo trì chật hẹp dày đặc đường ống đồng lặp lại bất tận và những đoạn chui ống thấp.',
+    vnName: 'Hot Pipe Corridor',
+    tagline: 'Narrow, densely packed maintenance maze with endless repeating copper pipes and low crawl sections.',
     archetype: 'pipes',
     gridN: 108,
     cellSize: 4.8,
@@ -328,8 +328,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'grate_concrete'
     },
     entryType: 'crawl_hatch',
-    entryLabel: 'Cửa Cống Bảo Trì Phun Hơi Nước',
-    entryDesc: 'Cúi người [C] chui qua cửa bảo trì rỉ sét dẫn vào đường ống Level 2.',
+    entryLabel: 'Water Spray Maintenance Hatch',
+    entryDesc: 'Crouch [C] to crawl through the rusty maintenance door into the Level 2 pipe corridor.',
     entity: {
       name: 'Thermal Crawler',
       archKey: 'hound',
@@ -340,7 +340,7 @@ export const LEVEL_CATALOG = {
       sightRange: 29.0,
       hearRange: 25.0,
       color: 0xb84c28,
-      hint: 'Nhiều lối chui gầm ống — ấn C để cúi người lách qua.'
+      hint: 'Many pipe crawl spaces — press C to crouch and slip through.'
     },
     audioMood: 'pipes',
     features: ['crawl']
@@ -351,8 +351,8 @@ export const LEVEL_CATALOG = {
     order: 7,
     code: 'LEVEL 3',
     name: 'Electrical Station',
-    vnName: 'Trạm Biến Áp Đen',
-    tagline: 'Hành lang gạch cũ ngoằn ngoèo nhiều ngã rẽ với tủ cao thế, lồng sắt & khe chui cáp điện.',
+    vnName: 'Black Substation',
+    tagline: 'Twisting old brick hallway with many turns, tall cabinets, iron cages, and cable access gaps.',
     archetype: 'electrical',
     gridN: 110,
     cellSize: 4.9,
@@ -379,8 +379,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'grate_concrete'
     },
     entryType: 'crawl_hatch',
-    entryLabel: 'Hầm Cáp Điện Cao Thế (Level 3)',
-    entryDesc: 'Khe ống cáp đánh tia lửa nhỏ — cúi xuống chui vào Trạm Biến Áp Level 3.',
+    entryLabel: 'High Voltage Cable Tunnel (Level 3)',
+    entryDesc: 'Cable pipe gaps spark slightly — crouch down to crawl into the Level 3 Substation.',
     entity: {
       name: 'Breaker Hound',
       archKey: 'hound',
@@ -391,7 +391,7 @@ export const LEVEL_CATALOG = {
       sightRange: 30.0,
       hearRange: 26.0,
       color: 0xd48c2a,
-      hint: 'Nhiều ngã rẽ ngoằn ngoèo — lắng nghe tiếng gầm trước mỗi góc khuất.'
+      hint: 'Many twisting turns — listen for growling before every corner.'
     },
     audioMood: 'electrical',
     features: ['crawl']
@@ -402,8 +402,8 @@ export const LEVEL_CATALOG = {
     order: 8,
     code: 'LEVEL 5',
     name: 'Terror Hotel',
-    vnName: 'Khách Sạn Kinh Hoàng',
-    tagline: 'Hành lang khách sạn thập niên 1920 gỗ gụ đỏ sang trọng, phòng khách cổ điển & ống giặt là kín.',
+    vnName: 'Horror Hotel',
+    tagline: '1920s mahogany hallway, classic living room, and closed laundry chute.',
     archetype: 'hotel',
     gridN: 110,
     cellSize: 5.2,
@@ -430,8 +430,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'hotel_carpet'
     },
     entryType: 'portal',
-    entryLabel: 'Cửa Thang Máy Đồng Cổ (Level 5)',
-    entryDesc: 'Cửa thang máy khách sạn 1920 mạ đồng phát nhạc jazz xa xăm.',
+    entryLabel: 'Brass Elevator Door (Level 5)',
+    entryDesc: '1920s brass hotel elevator door plays distant jazz music.',
     entity: {
       name: 'The Bellhop',
       archKey: 'bacteria',
@@ -442,7 +442,7 @@ export const LEVEL_CATALOG = {
       sightRange: 31.0,
       hearRange: 23.0,
       color: 0x3a241a,
-      hint: 'Nhiều phòng chờ với sofa, bàn trà, tủ gỗ — nấp hoặc chui ống phòng nồi hơi.'
+      hint: 'Many waiting rooms with sofas, tea tables, and wooden cabinets — hide or crawl through the boiler room pipes.'
     },
     audioMood: 'hotel',
     features: ['furniture', 'crawl']
@@ -453,8 +453,8 @@ export const LEVEL_CATALOG = {
     order: 9,
     code: 'LEVEL 6',
     name: 'Lights Out',
-    vnName: 'Bóng Đêm Tuyệt Đối',
-    tagline: 'Mê cung thép công nghiệp tối đen hoàn toàn không một ánh đèn, chỉ có ánh đèn pin của chính bạn.',
+    vnName: 'Absolute Darkness',
+    tagline: 'Pitch-black industrial steel maze with no lights, only your own flashlight.',
     archetype: 'blackout',
     gridN: 108,
     cellSize: 4.8,
@@ -481,8 +481,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'grate_concrete'
     },
     entryType: 'noclip_floor',
-    entryLabel: 'Điểm Tắt Sáng Trên Sàn (Noclip Level 6)',
-    entryDesc: 'Vùng sàn tưởng chừng phẳng lì giữa hành lang tối — bước qua sẽ rơi thẳng vào Bóng Đêm Tuyệt Đối!',
+    entryLabel: 'Floor Light Toggle (Noclip Level 6)',
+    entryDesc: 'Seemingly flat floor section in the dark corridor — stepping through drops you into Absolute Darkness!',
     entity: {
       name: 'Insanity Lurker',
       archKey: 'howler',
@@ -493,7 +493,7 @@ export const LEVEL_CATALOG = {
       sightRange: 26.0,
       hearRange: 29.0,
       color: 0xd0d8e8,
-      hint: 'Level tối tuyệt đối! Bật đèn pin [F], dùng Pháo UV [5] & Máy dò [2] để tìm đường.'
+      hint: 'Absolute darkness level! Turn on flashlight [F], use UV Cannon [5] & Detector [2] to find your way.'
     },
     audioMood: 'blackout',
     features: ['crawl']
@@ -504,8 +504,8 @@ export const LEVEL_CATALOG = {
     order: 10,
     code: 'LEVEL 7',
     name: 'Thalassophobia',
-    vnName: 'Biển Đen Sâu Thẳm',
-    tagline: 'Đại dương tăm tối mênh mông dưới ánh trăng, ngôi nhà ngập nước đầy nội thất & bến tàu lênh đênh.',
+    vnName: 'Deep Black Sea',
+    tagline: 'Vast dark ocean under moonlight, flooded house fully furnished & floating dock.',
     archetype: 'ocean',
     gridN: 120,
     cellSize: 7.2,
@@ -543,8 +543,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'wood_plank'
     },
     entryType: 'noclip_floor',
-    entryLabel: 'Vũng Nước Thấm Sàn (Noclip Level 7)',
-    entryDesc: 'Sàn hành lang phẳng lặng hơi ẩm — giẫm qua sẽ rơi xuyên xuống căn nhà ngập biển!',
+    entryLabel: 'Floor Leak (Noclip Level 7)',
+    entryDesc: 'Slightly damp flat hallway floor — stepping through drops you into a flooded house!',
     entity: {
       name: 'Tiny (Abyssal Thing)',
       archKey: 'bacteria',
@@ -555,7 +555,7 @@ export const LEVEL_CATALOG = {
       sightRange: 54.0,
       hearRange: 39.0,
       color: 0x183c58,
-      hint: 'Quái Biển Sâu tuần tra ngoài mặt nước — chạy lên bến gỗ & đảo cầu để né!'
+      hint: 'Deep Sea Monster patrolling above water — run to wooden dock & swing across to avoid!'
     },
     audioMood: 'ocean',
     features: ['water', 'sky', 'horizon', 'houses', 'furniture']
@@ -566,8 +566,8 @@ export const LEVEL_CATALOG = {
     order: 11,
     code: 'LEVEL 8',
     name: 'Cave System',
-    vnName: 'Hệ Thống Hang Động',
-    tagline: 'Mạng lưới hang đá vôi ngoằn ngoèo khổng lồ với cầu gỗ treo, nấm phát sáng & khe đá bò sát.',
+    vnName: 'Cave System',
+    tagline: 'Massive winding limestone cave network with hanging wooden bridges, glowing mushrooms & reptile rock crevices.',
     archetype: 'cave',
     gridN: 114,
     cellSize: 5.4,
@@ -594,8 +594,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'cave_rock'
     },
     entryType: 'crawl_hatch',
-    entryLabel: 'Khe Đá Vỡ Sau Vách Thạch Cao',
-    entryDesc: 'Khe nứt hang đá hẹp sát sàn — cúi người [C] bò qua vào Hệ Thống Hang Động Level 8.',
+    entryLabel: 'Cracked Wall Behind Limestone',
+    entryDesc: 'Narrow cave floor crevice — crouch [C] to crawl through into Cave System Level 8.',
     entity: {
       name: 'Cave Arachnid',
       archKey: 'hound',
@@ -606,7 +606,7 @@ export const LEVEL_CATALOG = {
       sightRange: 30.0,
       hearRange: 25.0,
       color: 0x664438,
-      hint: 'Hang động có nhiều ngã rẽ, nhũ đá & khe đá thấp cần cúi [C] để chui.'
+      hint: 'Cave with multiple turns, stalactites & low crevices requiring crouch [C] to pass.'
     },
     audioMood: 'cave',
     features: ['crawl']
@@ -617,8 +617,8 @@ export const LEVEL_CATALOG = {
     order: 12,
     code: 'LEVEL 9',
     name: 'Darkened Suburbs',
-    vnName: 'Khu Ngoại Ô Đêm',
-    tagline: 'Đường phố đêm sương mù dài bất tận với hàng loạt căn nhà lặp lại có thể đi vào & đầy đủ nội thất.',
+    vnName: 'Suburb Night',
+    tagline: 'Endless foggy night street with repeating fully furnished houses you can enter.',
     archetype: 'suburbs',
     gridN: 116,
     cellSize: 6.4,
@@ -654,8 +654,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'asphalt'
     },
     entryType: 'noclip_floor',
-    entryLabel: 'Vết Nhựa Đường Lẫn Trong Thảm (Level 9)',
-    entryDesc: 'Sàn thảm phẳng tưởng như bình thường — giẫm qua sẽ rơi vào Khu Ngoại Ô Đêm!',
+    entryLabel: 'Plastic Patch Under Carpet (Level 9)',
+    entryDesc: 'Seemingly normal flat carpet floor — stepping through drops you into Suburb Night!',
     entity: {
       name: 'Neighborhood Watch',
       archKey: 'skinStealer',
@@ -666,7 +666,7 @@ export const LEVEL_CATALOG = {
       sightRange: 37.0,
       hearRange: 26.0,
       color: 0x424a5c,
-      hint: 'Hàng chục ngôi nhà giống hệt nhau dọc phố — vào bên trong để tìm đồ gia dụng & nấp.'
+      hint: 'Dozens of identical houses line the street — go inside to find household items & hide.'
     },
     audioMood: 'suburb',
     features: ['sky', 'horizon', 'houses', 'furniture']
@@ -677,8 +677,8 @@ export const LEVEL_CATALOG = {
     order: 13,
     code: 'LEVEL 11',
     name: 'The Endless City',
-    vnName: 'Thành Phố Vô Tận',
-    tagline: 'Đại đô thị bê tông trống trải với những tòa cao ốc lặp lại ngút tầm mắt, đèn giao thông & hẻm phố.',
+    vnName: 'Infinite City',
+    tagline: 'A vast concrete metropolis with endless repeating skyscrapers, traffic lights & alleyways.',
     archetype: 'endless_city',
     gridN: 120,
     cellSize: 7.5,
@@ -714,8 +714,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'asphalt'
     },
     entryType: 'portal',
-    entryLabel: 'Cổng Ga Tàu Điện Ngầm Metro',
-    entryDesc: 'Bậc xuống ga Metro vắng lặng dẫn ra Thành Phố Vô Tận Level 11.',
+    entryLabel: 'Metro Subway Station',
+    entryDesc: 'A silent metro station staircase leading to Infinite City Level 11.',
     entity: {
       name: 'Urban Wanderer',
       archKey: 'smiler',
@@ -726,7 +726,7 @@ export const LEVEL_CATALOG = {
       sightRange: 38.0,
       hearRange: 27.0,
       color: 0x5c6875,
-      hint: 'Đại lộ mênh mông với cao ốc chọc trời sừng sững dưới đường chân trời xám sáng.'
+      hint: 'A wide avenue with towering skyscrapers looming under a gray dawn horizon.'
     },
     audioMood: 'city',
     features: ['sky', 'horizon', 'houses']
@@ -737,8 +737,8 @@ export const LEVEL_CATALOG = {
     order: 14,
     code: 'LEVEL 14',
     name: 'Paradise',
-    vnName: 'Rừng Đỏ Thiên Đường',
-    tagline: 'Đồng cỏ đỏ thẫm rực rỡ dưới bầu trời đêm tím huyền ảo, hàng bạch dương trắng & đền đá lơ lửng.',
+    vnName: 'Red Paradise Forest',
+    tagline: 'Vibrant crimson grass under a purple twilight sky, white birch trees & floating stone temples.',
     archetype: 'crimson_forest',
     gridN: 120,
     cellSize: 7.0,
@@ -774,8 +774,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'crimson_grass'
     },
     entryType: 'portal',
-    entryLabel: 'Cánh Cửa Phát Sáng Ánh Tím (Level 14)',
-    entryDesc: 'Cánh cửa rò rỉ sương tím đầy mê hoặc — bước qua tới Cánh Đồng Đỏ Level 14.',
+    entryLabel: 'Glowing Purple Door (Level 14)',
+    entryDesc: 'A misty purple door full of allure — step through to Red Plains Level 14.',
     entity: {
       name: 'Mirage Wraith',
       archKey: 'smiler',
@@ -786,7 +786,7 @@ export const LEVEL_CATALOG = {
       sightRange: 38.0,
       hearRange: 27.0,
       color: 0xff5ce6,
-      hint: 'Màn sương đỏ tím dễ gây mất phương hướng — giữ lộ trình theo các đền đá phát sáng.'
+      hint: 'The red-purple mist can be disorienting — keep your bearings using the glowing stone temples.'
     },
     audioMood: 'ethereal',
     features: ['sky', 'horizon', 'plain']
@@ -797,8 +797,8 @@ export const LEVEL_CATALOG = {
     order: 15,
     code: 'LEVEL 19',
     name: 'Attic Floorboards',
-    vnName: 'Gác Mái Nội Thất Cổ',
-    tagline: 'Căn gác mái gỗ ván dài vô tận chất đầy đồ gia dụng cũ, tivi, tủ lạnh, bàn ghế & xà mái cúi đầu.',
+    vnName: 'Old Attic',
+    tagline: 'An endless wooden plank attic filled with old household items, TVs, refrigerators, chairs & a bowed ceiling beam.',
     archetype: 'attic',
     gridN: 108,
     cellSize: 5.0,
@@ -825,8 +825,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'wood_plank'
     },
     entryType: 'pickup',
-    entryLabel: 'Chiếc Chìa Khóa Gác Mái Cổ',
-    entryDesc: 'Nhặt chùm chìa khóa đồng bụi bặm — kéo bạn lên Gác Mái Nội Thất Level 19.',
+    entryLabel: 'Old Attic Key',
+    entryDesc: 'Pick up a dusty brass key cluster — it pulls you up to Old Attic Level 19.',
     entity: {
       name: 'Rafter Mimic',
       archKey: 'howler',
@@ -837,7 +837,7 @@ export const LEVEL_CATALOG = {
       sightRange: 30.0,
       hearRange: 25.0,
       color: 0x8c6848,
-      hint: 'Đầy rẫy bàn ghế, tủ gỗ, máy giặt, tivi cũ & thanh xà mái phải cúi người [C] để đi qua!'
+      hint: 'Packed with chairs, wooden cabinets, washing machines, old TVs & a ceiling beam you must duck under [C] to pass!'
     },
     audioMood: 'attic',
     features: ['furniture', 'crawl']
@@ -848,8 +848,8 @@ export const LEVEL_CATALOG = {
     order: 16,
     code: 'LEVEL 48',
     name: 'Sunset Beach',
-    vnName: 'Bãi Biển Hoàng Hôn',
-    tagline: 'Bãi cát vàng & mặt biển yên ả đóng băng trong ánh hoàng hôn rực rỡ vĩnh cửu cùng cầu tàu gỗ dài.',
+    vnName: 'Sunset Beach',
+    tagline: 'Golden sand & a tranquil frozen sea under a permanent brilliant sunset, with a long wooden pier.',
     archetype: 'sunset_beach',
     gridN: 120,
     cellSize: 7.4,
@@ -887,8 +887,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'sand'
     },
     entryType: 'portal',
-    entryLabel: 'Cánh Cửa Cam Hoàng Hôn (Level 48)',
-    entryDesc: 'Cửa resort chuyển sắc cam vàng tỏa tiếng sóng rì rào — mở ra Bãi Biển Hoàng Hôn.',
+    entryLabel: 'Sunset Door (Level 48)',
+    entryDesc: 'The resort door shifts to amber hues, humming with waves — opening to Sunset Beach.',
     entity: {
       name: 'Horizon Wanderer',
       archKey: 'skinStealer',
@@ -899,19 +899,19 @@ export const LEVEL_CATALOG = {
       sightRange: 39.0,
       hearRange: 24.0,
       color: 0xffb86c,
-      hint: 'Ngắm cảnh hoàng hôn vô tận, lội sóng nông & khám phá cầu tàu resort ven biển.'
+      hint: 'Enjoy endless sunset views, wade in shallow waves, and explore the seaside resort pier.'
     },
     audioMood: 'beach',
     features: ['sky', 'horizon', 'water', 'furniture']
   },
 
-  level94: {
-    id: 'level94',
+  level94m: {
+    id: 'level94m',
     order: 17,
-    code: 'LEVEL 94',
+    code: 'LEVEL 94.1',
     name: 'Motion',
-    vnName: 'Thị Trấn Hoạt Hình',
-    tagline: 'Đồi cỏ xanh biếc bầu trời hoạt hình, hàng dãy ngôi nhà giống hệt nhau & Lâu Đài Bay kỳ bí.',
+    vnName: 'Cartoon Town',
+    tagline: 'Vibrant green hills under a cartoon sky, rows of identical houses, and a mysterious Flying Castle.',
     archetype: 'motion_town',
     gridN: 120,
     cellSize: 7.2,
@@ -947,8 +947,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'cartoon_grass'
     },
     entryType: 'noclip_floor',
-    entryLabel: 'Ô Sàn Sắc Màu Hoạt Hình (Level 94)',
-    entryDesc: 'Vùng sàn phẳng lì bên hành lang chính — bước qua sẽ rơi xuống Thị Trấn Hoạt Hình Level 94!',
+    entryLabel: 'Colorful Floor Tile (Level 94)',
+    entryDesc: 'A flat floor tile along the main corridor — stepping through drops you into Cartoon Town Level 94!',
     entity: {
       name: 'Stop-Motion Animation',
       archKey: 'bacteria',
@@ -959,7 +959,7 @@ export const LEVEL_CATALOG = {
       sightRange: 43.0,
       hearRange: 27.0,
       color: 0xffd04a,
-      hint: 'Khám phá những ngôi nhà lặp lại y hệt nhau và leo dốc lên Lâu Đài trên đỉnh đồi!'
+      hint: 'Explore the repeating identical houses and climb the hill to the Castle on top!'
     },
     audioMood: 'motion',
     features: ['sky', 'horizon', 'plain', 'houses', 'furniture', 'castle']
@@ -970,8 +970,8 @@ export const LEVEL_CATALOG = {
     order: 18,
     code: 'LEVEL 188',
     name: 'Courtyard of Windows',
-    vnName: 'Sân Trong Ngàn Cửa Sổ',
-    tagline: 'Đại sảnh lộ thiên brutalist khổng lồ bao quanh bởi hàng trăm ô cửa sổ sáng rực & hành lang rẽ nhánh.',
+    vnName: 'Courtyard of a Thousand Windows',
+    tagline: 'A massive brutalist open-air atrium surrounded by hundreds of glowing windows and branching corridors.',
     archetype: 'window_courtyard',
     gridN: 108,
     cellSize: 5.6,
@@ -1007,8 +1007,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'warehouse_floor'
     },
     entryType: 'portal',
-    entryLabel: 'Ô Cửa Sổ Nhìn Ra Sân Trong (Level 188)',
-    entryDesc: 'Ô cửa sổ kỳ lạ trên tường vàng phản chiếu sân khách sạn xám trắng.',
+    entryLabel: 'Window Looking Out to Courtyard (Level 188)',
+    entryDesc: 'Strange window on a yellow wall reflecting the gray-white hotel lobby.',
     entity: {
       name: 'Window Watcher',
       archKey: 'smiler',
@@ -1019,7 +1019,7 @@ export const LEVEL_CATALOG = {
       sightRange: 39.0,
       hearRange: 25.0,
       color: 0xe6e0c8,
-      hint: 'Sân trong lộ thiên vươn cao với hàng trăm ô cửa sổ lặp lại & hành lang nội khu ngoằn ngoèo.'
+      hint: 'The open-air atrium rises high with hundreds of repeating windows and winding internal corridors.'
     },
     audioMood: 'courtyard',
     features: ['sky', 'crawl']
@@ -1030,8 +1030,8 @@ export const LEVEL_CATALOG = {
     order: 19,
     code: 'LEVEL 974',
     name: "Kitty's House",
-    vnName: 'Ngôi Nhà Hồng Của Kitty',
-    tagline: 'Biệt thự hồng pastel siêu thực ngập tràn sofa, giường, bếp, tivi lặp lại & thực thể lặng lẽ dõi theo.',
+    vnName: 'Kitty\'s Pink House',
+    tagline: 'A surreal pastel pink mansion overflowing with repeating sofas, beds, kitchens, TVs, and silently watching entities.',
     archetype: 'kitty_house',
     gridN: 106,
     cellSize: 5.2,
@@ -1058,8 +1058,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'pastel_carpet'
     },
     entryType: 'pickup',
-    entryLabel: 'Gấu Bông Hồng Phát Sáng (Level 974)',
-    entryDesc: 'Nhặt chú gấu bông hồng dễ thương đặt lạc lõng — đưa bạn tới Ngôi Nhà Hồng của Kitty.',
+    entryLabel: 'Glowing Pink Teddy Bear (Level 974)',
+    entryDesc: 'Pick up the cute misplaced pink teddy bear — it leads you to Kitty\'s Pink House.',
     entity: {
       name: 'Kitty',
       archKey: 'bacteria',
@@ -1070,7 +1070,7 @@ export const LEVEL_CATALOG = {
       sightRange: 41.0,
       hearRange: 23.0,
       color: 0x1a1418,
-      hint: 'Ngôi nhà ngập tràn đồ gia dụng hồng pastel — Kitty di chuyển rất lặng lẽ và hay đứng nhìn từ xa.'
+      hint: 'The house is filled with pastel pink appliances — Kitty moves very quietly and often watches from afar.'
     },
     audioMood: 'pastel',
     features: ['furniture', 'houses']
@@ -1081,8 +1081,8 @@ export const LEVEL_CATALOG = {
     order: 20,
     code: 'LEVEL 9223372036854775807',
     name: 'True Final Void',
-    vnName: 'Cầu Thang Vô Cực',
-    tagline: 'Không gian hư vô trắng xám trống rỗng tột cùng với công trình cầu thang xoắn ốc đá kỳ dị vút lên bầu trời.',
+    vnName: 'Infinite Staircase',
+    tagline: 'An endless white-gray void with a bizarre stone spiral staircase soaring into the sky.',
     archetype: 'void_staircase',
     gridN: 112,
     cellSize: 7.0,
@@ -1118,8 +1118,8 @@ export const LEVEL_CATALOG = {
       floorPattern: 'brutalist_stone'
     },
     entryType: 'pickup',
-    entryLabel: 'Khối Lập Phương Tràn Số 64-Bit',
-    entryDesc: 'Khối dữ liệu lơ lửng phát tiếng bíp — chạm vào sẽ tràn bộ nhớ tới Cầu Thang Vô Cực!',
+    entryLabel: '64-Bit Cube',
+    entryDesc: 'Floating data block emitting beeps — touch it to overflow memory into the Infinite Staircase!',
     entity: {
       name: 'Void Echo',
       archKey: 'smiler',
@@ -1130,24 +1130,122 @@ export const LEVEL_CATALOG = {
       sightRange: 47.0,
       hearRange: 29.0,
       color: 0x262c34,
-      hint: 'Khoảng không trắng trống trải khổng lồ — leo các dãy cầu thang đá vút cao để tới Trạm Sửa Máy trên đỉnh.'
+      hint: 'A vast, empty white space — climb the towering stone staircases to reach the Repair Station at the peak.'
     },
     audioMood: 'void',
     features: ['sky', 'horizon', 'empty_void']
+  },
+
+  level94: {
+    id: 'level94',
+    order: 21,
+    code: 'LEVEL 94',
+    name: 'Dreamcore Hills',
+    vnName: 'Dreamcore Hills',
+    tagline: 'Rolling hills under a deep blue sky with layered clouds; the hills feel like bouncy mattresses and suddenly shrink after the mist.',
+    archetype: 'dream_hills',
+    gridN: 128,
+    cellSize: 4.0,
+    worldSpan: 512,
+    ceilH: 40,
+    isOutdoor: true,
+    minFar: 660,
+    sky: {
+      top: 0x2f6fd0,
+      mid: 0x6db1f2,
+      horizon: 0xbfe0f5,
+      sunColor: 0xfff6cf,
+      sunDir: [0.42, 0.55, -0.52],
+      glowDisc: true,
+      stars: false,
+      clouds: true
+    },
+    fogColor: 0xbfe0f5,
+    fogDensity: 0.0016,
+    farDist: 660,
+    hemiSky: 0xcfe4ff,
+    hemiGround: 0x6fae62,
+    hemiInt: 1.12,
+    ambColor: 0xaed4f0,
+    ambInt: 0.52,
+    sunColor: 0xfff3d0,
+    sunInt: 1.12,
+    palette: {
+      wall: 0xf4efe3,
+      floor: 0x58a84a,
+      trim: 0xd9cdb4,
+      accent: 0x6fd0ff,
+      wallPattern: 'dream_stucco',
+      floorPattern: 'dream_grass'
+    },
+    entryType: 'portal',
+    entryLabel: 'Grassy Hill Door (Level 94)',
+    entryDesc: 'A solitary door in a pastel meadow radiating a dreamy warmth — opens to Dreamy Grass Hill.',
+    entity: null,
+    peaceful: true,
+    audioMood: 'wind_plain',
+    features: ['sky', 'horizon', 'clouds', 'houses', 'doors', 'tunnel_links']
+  },
+
+  level94u: {
+    id: 'level94u',
+    order: 22,
+    code: 'LEVEL 94.3',
+    name: 'Underhill Works',
+    vnName: 'Underhill Pipe Maze',
+    tagline: 'A damp, moldy brick labyrinth beneath the hill, with winding water pipes, puddles reflecting light, and skylights casting streaks.',
+    archetype: 'underhill',
+    gridN: 100,
+    cellSize: 5.0,
+    worldSpan: 500,
+    ceilH: 3.6,
+    isOutdoor: false,
+    hasSkylights: true,
+    sky: null,
+    fogColor: 0x2a201a,
+    fogDensity: 0.012,
+    farDist: 120,
+    hemiSky: 0x8a6a4c,
+    hemiGround: 0x241a12,
+    hemiInt: 0.62,
+    ambColor: 0x4b382a,
+    ambInt: 0.44,
+    sunColor: 0xffd9a0,
+    sunInt: 0.3,
+    palette: {
+      wall: 0x6e4a38,
+      floor: 0x3b3532,
+      trim: 0xd9a838,
+      accent: 0xffc06a,
+      water: 0x1d3a3f,
+      waterDeep: 0x0d1e22,
+      wallPattern: 'aged_brick',
+      floorPattern: 'grate_concrete'
+    },
+    entryType: 'crawl_hatch',
+    entryLabel: 'Underhill Brick Manhole (Level 94.3)',
+    entryDesc: 'A jagged brick manhole on the hillside — descend into the Underhill Pipe Maze.',
+    entity: null,
+    peaceful: true,
+    audioMood: 'pipes',
+    features: ['crawl', 'water', 'pipes', 'tunnel_links']
   }
 };
 
 export const LEVEL_LIST = Object.values(LEVEL_CATALOG).sort((a, b) => a.order - b.order);
 
+export function canonicalLevelId(id) { return id === 'level94d' ? 'level94' : (id || 'level0'); }
+
 export function getLevelMeta(levelId) {
+  levelId = canonicalLevelId(levelId);
   if (!levelId || levelId === 'level0') {
     return {
       id: 'level0',
       order: 0,
       code: 'LEVEL 0',
       name: 'The Lobby',
-      vnName: 'Đại Sảnh Thảm Ẩm (Level 0)',
-      tagline: 'Mê cung giấy dán tường vàng bất tận, nơi giao thoa với 20 Tầng Backrooms khác.',
+      vnName: 'Damp Lobby (Level 0)',
+      tagline: 'An endless yellow wallpaper maze intersecting with 20 other Backrooms levels.',
       isOutdoor: false,
       fogColor: 0x161205,
       fogDensity: 0.016,

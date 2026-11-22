@@ -154,7 +154,9 @@ const LEVEL_AMBIENT_HINTS = {
   level188: ['lvl5_hotel', 'sweetest', 'lvl122_mall'],
   level974: ['come_play', 'lvlfun_party', 'daisy'],
   level9223: ['lvl18_abyss', 'phantom_space', 'lvl6_dark'],
-  levelrun: ['lvl6_dark', 'deep_noise']
+  levelrun: ['lvl6_dark', 'deep_noise'],
+  level94d: ['lvlfun_party', 'spacial', 'lvl18_abyss'],
+  level94u: ['lvl2_pipes', 'deep_noise']
 };
 
 const LEVEL_CHASE_HINTS = {
@@ -235,7 +237,7 @@ class AudioManager {
   registerPreloadTasks(preloader) {
     const entries = Object.entries(MUSIC_TRACKS);
     const sfxEntries = Object.entries(HORROR_SFX_TRACKS);
-    preloader.addTask('Tải nhạc Backrooms & âm thanh kinh dị (MP3/OGG)...', async () => {
+    preloader.addTask('Load Backrooms & horror soundtracks (MP3/OGG)...', async () => {
       await Promise.all([
         ...entries.map(async ([key, url]) => {
           try {

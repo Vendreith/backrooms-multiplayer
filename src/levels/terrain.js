@@ -75,7 +75,7 @@ export function getTerrainAt(x, z, map, curY = 0) {
 
   const classicPit=classicPitAt(map.classic,x,z,curY);
   if(classicPit)return {floorY:-classicPit.depth,inWater:false,waterY:-99,waterDepth:0,slideVelX:0,slideVelZ:0,onSlide:false,surfaceKind:'concrete',pit:classicPit.id};
-  let floorY = map.baseFloorY || 0;
+  let floorY = map.hills ? map.hills.heightAt(x, z) : (map.baseFloorY || 0);
   let surfaceKind = map.defaultSurface || 'tile';
   let inWater = false;
   let waterY = -99;

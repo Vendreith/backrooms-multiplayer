@@ -1,7 +1,4 @@
-import {mkdirSync as createCheckDirectory} from 'node:fs';
-createCheckDirectory('output/checks/poolrooms/v5',{recursive:true});
-createCheckDirectory('output/checks/poolrooms/architectural_breakdown',{recursive:true});
-import {writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync} from 'node:fs';
 import * as THREE from '../node_modules/three/build/three.module.js';
 import {POOL_ZONE_DEFS} from '../src/levels/poolrooms_zones.js';
 import {buildPoolroomsV4World} from '../src/levels/poolrooms_v4_world.js';
@@ -28,4 +25,6 @@ const designs=map.POOL_CELLS.filter(c=>c.art).map(c=>{
 const similar=[];for(let i=0;i<designs.length;i++)for(let j=i+1;j<designs.length;j++){const a=designs[i],b=designs[j],matches={footprint:a.width===b.width&&a.depth===b.depth,ceiling:a.ceiling===b.ceiling,poolCount:a.pools===b.pools,elevations:JSON.stringify(a.elevations)===JSON.stringify(b.elevations),parts:JSON.stringify(a.kinds)===JSON.stringify(b.kinds),sockets:a.portalCount===b.portalCount};if(Object.values(matches).filter(Boolean).length>=4)similar.push({a:a.zone,b:b.zone,matches,review:'Review both clean and footage views; compare actual pool placement, partition paths and roof silhouettes. No uniqueness claim from colour or grammar labels.'});}
 const report={method:'Per-primitive exact Float32 welded position edges. Tube boundaries at the four cell socket planes are intended. Similarity flags require at least four exact matches among six explicitly listed geometric/graph fields; no aesthetic score.',topology:{primitives:topology.length,unexpectedBoundaryEdges:topology.reduce((s,t)=>s+t.unexpected,0),nonmanifoldEdges:topology.reduce((s,t)=>s+t.nonmanifold,0),intentionalTubeBoundaryEdges:topology.filter(t=>t.kind==='tube_union').reduce((s,t)=>s+t.boundary-t.unexpected,0),failures:topology.filter(t=>t.unexpected||t.nonmanifold)},inventory:designs,similar};
 report.manualReviews=similar.filter(p=>p.a==='zone_u'&&p.b==='zone_af').map(p=>({...p,resolution:'Retain the automatic similarity flag. U has two opposed apses and two end pools; AF has five alternating pointed/round arcades and one off-centre pool. Clean/footage views show different roof silhouettes, pool arrangements and paths. Shared26×28m footprint and8m ceiling are accepted; colour is not evidence of uniqueness.'}));
-writeFileSync('output/checks/poolrooms/v5/architecture-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify({topology:report.topology,zones:designs.length,similar:similar.length},null,2));if(report.topology.unexpectedBoundaryEdges||report.topology.nonmanifoldEdges)process.exitCode=1;
+
+mkdirSync('research/poolrooms/v5',{recursive:true});
+writeFileSync('research/poolrooms/v5/architecture-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify({topology:report.topology,zones:designs.length,similar:similar.length},null,2));if(report.topology.unexpectedBoundaryEdges||report.topology.nonmanifoldEdges)process.exitCode=1;

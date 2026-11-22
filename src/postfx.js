@@ -658,6 +658,7 @@ uniform float uHue;
 uniform float uSaturation;
 uniform float uScanlineMask;
 uniform float uCoolGrade;
+uniform float uDaylightMix;
 uniform float uBicubicMode;
 uniform float uLensSoftness;
 uniform float uHalationAmt;
@@ -1142,6 +1143,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   col *= mix(1.0, (0.32 + 0.68 * bezel) * mix(1.0, bezelFeather, 0.92), clamp(curveScale, 0.0, 1.0) * clamp(vigAmt, 0.2, 1.4));
   col *= mix(1.0, mix(0.025, 1.0, outerDarkGrad * (0.72 + 0.28 * cornerCrush)), clamp(vigAmt * 0.85, 0.0, 1.65));
 
+  col=mix(col,max(inputColor.rgb,vec3(0.0)),clamp(uDaylightMix,0.0,1.0));
   outputColor = vec4(max(col, vec3(0.0015)), inputColor.a);
 }
 `;
@@ -1408,6 +1410,7 @@ export class BackroomsCRTGradeEffect extends Effect {
         ['uGrainAmount', new THREE.Uniform(1.0)],
         ['uScanlineAmount', new THREE.Uniform(1.0)],
         ['uVignetteAmount', new THREE.Uniform(1.0)],
+        ['uDaylightMix', new THREE.Uniform(0)],
         ['uVhsStrength', new THREE.Uniform(1.0)],
         ['uPanic', new THREE.Uniform(0)],
         ['uIsKiller', new THREE.Uniform(0)],
@@ -1689,16 +1692,17 @@ export class GraphicsManager {
       const userGrain = Math.max(0, this.fx.grain);
       const userVig = Math.max(0, this.fx.vignette);
 
-      const effLens = fMix01 > 0.01 && (fPreset.minLensCurve || 0) > 0
+      const manual=key=>this._hillsPresentation && this.fx.userFxKeys?.includes(key);
+      const effLens = !manual('lensCurve') && fMix01 > 0.01 && (fPreset.minLensCurve || 0) > 0
         ? Math.max(userLens, THREE.MathUtils.lerp(userLens, Math.min(3.0, fPreset.minLensCurve * (1 + (fOver - 1) * 0.2)), fMix01))
         : userLens;
-      const effScan = fMix01 > 0.01 && fPreset.scanTarget !== null
+      const effScan = !manual('scanlines') && fMix01 > 0.01 && fPreset.scanTarget !== null
         ? THREE.MathUtils.lerp(userScan, fPreset.scanTarget * Math.max(0.25, userScan / 1.5) * Math.min(fOver, 1.65), fMix01)
         : userScan;
-      const effGrain = fMix01 > 0.01 && fPreset.grainTarget !== null
+      const effGrain = !manual('grain') && fMix01 > 0.01 && fPreset.grainTarget !== null
         ? THREE.MathUtils.lerp(userGrain, fPreset.grainTarget * Math.max(0.35, userGrain / 1.5) * Math.min(fOver, 1.5), fMix01)
         : userGrain;
-      const effVig = fMix01 > 0.01 && fPreset.vignetteTarget !== null
+      const effVig = !manual('vignette') && fMix01 > 0.01 && fPreset.vignetteTarget !== null
         ? THREE.MathUtils.lerp(userVig, fPreset.vignetteTarget * Math.max(0.5, userVig / 1.5), fMix01)
         : userVig;
       this._effVig = effVig;
@@ -1710,13 +1714,13 @@ export class GraphicsManager {
         brightSpeed: Number(this.fx.eyeAdaptBrightSpeed ?? 0.75),
         darkSpeed: Number(this.fx.eyeAdaptDarkSpeed ?? 2.35),
         comp: Number(this.fx.eyeAdaptComp ?? 0.0),
-        minExp: Number(this.fx.eyeAdaptMinExp ?? 0.42),
-        maxExp: Math.min(Number(this.fx.eyeAdaptMaxExp ?? 2.45),this.localExposureMax??Infinity),
+        minExp: this._hillsDefault('eyeAdaptPreset','eyeAdaptMinExp')?.84:Number(this.fx.eyeAdaptMinExp ?? 0.42),
+        maxExp: this._hillsDefault('eyeAdaptPreset','eyeAdaptMaxExp')?1.3:Math.min(Number(this.fx.eyeAdaptMaxExp ?? 2.45),this.localExposureMax??Infinity),
         brightness: br
       });
 
       this.rtShadow.uniforms.get('uStrength').value = Math.max(0, this.fx.rtShadow ?? 0);
-      this.bloom.intensity = 1.18 * (Math.max(0, this.fx.bloom) + (fStr > 0.01 ? Math.min(2.6, fPreset.bloomBoost * fOver) : 0.0));
+      this.bloom.intensity = 1.18 * (Math.max(0, this.fx.bloom) + (!manual('bloom') && fStr > 0.01 ? Math.min(2.6, fPreset.bloomBoost * fOver) : 0.0));
       if (this.bloom.luminanceMaterial) {
         this.bloom.luminanceMaterial.threshold = fMix01 > 0.01
           ? Math.max(0.22, THREE.MathUtils.lerp(0.56, fPreset.bloomThreshold, fMix01) - Math.max(0, fOver - 1.0) * 0.04)
@@ -1839,10 +1843,22 @@ export class GraphicsManager {
   setLocalExposureLimit(max=Infinity){
     this.localExposureMax=Number.isFinite(max)?Math.max(1,max):Infinity;
     const u=this.exposurePass?._adaptMat?.uniforms;
-    if(u)u.uMaxExp.value=Math.max(u.uMinExp.value+.15,Math.min(Number(this.fx.eyeAdaptMaxExp??2.45),this.localExposureMax));
+    const maxExp=this._hillsDefault('eyeAdaptPreset','eyeAdaptMaxExp')?1.3:Number(this.fx.eyeAdaptMaxExp??2.45);
+    if(u)u.uMaxExp.value=Math.max(u.uMinExp.value+.15,Math.min(maxExp,this.localExposureMax));
   }
 
-  setEnvironmentProfile(levelId) { this._poolroomsPresentation=levelId==='level37';if(this._poolroomsPresentation)this.setCoolGrade(.92); }
+  _hillsDefault(...keys) {
+    return this._hillsPresentation && !keys.some(key => this.fx.userFxKeys?.includes(key));
+  }
+
+  setEnvironmentProfile(levelId) {
+    const hills=levelId==='level94'||levelId==='level94d',changed=hills!==this._hillsPresentation;
+    this._hillsPresentation=hills;this._poolroomsPresentation=levelId==='level37';
+    if(this._poolroomsPresentation)this.setCoolGrade(.92);
+    // Restore every preset uniform that the daylight profile temporarily caps.
+    if(changed&&!hills)this.applyFx({});
+    if(changed&&this.exposurePass)this.exposurePass.configure({enabled:this.fx.eyeAdaptEnabled&&this.fx.eyeAdaptPreset!=='off',strength:this.fx.eyeAdaptStrength??1,brightSpeed:this.fx.eyeAdaptBrightSpeed??.75,darkSpeed:this.fx.eyeAdaptDarkSpeed??2.35,comp:this.fx.eyeAdaptComp??0,minExp:this._hillsDefault('eyeAdaptPreset','eyeAdaptMinExp')?.84:(this.fx.eyeAdaptMinExp??.42),maxExp:this._hillsDefault('eyeAdaptPreset','eyeAdaptMaxExp')?1.3:(this.fx.eyeAdaptMaxExp??2.45),brightness:this.fx.brightness??1});
+  }
 
   setSize(w, h) {
     this._viewW = w;
@@ -1935,6 +1951,7 @@ export class GraphicsManager {
     const p = THREE.MathUtils.clamp(panic, 0, 1);
     const vigMul = this._footageStr > 0.01 ? (this._effVig ?? 0.85) : Math.max(0, this.fx.vignette ?? 1.28);
     const grainMul = this._footageStr > 0.01 ? (this._effGrain ?? 0.40) : Math.max(0, this.fx.grain ?? 1.0);
+    const hills=this._hillsPresentation;
     const pool=this._poolroomsPresentation;
     const fOver = this._footageOver ?? this._footageStr ?? 0;
     mbU.get('uDofAmount').value=Math.max(0,this.fx.dofBlur)*(pool ? .10 : 1);
@@ -1957,7 +1974,35 @@ export class GraphicsManager {
     crtU.get('uGamma').value=THREE.MathUtils.clamp(Number(this.fx.gamma??1)+(pool ? .08 : 0),.8,1.3);
     this.rtShadow.uniforms.get('uStrength').value=Math.max(0,this.fx.rtShadow??0)*(pool ? .45 : 1);
     this.vignette.darkness=Math.min(pool ? .45 : .98,(.86+p*.14)*Math.min(vigMul,1.5)*(pool ? .45 : 1));
-    this.noise.blendMode.opacity.value=((isKiller ? .022 : .040)+p*.09)*grainMul*(pool ? .32 : 1);
+    // Daylight is the map's default look. Explicit menu edits take precedence;
+    // choosing a footage preset uses that preset's complete filter pipeline.
+    const defaults=(...keys)=>this._hillsDefault('footageFilterMode','footageFilterStrength',...keys);
+    const manualGrade=['bloom','rtShadow','dofBlur','motionBlur','upscaleSoftness','halation','clarity','vignette','grain','baseGrain','lensCurve','scanlines','gamma','contrast','hue','saturation'];
+    crtU.get('uDaylightMix').value=defaults(...manualGrade)?.58:0;
+    if(hills){
+      if(defaults('bloom'))this.bloom.intensity=Math.min(.18,(this._presentationBase?.bloom||0)*.12);
+      if(defaults('rtShadow'))this.rtShadow.uniforms.get('uStrength').value=Math.min(.4,Math.max(0,this.fx.rtShadow??0)*.4);
+      if(defaults('dofBlur'))mbU.get('uDofAmount').value=0;
+      if(defaults('upscaleSoftness')){mbU.get('uSoftDefocus').value=0;mbU.get('uLensSoftness').value=.01;crtU.get('uLensSoftness').value=.01;}
+      if(defaults()){
+        mbU.get('uTaaMix').value=.025;
+        crtU.get('uStreamMix').value=Math.min(.18,this._footageStr*.2);
+        crtU.get('uSubResH').value=Math.max(900,this._viewH||900);
+        crtU.get('uAutoExpAmt').value=0;crtU.get('uSoftUpscale').value=.015;
+        crtU.get('uBicubicMode').value=0;crtU.get('uGradeHaze').value=.015;
+        crtU.get('uCompressAmt').value=.08;crtU.get('uChromaSoftness').value=.035;
+        crtU.get('uSensorNoise').value=.055;
+      }
+      if(defaults('halation'))crtU.get('uHalationAmt').value=.065;
+      if(defaults('vignette')){crtU.get('uVignetteAmount').value=Math.min(.23,vigMul*.17);this.vignette.darkness=Math.min(.18,vigMul*.13);}
+      if(defaults('grain'))crtU.get('uGrainAmount').value=Math.min(.12,grainMul*.16);
+      if(defaults('baseGrain'))crtU.get('uBaseGrain').value=.24;
+      if(defaults('lensCurve'))crtU.get('uLensCurve').value=Math.min(.12,Number(this.fx.lensCurve||0)*.12);
+      if(defaults('scanlines'))crtU.get('uScanlineAmount').value=Math.min(.08,Number(this.fx.scanlines||0)*.1);
+      if(defaults('gamma'))crtU.get('uGamma').value=Math.max(1.06,Number(this.fx.gamma||1));
+      if(defaults('hue','saturation'))crtU.get('uCoolGrade').value=.5;
+    }
+    this.noise.blendMode.opacity.value=((isKiller ? .022 : .040)+p*.09)*grainMul*(defaults('grain') ? .15 : pool ? .32 : 1);
   }
 
   resetExposure(snapFraction = 0.85) {

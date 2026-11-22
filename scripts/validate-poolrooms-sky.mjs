@@ -1,7 +1,4 @@
-import {mkdirSync as createCheckDirectory} from 'node:fs';
-createCheckDirectory('output/checks/poolrooms/v5',{recursive:true});
-createCheckDirectory('output/checks/poolrooms/architectural_breakdown',{recursive:true});
-import {writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {POOL_ZONE_DEFS} from '../src/levels/poolrooms_zones.js';
 import {buildPoolroomsV4World} from '../src/levels/poolrooms_v4_world.js';
@@ -27,4 +24,6 @@ for(const seed of[2026,1,42]){
 const a=build(2026),b=build(2026),digest=m=>createHash('sha256').update(JSON.stringify({windows:m.POOL_SKY_WINDOWS,props:m.POOL_DECOR})).digest('hex'),deterministic=digest(a)===digest(b);
 if(!deterministic)errors.push('same-seed window/prop generation differs');
 const report={passed:!errors.length,errors,seeds,deterministic,hash:digest(a),activeZones:[...POOL_SKY_ACTIVE],enclosedZones:40-POOL_SKY_ACTIVE.size,windowTypes:[...new Set(a.POOL_SKY_WINDOWS.map(w=>w.type))],libraryTypes:[...new Set(Object.values(POOL_SKY_PROFILES).flatMap(p=>p.windows.map(w=>w.type)))],windows:a.POOL_SKY_WINDOWS.map(w=>({id:w.id,type:w.type,shape:w.shape,side:w.side,width:w.width,height:w.height,bottom:w.bottom}))};
-writeFileSync('output/checks/poolrooms/v5/sky-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));if(errors.length)process.exitCode=1;
+
+mkdirSync('research/poolrooms/v5',{recursive:true});
+writeFileSync('research/poolrooms/v5/sky-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));if(errors.length)process.exitCode=1;

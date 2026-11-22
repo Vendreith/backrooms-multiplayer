@@ -168,7 +168,7 @@ export function createPoolroomsBlueprint(zones, seed = 2026) {
       }
       for(let row=0;row<4;row++)for(let col=0;col<4;col++)grid[row][col]=row===0?approach[col]:hall;}
       zone.art=art;zone.hemiSky=0xffefda;zone.hemiGround=0x487e76;zone.hemiInt=.3;zone.ambInt=.06;zone.exposure=.96;zone.fogDensity=.0025;
-      zone.name=`Khu ${zone.code} — ${art.title}`;zone.desc=`${art.shape}; ${art.navigation}.`;
+      zone.name=`Zone ${zone.code} — ${art.title}`;zone.desc=`${art.shape}; ${art.navigation}.`;
     } else if (landmark) {
       const dims = zone.id === 'zone_al' ? [72, 42, 11] : zone.id === 'zone_an' ? [72, 42, 10] : [44, 30, 8];
       const hall = addCell(zone, 'vaulted', ox + 40, oz + 49, { width: dims[0], depth: dims[1], ceiling: dims[2], landmark: zone.id, feature: zone.id, acoustics: { preset: 'vaulted_cathedral' }, references: ['W03', 'R06', 'R57'] });

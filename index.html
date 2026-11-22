@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
@@ -678,7 +678,7 @@
       touch-action: none;
     }
     #mobJoyZone::after {
-      content: 'CHẠY NHANH';
+      content: 'SPRINT';
       position: absolute;
       left: 50%;
       top: 5px;
@@ -1085,10 +1085,10 @@
   <div id="preloadScr" class="screen">
     <div class="preload-box">
       <div class="vhs-tag"><span class="dot-rec"></span><span id="preloadTag">TAPE PLAYBACK // LEVEL 0 BOOT</span></div>
-      <div id="preloadTitle" style="font-size:18px;font-weight:bold;color:var(--yb);">ĐANG TẢI DỮ LIỆU & BIÊN DỊCH SHADERS</div>
+      <div id="preloadTitle" style="font-size:18px;font-weight:bold;color:var(--yb);">LOADING ASSETS & COMPILING SHADERS</div>
       <div class="prog-track"><div id="preloadBar" class="prog-fill"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#c9c099;">
-        <span id="preloadLabel">Khởi tạo engine 3D...</span>
+        <span id="preloadLabel">Initializing 3D engine...</span>
         <span id="preloadPct">0%</span>
       </div>
     </div>
@@ -1103,42 +1103,42 @@
           <div class="sub">Found Footage Multiplayer & AI Survival • VHS CRT • Bunny-Hop Physics • By Vendreith</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <button id="lobbyCreditsBtn" type="button" class="sm" title="Thông tin Bản quyền, Ghi công & Giấy phép">CREDITS &amp; LEGAL</button>
-          <div class="vhs-tag"><span class="dot-rec"></span><span id="netStatus">Sẵn sàng</span></div>
+          <button id="lobbyCreditsBtn" type="button" class="sm" title="Copyright, Credits &amp; License">CREDITS &amp; LEGAL</button>
+          <div class="vhs-tag"><span class="dot-rec"></span><span id="netStatus">Ready</span></div>
         </div>
       </div>
 
       <div class="grid2">
         <div>
           <div class="box">
-            <h3>Hồ sơ & Chế độ chơi</h3>
-            <label for="nameInput">Tên người chơi</label>
+            <h3>Profile & Game Mode</h3>
+            <label for="nameInput">Player Name</label>
             <input id="nameInput" type="text" maxlength="18" value="Operative" />
 
             <div class="btn-row">
-              <button id="soloSurvBtn" class="primary">Chơi Solo (vs AI Entity)</button>
-              <button id="soloKillBtn">Thử vai Quái vật (Solo)</button>
+              <button id="soloSurvBtn" class="primary">Play Solo (vs AI Entity)</button>
+              <button id="soloKillBtn">Play as Entity (Solo)</button>
             </div>
             <div class="btn-row">
-              <button id="hostBtn">Tạo Phòng Online</button>
-              <input id="joinCodeInput" type="text" placeholder="Mã phòng (6 ký tự)" style="width:155px;text-transform:uppercase;" />
-              <button id="joinBtn">Vào Phòng</button>
+              <button id="hostBtn">Create Online Room</button>
+              <input id="joinCodeInput" type="text" placeholder="Room code (6 characters)" style="width:155px;text-transform:uppercase;" />
+              <button id="joinBtn">Join Room</button>
             </div>
 
             <div id="roomShareBox" class="hidden" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:12px;">
-              <div>Mã phòng: <strong id="roomCodeText" style="color:var(--yb);font-size:15px;"></strong>
-                <button id="copyLinkBtn" class="sm" style="margin-left:8px;">Copy Link Mời</button>
+              <div>Room code: <strong id="roomCodeText" style="color:var(--yb);font-size:15px;"></strong>
+                <button id="copyLinkBtn" class="sm" style="margin-left:8px;">Copy Invite Link</button>
               </div>
             </div>
           </div>
 
           <div class="box">
-            <h3>Danh sách Phòng (<span id="rosterCount">0</span>/5)</h3>
+            <h3>Room Roster (<span id="rosterCount">0</span>/5)</h3>
             <div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
               <label style="margin:0;cursor:pointer;">
-                <input id="aiToggle" type="checkbox" /> Tự động dùng AI Entity (Co-op cùng bạn)
+                <input id="aiToggle" type="checkbox" /> Use an AI Entity in co-op
               </label>
-              <button id="startGameBtn" class="primary hidden">BẮT ĐẦU TRẬN ĐẤU</button>
+              <button id="startGameBtn" class="primary hidden">START MATCH</button>
             </div>
             <div id="rosterList"></div>
           </div>
@@ -1146,62 +1146,62 @@
 
         <div>
           <div class="box">
-            <h3>Cài đặt Đồ họa & Hiệu năng</h3>
-            <label for="gfxSelect">Mức đồ họa (Cân bằng tầm nhìn Low - Ultra / Mobile)</label>
+            <h3>Graphics Settings & Performance</h3>
+            <label for="gfxSelect">Graphics Preset</label>
             <select id="gfxSelect">
-              <option value="mobile">Mobile (Tối ưu điện thoại — Phím ảo &amp; Vuốt Camera)</option>
-              <option value="low">Thấp (Máy yếu — Tắt PostFX &amp; Bóng)</option>
-              <option value="med">Trung bình (CRT + Bloom nhẹ)</option>
-              <option value="high">Cao (Khuyên dùng — Full CRT + Motion Blur)</option>
-              <option value="ultra" selected>Tối đa (Ultra CRT + Bloom + Hạt bụi)</option>
+              <option value="mobile">Mobile (Optimized for phones — Virtual keyboard &amp; Swipe Camera)</option>
+              <option value="low">Low (Post-Processing and Shadows Off)</option>
+              <option value="med">Medium (CRT + Light Bloom)</option>
+              <option value="high">High (Recommended — Full CRT + Motion Blur)</option>
+              <option value="ultra" selected>Ultra (Ultra CRT + Bloom + Dust)</option>
             </select>
 
-            <label for="fpsSelect">Giới hạn FPS</label>
+            <label for="fpsSelect">FPS Cap</label>
             <select id="fpsSelect">
-              <option value="15" selected>15 FPS (Băng VHS Cũ)</option>
-              <option value="24">24 FPS (Điện ảnh)</option>
+              <option value="15">15 FPS (Old VHS Tape)</option>
+              <option value="24">24 FPS (Cinematic)</option>
               <option value="30">30 FPS</option>
-              <option value="60">60 FPS</option>
+              <option value="60" selected>60 FPS</option>
               <option value="120">120 FPS</option>
-              <option value="0">Không giới hạn (Unlimited)</option>
+              <option value="0">Unlimited</option>
             </select>
 
-            <label for="aspectSelect">Tỷ lệ khung hình & Thấu kính Camera</label>
+            <label for="aspectSelect">Aspect Ratio & Camera Lens</label>
             <select id="aspectSelect">
-              <option value="16:9">16:9 Màn hình rộng (Thấu kính cong sâu)</option>
-              <option value="4:3" selected>4:3 Cổ điển VHS (Ống kính cong cực đại)</option>
+              <option value="16:9">16:9 Widescreen</option>
+              <option value="4:3" selected>4:3 Classic VHS (Strong Lens Curvature)</option>
             </select>
 
-            <label for="sensSlider">Độ nhạy chuột: <span id="sensVal">1.00</span></label>
+            <label for="sensSlider">Mouse Sensitivity: <span id="sensVal">1.00</span></label>
             <input id="sensSlider" type="range" min="0.2" max="2.5" step="0.05" value="1.0" />
 
-            <label for="musicSlider">Âm lượng Nhạc nền: <span id="musicVal">100%</span></label>
+            <label for="musicSlider">Music Volume: <span id="musicVal">100%</span></label>
             <input id="musicSlider" type="range" min="0" max="1" step="0.02" value="1.0" />
 
-            <label for="sfxSlider">Âm lượng Hiệu ứng (SFX): <span id="sfxVal">100%</span></label>
+            <label for="sfxSlider">SFX Volume: <span id="sfxVal">100%</span></label>
             <input id="sfxSlider" type="range" min="0" max="1" step="0.02" value="1.0" />
           </div>
 
           <div class="box" style="font-size:12px;line-height:1.5;color:#d6cea8;">
-            <h3>Điều khiển & Mẹo Sinh tồn</h3>
-            <div>• <strong>WASD</strong>: Di chuyển • <strong>Shift</strong>: Chạy nhanh (7.4 m/s)</div>
-            <div>• <strong>Space</strong>: Nhảy / Giữ hoặc nhấn nhịp để <strong>Bunny-Hop</strong>!</div>
-            <div>• <strong>C</strong>: Cúi / Chui qua khe tường thấp</div>
-            <div>• <strong>F</strong>: Đèn pin (trượt theo quán tính) • <strong>E</strong>: Sửa tủ / Cứu / Nhặt</div>
-            <div>• <strong>1-5</strong>: Dùng vật phẩm Backrooms • <strong>Quái</strong>: Click Chém, <strong>Q</strong> Soi, <strong>R</strong> Bẫy</div>
+            <h3>Controls & Survival Tips</h3>
+            <div>• <strong>WASD</strong>: Move • <strong>Shift</strong>: Sprint (7.4 m/s)</div>
+            <div>• <strong>Space</strong>: Jump / Hold or tap rhythmically to <strong>Bunny-Hop</strong>!</div>
+            <div>• <strong>C</strong>: Crouch / Duck through low wall gaps</div>
+            <div>• <strong>F</strong>: Flashlight • <strong>E</strong>: Repair / Rescue / Pick up</div>
+            <div>• <strong>1-5</strong>: Use items • <strong>Entity</strong>: Click to attack, <strong>Q</strong> to reveal, <strong>R</strong> to set a trap</div>
           </div>
         </div>
       </div>
 
       <div class="box" style="margin-top:4px;margin-bottom:0;">
         <div class="fx-head">
-          <h3 style="margin:0;">Bảng Cài Đặt Đồ Họa & Hiệu Ứng Chi Tiết</h3>
-          <button id="lobbyResetFxBtn" class="sm">Mặc định Preset</button>
+          <h3 style="margin:0;">Graphics Settings & Detail Effects</h3>
+          <button id="lobbyResetFxBtn" class="sm">Default Preset</button>
         </div>
         <div id="lobbyFxMount" class="fx-grid"></div>
       </div>
 
-      <footer id="legalFooter" class="legal-footer" aria-label="Thông tin bản quyền và giấy phép">
+      <footer id="legalFooter" class="legal-footer" aria-label="Copyright and License Info">
         <div>
           <strong>© 2026 Vendreith</strong> (Original Engine &amp; Code) • Backrooms Adapted Lore:
           <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>
@@ -1222,48 +1222,48 @@
   <!-- 3. PAUSE / IN-GAME SETTINGS OVERLAY -->
   <div id="pauseScr" class="screen hidden" style="background:rgba(6,5,4,0.68);">
     <div class="preload-box" style="width:min(880px,95vw);padding:20px 24px;">
-      <div class="vhs-tag"><span class="dot-rec"></span><span>CÀI ĐẶT / TẠM DỪNG // ESC hoặc P</span></div>
+      <div class="vhs-tag"><span class="dot-rec"></span><span>SETTINGS / PAUSE // ESC or P</span></div>
       <div class="pause-grid">
         <div>
-          <label for="pauseGfx">Mức đồ họa tổng thể</label>
+          <label for="pauseGfx">Overall Graphics Level</label>
           <select id="pauseGfx">
-            <option value="mobile">Mobile (Tối ưu điện thoại — Phím ảo)</option>
-            <option value="low">Thấp (Máy yếu)</option>
-            <option value="med">Trung bình</option>
-            <option value="high">Cao</option>
-            <option value="ultra">Tối đa (Ultra CRT)</option>
+            <option value="mobile">Mobile (Phone Optimization — Virtual Keyboard)</option>
+            <option value="low">Low (Weak PC)</option>
+            <option value="med">Medium</option>
+            <option value="high">High</option>
+            <option value="ultra">Ultra (Ultra CRT)</option>
           </select>
-          <label for="pauseFps">Giới hạn FPS</label>
+          <label for="pauseFps">FPS Cap</label>
           <select id="pauseFps">
-            <option value="15">15 FPS (Băng VHS Cũ)</option>
-            <option value="24">24 FPS (Điện ảnh)</option>
+            <option value="15">15 FPS (Old VHS Tape)</option>
+            <option value="24">24 FPS (Cinematic)</option>
             <option value="30">30 FPS</option>
             <option value="60">60 FPS</option>
             <option value="120">120 FPS</option>
-            <option value="0">Không giới hạn</option>
+            <option value="0">Unlimited</option>
           </select>
-          <label for="pauseAspect">Tỷ lệ Camera</label>
+          <label for="pauseAspect">Camera Aspect Ratio</label>
           <select id="pauseAspect">
-            <option value="16:9">16:9 Màn hình rộng</option>
-            <option value="4:3">4:3 Cổ điển CRT (Cong cực đại)</option>
+            <option value="16:9">16:9 Widescreen</option>
+            <option value="4:3">4:3 Classic CRT (Maximum Curvature)</option>
           </select>
-          <label for="pauseSens">Độ nhạy chuột: <span id="pauseSensVal">1.00</span></label>
+          <label for="pauseSens">Mouse Sensitivity: <span id="pauseSensVal">1.00</span></label>
           <input id="pauseSens" type="range" min="0.2" max="2.5" step="0.05" value="1.0" />
-          <label for="pauseMusic">Nhạc nền: <span id="pauseMusicVal">100%</span></label>
+          <label for="pauseMusic">Background Music: <span id="pauseMusicVal">100%</span></label>
           <input id="pauseMusic" type="range" min="0" max="1" step="0.02" value="1.0" />
-          <label for="pauseSfx">Âm lượng SFX: <span id="pauseSfxVal">100%</span></label>
+          <label for="pauseSfx">SFX Volume: <span id="pauseSfxVal">100%</span></label>
           <input id="pauseSfx" type="range" min="0" max="1" step="0.02" value="1.0" />
           <div class="btn-row" style="margin-top:14px;">
-            <button id="resumeBtn" class="primary">Tiếp tục chơi (Khóa chuột)</button>
+            <button id="resumeBtn" class="primary">Resume (Lock Mouse)</button>
             <button id="pauseTpBtn" type="button">Teleport &amp; No-Clip [F2]</button>
             <button id="pauseCreditsBtn" type="button">Credits &amp; Legal</button>
-            <button id="leaveBtn" class="danger">Thoát ra Menu</button>
+            <button id="leaveBtn" class="danger">Return to Menu</button>
           </div>
         </div>
         <div class="box" style="margin-bottom:0;">
           <div class="fx-head">
-            <h3 style="margin:0;">Bảng Hiệu Ứng & Đồ Họa</h3>
-            <button id="pauseResetFxBtn" class="sm">Mặc định</button>
+            <h3 style="margin:0;">Effect Menu & Graphics</h3>
+            <button id="pauseResetFxBtn" class="sm">Default</button>
           </div>
           <div id="pauseFxMount" class="fx-grid"></div>
         </div>
@@ -1274,10 +1274,10 @@
   <!-- 4. END MATCH SCREEN -->
   <div id="endScr" class="screen hidden">
     <div class="preload-box" style="text-align:center;">
-      <h2 id="endTitle" style="color:var(--yb);margin-top:0;">KẾT THÚC BĂNG HÌNH</h2>
+      <h2 id="endTitle" style="color:var(--yb);margin-top:0;">END REEL</h2>
       <p id="endDesc" style="font-size:14px;color:#e4dcc0;"></p>
       <div class="btn-row" style="justify-content:center;">
-        <button id="backLobbyBtn" class="primary">Quay lại Phòng chờ</button>
+        <button id="backLobbyBtn" class="primary">Return to Lobby</button>
       </div>
     </div>
   </div>
@@ -1327,18 +1327,18 @@
     <div id="missionBox" class="mission-box"></div>
 
     <div class="hud-top-center">
-      <div id="objText" class="obj-pill">TỦ ĐIỆN: 0 / 6</div>
+      <div id="objText" class="obj-pill">BACKPACK: 0 / 6</div>
       <div id="speedText" class="speed-readout">SPD: 0.0 m/s</div>
     </div>
 
     <div id="joinLevelBar" class="join-level-bar hidden">
-      <span id="joinLevelText">Đồng đội vừa mở cổng Backrooms!</span>
+      <span id="joinLevelText">Team just opened the Backrooms gate!</span>
       <button id="joinLevelBtn" type="button">THAM GIA [G]</button>
     </div>
 
     <div id="noclipOverlay" class="noclip-overlay hidden">
       <div id="noclipCode" class="noclip-code">LEVEL 37</div>
-      <div id="noclipName" class="noclip-name">HỒ BƠI VÔ TẬN</div>
+      <div id="noclipName" class="noclip-name">ENDLESS POOL</div>
       <div id="noclipDesc" class="noclip-desc"></div>
     </div>
 
@@ -1347,7 +1347,7 @@
     <div class="crosshair"></div>
     <div id="promptBox" class="prompt-box hidden"></div>
     <div id="actWrap" class="action-bar-wrap hidden">
-      <div id="actLabel" style="font-size:12px;margin-bottom:4px;">Đang sửa...</div>
+      <div id="actLabel" style="font-size:12px;margin-bottom:4px;">Fixing...</div>
       <div class="bar-bg"><div id="actBar" class="bar-fg"></div></div>
     </div>
 
@@ -1358,18 +1358,18 @@
     </svg>
 
     <div id="noclipBadge" class="noclip-badge hidden">
-      <span id="noclipBadgeText">NOCLIP BẬT [N] • 18 m/s • Space: Lên • C/Ctrl: Xuống</span>
-      <button id="noclipOffBtn" type="button">TẮT</button>
+      <span id="noclipBadgeText">NOCLIP ON [N] • 18 m/s • Space: Up • C/Ctrl: Down</span>
+      <button id="noclipOffBtn" type="button">OFF</button>
     </div>
 
-    <button id="tpHudBtn" type="button" class="hud-tp-btn" title="Mở bảng Teleport (F2) / Bật tắt No-Clip (N)">
+    <button id="tpHudBtn" type="button" class="hud-tp-btn" title="Open Teleport Menu (F2) / Toggle No-Clip (N)">
       <span>TELEPORT [F2]</span>
       <span id="tpHudNcBtn" class="tp-nc-pill">NOCLIP [N]</span>
     </button>
 
-    <button id="flashToggleBtn" type="button" class="hud-light-btn on" title="Bật / Tắt Đèn Pin (Phím F)">
-      <span>ĐÈN PIN [F]</span>
-      <span class="light-state">BẬT</span>
+    <button id="flashToggleBtn" type="button" class="hud-light-btn on" title="Toggle Flashlight (F)">
+      <span>FLASHLIGHT [F]</span>
+      <span class="light-state">ON</span>
     </button>
 
     <div id="vitalsBox" class="hud-vitals"></div>
@@ -1378,26 +1378,26 @@
 
     <div id="feedBox" class="hud-feed"></div>
 
-    <div id="mobLookPad" aria-label="Vuốt xoay góc nhìn"></div>
-    <div id="mobileControls" aria-label="Phím điều khiển cảm ứng">
+    <div id="mobLookPad" aria-label="Swipe to rotate view"></div>
+    <div id="mobileControls" aria-label="Touch control keys">
       <div id="mobTopBtns">
         <button id="mobTpBtn" type="button" class="mob-mini-btn">TP/BAY</button>
-        <button id="mobMusicBtn" type="button" class="mob-mini-btn">NHẠC</button>
+        <button id="mobMusicBtn" type="button" class="mob-mini-btn">MUSIC</button>
         <button id="mobPauseBtn" type="button" class="mob-mini-btn">MENU</button>
       </div>
-      <div id="mobJoyZone" role="application" aria-label="Cần gạt di chuyển">
+      <div id="mobJoyZone" role="application" aria-label="Movement slider">
         <div id="mobJoyStick"></div>
       </div>
       <div id="mobActions">
-        <button id="mobSwingBtn" type="button" class="mob-btn danger hidden">ĐÁNH<small>Chuột trái</small></button>
-        <button id="mobRevealBtn" type="button" class="mob-btn danger hidden">SOI VỊ TRÍ<small>Q</small></button>
-        <button id="mobTrapBtn" type="button" class="mob-btn danger hidden">ĐẶT BẪY<small>R</small></button>
-        <button id="mobJoinBtn" type="button" class="mob-btn primary hidden">THAM GIA<small>Tầng</small></button>
-        <button id="mobUseBtn" type="button" class="mob-btn primary">TƯƠNG TÁC<small>E</small></button>
-        <button id="mobJumpBtn" type="button" class="mob-btn">NHẢY<small>Bhop</small></button>
-        <button id="mobSprintBtn" type="button" class="mob-btn">CHẠY<small>Shift</small></button>
-        <button id="mobCrouchBtn" type="button" class="mob-btn">NGỒI<small>Ctrl</small></button>
-        <button id="mobFlashBtn" type="button" class="mob-btn active">ĐÈN<small>BẬT</small></button>
+        <button id="mobSwingBtn" type="button" class="mob-btn danger hidden">HIT<small>Left Mouse</small></button>
+        <button id="mobRevealBtn" type="button" class="mob-btn danger hidden">SCOUT POSITION<small>Q</small></button>
+        <button id="mobTrapBtn" type="button" class="mob-btn danger hidden">SET TRAP<small>R</small></button>
+        <button id="mobJoinBtn" type="button" class="mob-btn primary hidden">THAM GIA<small>Floor</small></button>
+        <button id="mobUseBtn" type="button" class="mob-btn primary">INTERACT<small>E</small></button>
+        <button id="mobJumpBtn" type="button" class="mob-btn">JUMP<small>Bhop</small></button>
+        <button id="mobSprintBtn" type="button" class="mob-btn">RUN<small>Shift</small></button>
+        <button id="mobCrouchBtn" type="button" class="mob-btn">SIT<small>Ctrl</small></button>
+        <button id="mobFlashBtn" type="button" class="mob-btn active">LIGHT<small>ON</small></button>
       </div>
     </div>
   </div>
@@ -1408,36 +1408,36 @@
       <div class="tp-header">
         <div>
           <h2 style="margin:0;font-size:17px;color:#8af0ff;">A-SYNC NAVIGATION // TELEPORT &amp; NO-CLIP</h2>
-          <div id="tpCurrentPos" style="font-size:11px;color:#d6cea8;margin-top:2px;">Vị trí hiện tại: Level 0</div>
+          <div id="tpCurrentPos" style="font-size:11px;color:#d6cea8;margin-top:2px;">Current Position: Level 0</div>
         </div>
-        <button id="tpCloseBtn" type="button" class="danger" style="padding:6px 12px;">Đóng [T / ESC]</button>
+        <button id="tpCloseBtn" type="button" class="danger" style="padding:6px 12px;">Close [T / ESC]</button>
       </div>
 
       <div class="tp-noclip-bar">
-        <button id="tpNoclipBtn" type="button" class="tp-noclip-btn">CHẾ ĐỘ NO-CLIP [N]: TẮT</button>
+        <button id="tpNoclipBtn" type="button" class="tp-noclip-btn">NO-CLIP MODE [N]: OFF</button>
         <label for="tpNoclipSpeed" style="margin:0;display:flex;align-items:center;gap:8px;font-size:12px;color:#d6f5e6;">
-          Tốc độ bay: <strong id="tpNoclipSpeedVal">18 m/s</strong>
+          Flight Speed: <strong id="tpNoclipSpeedVal">18 m/s</strong>
           <input id="tpNoclipSpeed" type="range" min="6" max="60" step="1" value="18" style="width:150px;" />
         </label>
-        <span style="font-size:11px;color:#9ccab8;">Bay xuyên tường &amp; sàn • W/A/S/D hướng nhìn • Space: Lên • C/Ctrl: Xuống • Shift: Tăng tốc</span>
+        <span style="font-size:11px;color:#9ccab8;">Wall Punch &amp; Floor • W/A/S/D Look • Space: Up • C/Ctrl: Down • Shift: Boost</span>
       </div>
 
       <div class="tp-toolbar">
-        <input id="tpSearch" type="text" placeholder="Tìm tên tầng, khu vực, máy, cầu trượt, thực thể..." style="margin:0;padding:7px 10px;" />
+        <input id="tpSearch" type="text" placeholder="Search for floor, area, machine, slide, entity..." style="margin:0;padding:7px 10px;" />
         <div class="tp-coords-bar">
           <span style="font-size:11px;color:#d6cea8;">XYZ:</span>
-          <input id="tpX" type="number" step="0.5" placeholder="X" title="Tọa độ X" />
-          <input id="tpY" type="number" step="0.5" placeholder="Y" title="Độ cao Y" />
-          <input id="tpZ" type="number" step="0.5" placeholder="Z" title="Tọa độ Z" />
-          <button id="tpGoCoordBtn" type="button" class="primary" style="padding:6px 10px;font-size:11px;">ĐẾN TỌA ĐỘ</button>
+          <input id="tpX" type="number" step="0.5" placeholder="X" title="X Coordinate" />
+          <input id="tpY" type="number" step="0.5" placeholder="Y" title="Y Altitude" />
+          <input id="tpZ" type="number" step="0.5" placeholder="Z" title="Z Coordinate" />
+          <button id="tpGoCoordBtn" type="button" class="primary" style="padding:6px 10px;font-size:11px;">GO TO COORDINATES</button>
         </div>
       </div>
 
       <div class="tp-tabs" id="tpTabs">
-        <button type="button" class="tp-tab active" data-tp-tab="all">Tất cả địa điểm</button>
-        <button type="button" class="tp-tab" data-tp-tab="here">Địa điểm trong Tầng này</button>
-        <button type="button" class="tp-tab" data-tp-tab="entrances">Lối vào 20 Sub-Levels (Lv.0)</button>
-        <button type="button" class="tp-tab" data-tp-tab="levels">21 Tầng Backrooms</button>
+        <button type="button" class="tp-tab active" data-tp-tab="all">All Locations</button>
+        <button type="button" class="tp-tab" data-tp-tab="here">Locations in this Level</button>
+        <button type="button" class="tp-tab" data-tp-tab="entrances">Entrance to 20 Sub-Levels (Lv.0)</button>
+        <button type="button" class="tp-tab" data-tp-tab="levels">21 Backrooms Levels</button>
       </div>
 
       <div id="tpList" class="tp-scroll"></div>
@@ -1449,41 +1449,41 @@
     <div class="credits-card" role="dialog" aria-modal="true" aria-labelledby="creditsModalTitle">
       <div class="tp-header">
         <div>
-          <h2 id="creditsModalTitle" style="margin:0;font-size:17px;color:var(--yb);">CREDITS &amp; LEGAL // BẢN QUYỀN &amp; GHI CÔNG</h2>
+          <h2 id="creditsModalTitle" style="margin:0;font-size:17px;color:var(--yb);">CREDITS &amp; LEGAL // COPYRIGHT &amp; CREDITS</h2>
           <div style="font-size:11px;color:#cfc7a8;margin-top:2px;">Backrooms // Level 0 — Free-to-Play Web Build • Developer: Vendreith (2026)</div>
         </div>
-        <button id="creditsCloseBtn" type="button" class="danger" style="padding:6px 12px;">Đóng [ESC]</button>
+        <button id="creditsCloseBtn" type="button" class="danger" style="padding:6px 12px;">Close [ESC]</button>
       </div>
 
       <div id="creditsTabs" class="credits-tabs">
-        <button type="button" class="credits-tab active" data-credits-tab="overview">Tổng quan &amp; Bản quyền</button>
+        <button type="button" class="credits-tab active" data-credits-tab="overview">Overview &amp; Copyright</button>
         <button type="button" class="credits-tab" data-credits-tab="backrooms">Backrooms (CC BY-SA 3.0)</button>
-        <button type="button" class="credits-tab" data-credits-tab="thirdparty">Thư viện &amp; Media Bên thứ 3</button>
-        <button type="button" class="credits-tab" data-credits-tab="privacy">Quyền riêng tư &amp; Tài liệu</button>
+        <button type="button" class="credits-tab" data-credits-tab="thirdparty">Library &amp; Third-Party Media</button>
+        <button type="button" class="credits-tab" data-credits-tab="privacy">Privacy &amp; Documentation</button>
       </div>
 
       <div id="creditsBody" class="credits-body">
         <section class="credits-sec" data-credits-panel="overview">
-          <h3>Nhà phát triển &amp; Cấu trúc Pháp lý Phân tách</h3>
-          <p><strong>Developer:</strong> Vendreith (<a href="https://github.com/Vendreith/backrooms-multiplayer" target="_blank" rel="noopener">github.com/Vendreith/backrooms-multiplayer</a>) • <strong>Năm phát hành ban đầu:</strong> 2026 (xác minh lịch sử Git).</p>
-          <p><strong>Free-to-Play:</strong> Trò chơi hoàn toàn miễn phí để chơi trên trình duyệt. Tuy nhiên, miễn phí trải nghiệm không đồng nghĩa với việc từ bỏ quyền tác giả đối với mã nguồn gốc, shader hoặc hệ thống kỹ thuật do Vendreith tạo ra.</p>
+          <h3>Developer &amp; Split Legal Structure</h3>
+          <p><strong>Developer:</strong> Vendreith (<a href="https://github.com/Vendreith/backrooms-multiplayer" target="_blank" rel="noopener">github.com/Vendreith/backrooms-multiplayer</a>) • <strong>Initial Release Year:</strong> 2026 (Git history verified).</p>
+          <p><strong>Free-to-Play:</strong> The game is completely free to play in the browser. However, a free experience does not mean we abandon copyright over the original code, shaders, or technical systems created by Vendreith.</p>
           <table class="credits-table">
-            <thead><tr><th>Thành phần</th><th>Quyền sở hữu / Tác giả</th><th>Giấy phép</th></tr></thead>
+            <thead><tr><th>Components</th><th>Ownership / Authorship</th><th>License</th></tr></thead>
             <tbody>
-              <tr><td>Mã nguồn Engine, Shader (VHS/CRT &amp; Preset 5 Dreamcam), WebRTC Netcode, UI HUD &amp; Vật lý</td><td>Vendreith (2026)</td><td><strong>Copyright © 2026 Vendreith. All rights reserved.</strong> (tách bạch khỏi nội dung CC BY-SA 3.0)</td></tr>
-              <tr><td>Nội dung chuyển thể 21 Tầng Backrooms, Thực thể &amp; Lore mô tả</td><td>Cộng đồng &amp; Tác giả Backrooms Wiki + chuyển thể của Vendreith</td><td><strong>CC BY-SA 3.0</strong> (<a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">creativecommons.org/licenses/by-sa/3.0/</a>)</td></tr>
-              <tr><td>Thư viện JavaScript &amp; Tài nguyên mở</td><td>Three.js, postprocessing, PeerJS, Kevin MacLeod, ambientCG, NASA/JPL, Stephan</td><td>MIT, Zlib, BSD-3-Clause, CC BY 3.0, CC0 1.0, Public Domain</td></tr>
+              <tr><td>Engine, Shader Source Code (VHS/CRT &amp; Preset 5 Dreamcam), WebRTC Netcode, UI HUD &amp; Physics</td><td>Vendreith (2026)</td><td><strong>Copyright © 2026 Vendreith. All rights reserved.</strong> (separate from CC BY-SA 3.0 content)</td></tr>
+              <tr><td>Adapted Backrooms Levels, Entities &amp; Lore</td><td>Backrooms Wiki contributors, adapted by Vendreith</td><td><strong>CC BY-SA 3.0</strong> (<a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">creativecommons.org/licenses/by-sa/3.0/</a>)</td></tr>
+              <tr><td>JavaScript Library &amp; Open Resources</td><td>Three.js, postprocessing, PeerJS, Kevin MacLeod, ambientCG, NASA/JPL, Stephan</td><td>MIT, Zlib, BSD-3-Clause, CC BY 3.0, CC0 1.0, Public Domain</td></tr>
             </tbody>
           </table>
-          <p><strong>Liên hệ bản quyền / sửa ghi công / báo lỗi:</strong> Mở issue tại <a href="https://github.com/Vendreith/backrooms-multiplayer/issues" target="_blank" rel="noopener">GitHub Issues</a> (mục <code>[COPYRIGHT / ATTRIBUTION REQUEST]</code>). Dự án này không tuyên bố bảo chứng chính thức từ cộng đồng Wiki hay bất kỳ hãng phim/tác giả độc lập nào.</p>
+          <p><strong>Copyright Contact / Attribution Correction / Bug Report:</strong> Open issue at <a href="https://github.com/Vendreith/backrooms-multiplayer/issues" target="_blank" rel="noopener">GitHub Issues</a> (section <code>[COPYRIGHT / ATTRIBUTION REQUEST]</code>). This project does not claim official endorsement from the Backrooms Wiki community or any independent film studio/author.</p>
         </section>
 
         <section class="credits-sec hidden" data-credits-panel="backrooms">
-          <h3>Ghi công Tác giả Backrooms Wiki (CC BY-SA 3.0)</h3>
-          <p>Hệ thống 21 tầng chơi, tên gọi, khái niệm thực thể (<em>Smilers</em>, <em>Hounds</em>, <em>Skin-Stealers</em>, <em>Facelings</em>, <em>Kitty</em>) và vật phẩm (<em>Almond Water</em>, <em>M.E.G.</em>) được chuyển thể từ <a href="https://backrooms-wiki.wikidot.com/" target="_blank" rel="noopener">The Backrooms Wiki (Wikidot)</a> và <a href="https://backrooms.fandom.com/" target="_blank" rel="noopener">Backrooms Fandom Wiki</a> theo <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">Creative Commons Attribution-ShareAlike 3.0 (CC BY-SA 3.0)</a> (<a href="https://backrooms-wiki.wikidot.com/licensing-guide" target="_blank" rel="noopener">Hướng dẫn cấp phép Wikidot</a>).</p>
-          <p><strong>Thay đổi đã thực hiện (Modifications):</strong> Chuyển thể thành mê cung &amp; kiến trúc 3D procedural (Three.js), đặt tên và mô tả tiếng Việt, thêm vòng lặp sửa máy thoát hiểm, chế độ Co-op/PvP và Teleport/No-Clip.</p>
+          <h3>Credit Backrooms Wiki Author (CC BY-SA 3.0)</h3>
+          <p>Level names, concepts, entities (<em>Smilers</em>, <em>Hounds</em>, <em>Skin-Stealers</em>, <em>Facelings</em>, <em>Kitty</em>) and items (<em>Almond Water</em>, <em>M.E.G.</em>) are adapted from <a href="https://backrooms-wiki.wikidot.com/" target="_blank" rel="noopener">The Backrooms Wiki (Wikidot)</a> and <a href="https://backrooms.fandom.com/" target="_blank" rel="noopener">Backrooms Fandom Wiki</a> under href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">Creative Commons Attribution-ShareAlike 3.0 (CC BY-SA 3.0)</a> (<a href="https://backrooms-wiki.wikidot.com/licensing-guide" target="_blank" rel="noopener">Wikidot Licensing Guide</a>).</p>
+          <p><strong>Modifications Made:</strong> The adaptation adds procedural 3D environments, an escape objective, co-op and PvP modes, and teleport and no-clip tools.</p>
           <table class="credits-table">
-            <thead><tr><th>Tầng / Thực thể tiêu biểu</th><th>Nguồn Wiki</th><th>Tác giả ghi nhận (Authors)</th><th>Giấy phép</th></tr></thead>
+            <thead><tr><th>Level / Notable Entities</th><th>Wiki Source</th><th>Author Credits</th><th>License</th></tr></thead>
             <tbody>
               <tr><td><strong>Level 0</strong> — The Lobby</td><td><code>backrooms-wiki.wikidot.com/level-0</code></td><td>4chan /x/ (2019); Wikidot rewrite: DivineAtlas, DrAkimoto, Robert Goerman</td><td>CC BY-SA 3.0</td></tr>
               <tr><td><strong>Level 1</strong> — Habitable Zone</td><td><code>backrooms-wiki.wikidot.com/level-1</code></td><td>u/ThePizzaEater1000; Wikidot: Praetor3005, DivineAtlas</td><td>CC BY-SA 3.0</td></tr>
@@ -1491,20 +1491,20 @@
               <tr><td><strong>Level 7</strong> — Thalassophobia</td><td><code>backrooms-wiki.wikidot.com/level-7</code></td><td>Bart0nius, u/M654z</td><td>CC BY-SA 3.0</td></tr>
               <tr><td><strong>Level 9</strong> — The Suburbs</td><td><code>backrooms-wiki.wikidot.com/level-9</code></td><td>Bart0nius; Wikidot: Stretchsterz</td><td>CC BY-SA 3.0</td></tr>
               <tr><td><strong>Level 11</strong> — The Endless City</td><td><code>backrooms-wiki.wikidot.com/level-11</code></td><td>u/Nerdykiddo4884; Stretchsterz; Greggita Mahayfaio</td><td>CC BY-SA 3.0</td></tr>
-              <tr><td><strong>Level 37</strong> — The Poolrooms</td><td><code>backrooms-wiki.wikidot.com/level-37</code></td><td>egglord (Wikidot). <em>Cảm hứng mỹ thuật kiến trúc: Dream Pools của Jared Pike (không sử dụng file ảnh/3D gốc của Jared Pike).</em></td><td>CC BY-SA 3.0 (Wiki)</td></tr>
-              <tr><td><strong>Level 94</strong> — Motion</td><td><code>backrooms-wiki.wikidot.com/level-94</code></td><td>Stretchsterz, Dr Bierre, ShadowOfTheProphet</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 37</strong> — The Poolrooms</td><td><code>backrooms-wiki.wikidot.com/level-37</code></td><td>egglord (Wikidot). <em>Artistic/Architectural Inspiration: Dream Pools by Jared Pike (original image/3D files not used).</em></td><td>CC BY-SA 3.0 (Wiki)</td></tr>
+              <tr><td><strong>Level 94</strong> — Dreamcore Hills / Motion</td><td><code>backrooms-wiki.wikidot.com/level-94</code></td><td>Stretchsterz, Dr Bierre, ShadowOfTheProphet</td><td>CC BY-SA 3.0</td></tr>
               <tr><td><strong>Level 188</strong> — Courtyard of Windows</td><td><code>backrooms-wiki.wikidot.com/level-188</code></td><td>1000dumplings, Kai4C</td><td>CC BY-SA 3.0</td></tr>
               <tr><td><strong>Level 974</strong> — Kitty's House</td><td><code>backrooms-wiki.wikidot.com/level-974</code></td><td>jikupa, AndromedeadReal</td><td>CC BY-SA 3.0</td></tr>
-              <tr><td><strong>Level 2, 3, 4, 6, 8, 10, 14, 19, 48, !, 9223...</strong></td><td>Wikidot &amp; Fandom</td><td>Các tác giả đóng góp Wiki Backrooms tương ứng (xem <code>legal/BACKROOMS_ATTRIBUTION.md</code>)</td><td>CC BY-SA 3.0</td></tr>
+              <tr><td><strong>Level 2, 3, 4, 6, 8, 10, 14, 19, 48, !, 9223...</strong></td><td>Wikidot &amp; Fandom</td><td>Contributing Backrooms Wiki authors (see <code>legal/BACKROOMS_ATTRIBUTION.md</code>)</td><td>CC BY-SA 3.0</td></tr>
             </tbody>
           </table>
-          <p><strong>Lưu ý tác giả độc lập:</strong> Các thuật ngữ tham khảo như <em>A-Sync</em>, <em>KV-31</em>, <em>Bacteria</em> lấy cảm hứng từ series của <strong>Kane Parsons (Kane Pixels)</strong> — không thuộc CC BY-SA 3.0 và hoàn toàn độc lập với dự án này.</p>
+          <p><strong>Independent Author Note:</strong> Referenced terms such as <em>A-Sync</em>, <em>KV-31</em>, <em>Bacteria</em> inspired by the series of <strong>Kane Parsons (Kane Pixels)</strong> — not under CC BY-SA 3.0 and entirely independent of this project.</p>
         </section>
 
         <section class="credits-sec hidden" data-credits-panel="thirdparty">
-          <h3>Thư viện Mã nguồn Mở (Runtime Dependencies)</h3>
+          <h3>Open Source Library (Runtime Dependencies)</h3>
           <table class="credits-table">
-            <thead><tr><th>Gói thư viện</th><th>Phiên bản</th><th>Tác giả</th><th>Giấy phép</th></tr></thead>
+            <thead><tr><th>Library Package</th><th>Version</th><th>Author</th><th>License</th></tr></thead>
             <tbody>
               <tr><td><code>three</code></td><td>0.170.0</td><td>three.js authors</td><td>MIT</td></tr>
               <tr><td><code>postprocessing</code></td><td>6.39.6</td><td>Raoul van Rüschen</td><td>Zlib</td></tr>
@@ -1512,9 +1512,9 @@
               <tr><td><code>webrtc-adapter</code></td><td>9.0.6</td><td>WebRTC &amp; adapter.js authors</td><td>BSD-3-Clause</td></tr>
             </tbody>
           </table>
-          <h3>Nhạc, Âm thanh &amp; Texture Đã Xác minh</h3>
+          <h3>Music, Sound &amp; Verified Texture</h3>
           <table class="credits-table">
-            <thead><tr><th>Tác phẩm</th><th>Tác giả / Nguồn</th><th>Giấy phép</th></tr></thead>
+            <thead><tr><th>Work</th><th>Author / Source</th><th>License</th></tr></thead>
             <tbody>
               <tr><td><em>Spacial Winds</em>, <em>Apprehension</em>, <em>Controlled Chaos</em> + additional ambient &amp; chase tracks</td><td>Kevin MacLeod (<code>incompetech.com</code>)</td><td><strong>CC BY 3.0</strong></td></tr>
               <tr><td><em>The Backrooms OST</em> (Level themes &amp; Chase tracks, Archive.org)</td><td>Piem Ión</td><td><strong>CC BY-SA 4.0</strong></td></tr>
@@ -1526,16 +1526,16 @@
             </tbody>
           </table>
           <div class="credits-warn">
-            <strong>Cảnh báo minh bạch (Category E Review):</strong> Một số file audio kế thừa (nhạc ballroom 1930s, trích đoạn từ video tham chiếu, <em>Burning Memory</em>, <code>sfx_static.wav</code>, <code>sfx_growl*</code>, <code>sfx_whisper.ogg</code>) và <code>Soldier.glb</code> (Mixamo qua Three.js examples) đã được gắn cờ cần rà soát/thay thế trong <code>legal/ASSET_PROVENANCE.md</code> và <strong>không</strong> thuộc quyền sở hữu của Vendreith.
+            <strong>Transparency Warning (Category E Review):</strong> Some inherited audio files (1930s ballroom music, video reference clips, <em>Burning Memory</em>, <code>sfx_static.wav</code>, <code>sfx_growl*</code>, <code>sfx_whisper.ogg</code>) and <code>Soldier.glb</code> (Mixamo via Three.js examples) are flagged for review/replacement in <code>legal/ASSET_PROVENANCE.md</code> and are owned by their respective creators.
           </div>
         </section>
 
         <section class="credits-sec hidden" data-credits-panel="privacy">
-          <h3>Tóm tắt Quyền riêng tư &amp; Chế độ Multiplayer (PeerJS / WebRTC)</h3>
-          <p>• Game không thu thập tài khoản, email hay sử dụng cookie theo dõi/quảng cáo.<br>
-             • Tùy chọn đồ họa và âm lượng được lưu cục bộ trên trình duyệt qua <code>localStorage</code> (<code>br_gfx_v2</code>, <code>br_fx_v2</code>, <code>br_fps_v2</code>, <code>br_aspect_v2</code>, <code>br_sens_v2</code>, <code>br_mvol_v2</code>, <code>br_svol_v2</code>).<br>
-             • Khi dùng <strong>Multiplayer Online</strong>, kết nối WebRTC P2P qua PeerJS Cloud (<code>0.peerjs.com</code>) và máy chủ STUN công cộng (Google / Cloudflare / Metered) làm lộ địa chỉ IP kết nối giữa các người chơi trong cùng phòng. Chỉ chia sẻ mã phòng với người bạn tin tưởng hoặc chơi chế độ Solo.</p>
-          <h3>Toàn văn Tài liệu Pháp lý (Mở trực tiếp từ GitHub Pages)</h3>
+          <h3>Privacy Summary &amp; Multiplayer Mode (PeerJS / WebRTC)</h3>
+          <p>• The game does not collect account or email information, nor uses tracking/advertising cookies.<br>
+             • Graphics and volume settings are saved locally on the browser via <code>localStorage</code> (<code>br_gfx_v2</code>, <code>br_fx_v2</code>, <code>br_fps_v2</code>, <code>br_aspect_v2</code>, <code>br_sens_v2</code>, <code>br_mvol_v2</code>, <code>br_svol_v2</code>).<br>
+             • <strong>Online Multiplayer</strong> uses WebRTC through PeerJS Cloud (<code>0.peerjs.com</code>) and public STUN servers (Google / Cloudflare / Metered), which exposes player IP addresses to others in the same room. Only share room codes with trusted friends or play in Solo mode.</p>
+          <h3>Full Legal Documentation (Opens directly from GitHub Pages)</h3>
           <div class="credits-links">
             <a href="./LICENSE.md" target="_blank" rel="noopener">LICENSE.md</a>
             <a href="./COPYRIGHT.md" target="_blank" rel="noopener">COPYRIGHT.md</a>

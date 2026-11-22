@@ -346,55 +346,55 @@ export function genMap(seed = 1337) {
   // --- REAR-WORLD EXPANSION AREAS (V6: 41 Curated Zones across 24 Distinct Architectural Families, rows 116..236) ---
   const rearAnchorTemplates = [
     // ROW BAND R1 (r: 116..137) — Surrounding 360° Spawn Hub & Rear Atrium Ring
-    { type: 'herringbone_gallery',      w: 17, h: 16, c0: 2,   r0: 116, label: 'Hành Lang Gỗ Xương Cá Tây' },
-    { type: 'arched_arcade_rotunda',    w: 18, h: 17, c0: 21,  r0: 116, label: 'Đại Sảnh Vòm Tròn Phía Tây' },
-    { type: 'wallpaper_tear_void',      w: 10, h: 12, c0: 41,  r0: 124, label: 'Khe Rách Giấy Dán Tường' },
-    { type: 'glass_block_solarium',     w: 11, h: 12, c0: 74,  r0: 124, label: 'Nhà Kính Gạch Thủy Tinh Xanh' },
-    { type: 'partition_bullpen_maze',   w: 17, h: 17, c0: 86,  r0: 116, label: 'Bãi Vách Ngăn Văn Phòng Vô Tận' },
-    { type: 'hotel_corridor_loop',      w: 16, h: 16, c0: 105, r0: 116, label: 'Hành Lang Khách Sạn Vòng 404' },
+    { type: 'herringbone_gallery',      w: 17, h: 16, c0: 2,   r0: 116, label: 'West Fishbone Wood Corridor' },
+    { type: 'arched_arcade_rotunda',    w: 18, h: 17, c0: 21,  r0: 116, label: 'West Round Dome Lobby' },
+    { type: 'wallpaper_tear_void',      w: 10, h: 12, c0: 41,  r0: 124, label: 'Wallpaper Tear Alley' },
+    { type: 'glass_block_solarium',     w: 11, h: 12, c0: 74,  r0: 124, label: 'Blue Glass Tile Conservatory' },
+    { type: 'partition_bullpen_maze',   w: 17, h: 17, c0: 86,  r0: 116, label: 'Infinite Office Partition Wall' },
+    { type: 'hotel_corridor_loop',      w: 16, h: 16, c0: 105, r0: 116, label: '404 Round Hotel Corridor' },
 
     // ROW BAND R2 (r: 135..156) — Upper-South Architectural Belt
-    { type: 'sunken_terrazzo_basin',    w: 20, h: 19, c0: 2,   r0: 135, label: 'Hố Đá Mài Terrazzo Lõm Tây' },
-    { type: 'checker_diner_concourse',  w: 14, h: 15, c0: 24,  r0: 136, label: 'Sảnh Gạch Bàn Cờ Hoài Cổ' },
-    { type: 'narrow_service_spine',     w: 9,  h: 16, c0: 40,  r0: 138, label: 'Xương Sống Ống Hơi Hẹp Tây' },
-    { type: 'indoor_fountain_plaza',    w: 22, h: 16, c0: 51,  r0: 139, label: 'Quảng Trường Đài Phun Nước Cạn' },
-    { type: 'exposed_stud_renovation',  w: 15, h: 15, c0: 75,  r0: 138, label: 'Công Trường Khung Xương & Bông Khoáng' },
-    { type: 'laundromat_limbo',         w: 14, h: 16, c0: 92,  r0: 136, label: 'Tiệm Giặt Ủi Bỏ Hoang Gạch Bạc Hà' },
-    { type: 'waiting_room_infinite',    w: 13, h: 18, c0: 108, r0: 135, label: 'Phòng Chờ Số Thứ Tự Vô Tận' },
+    { type: 'sunken_terrazzo_basin',    w: 20, h: 19, c0: 2,   r0: 135, label: 'West Terrazzo Pitted Stone Pit' },
+    { type: 'checker_diner_concourse',  w: 14, h: 15, c0: 24,  r0: 136, label: 'Retro Checkered Tile Lobby' },
+    { type: 'narrow_service_spine',     w: 9,  h: 16, c0: 40,  r0: 138, label: 'West Narrow Steam Pipe Spine' },
+    { type: 'indoor_fountain_plaza',    w: 22, h: 16, c0: 51,  r0: 139, label: 'Dry Fountain Plaza' },
+    { type: 'exposed_stud_renovation',  w: 15, h: 15, c0: 75,  r0: 138, label: 'Bone Frame & Mineral Flower Field' },
+    { type: 'laundromat_limbo',         w: 14, h: 16, c0: 92,  r0: 136, label: 'Abandoned Mint-Tiled Laundromat' },
+    { type: 'waiting_room_infinite',    w: 13, h: 18, c0: 108, r0: 135, label: 'Infinite Queue Waiting Room' },
 
     // ROW BAND R3 (r: 155..184) — Mid-South Monumental & Multi-Level Belt
-    { type: 'double_tier_mezzanine',    w: 18, h: 19, c0: 2,   r0: 157, label: 'Gác Lửng Thép Hai Tầng Tây' },
-    { type: 'stepped_amphitheater_well',w: 15, h: 19, c0: 22,  r0: 155, label: 'Giảng Đường Bậc Thang Bê Tông Lõm' },
-    { type: 'server_tape_mainframe',    w: 12, h: 19, c0: 39,  r0: 157, label: 'Phòng Máy Chủ Băng Từ 1980s' },
-    { type: 'infinity_arch_perspective',w: 18, h: 25, c0: 53,  r0: 158, label: 'Chuỗi Vòm Hút Điểm Vô Cực (~100m)' },
-    { type: 'museum_plinth_hall',       w: 17, h: 18, c0: 73,  r0: 156, label: 'Phòng Trưng Bày Bệ Kính Trống' },
-    { type: 'boiler_manifold_room',     w: 14, h: 18, c0: 92,  r0: 155, label: 'Hầm Nồi Hơi & Van Áp Suất' },
-    { type: 'bowling_alley_deadend',    w: 13, h: 20, c0: 108, r0: 157, label: 'Sân Bowling Sàn Gỗ Phong Tĩnh Lặng' },
+    { type: 'double_tier_mezzanine',    w: 18, h: 19, c0: 2,   r0: 157, label: 'Two-Story Western Steel Mezzanine' },
+    { type: 'stepped_amphitheater_well',w: 15, h: 19, c0: 22,  r0: 155, label: 'Concrete Recessed Stair Lecture Hall' },
+    { type: 'server_tape_mainframe',    w: 12, h: 19, c0: 39,  r0: 157, label: '1980s Frozen Server Room' },
+    { type: 'infinity_arch_perspective',w: 18, h: 25, c0: 53,  r0: 158, label: 'Infinite Point Suction Dome Chain (~100m)' },
+    { type: 'museum_plinth_hall',       w: 17, h: 18, c0: 73,  r0: 156, label: 'Glass Plinth Display Room' },
+    { type: 'boiler_manifold_room',     w: 14, h: 18, c0: 92,  r0: 155, label: 'Steam Boiler & Pressure Valve Tunnel' },
+    { type: 'bowling_alley_deadend',    w: 13, h: 20, c0: 108, r0: 157, label: 'Silent Hardwood Bowling Alley' },
 
     // ROW BAND R4 (r: 178..202) — Deep-South Anomaly & Brutalist Belt
-    { type: 'amber_brutalist_vault',    w: 22, h: 21, c0: 2,   r0: 179, label: 'Hầm Vòm Bê Tông Ánh Hổ Phách' },
-    { type: 'wallpaper_tear_void',      w: 14, h: 17, c0: 26,  r0: 178, label: 'Hành Lang Lệch Trục Giấy Rách' },
-    { type: 'hotel_corridor_loop',      w: 9,  h: 17, c0: 42,  r0: 180, label: 'Ngách Khách Sạn Thảm Đỏ Lặp' },
-    { type: 'acoustic_baffle_hall',     w: 18, h: 15, c0: 53,  r0: 186, label: 'Sảnh Vách Tiêu Âm Sọc Bóng Tối' },
-    { type: 'freight_loading_bay',      w: 21, h: 21, c0: 73,  r0: 178, label: 'Bến Bốc Dỡ Hàng Cửa Cuốn Khóa' },
-    { type: 'glass_block_solarium',     w: 13, h: 18, c0: 96,  r0: 178, label: 'Hành Lang Gạch Kính Ngọc Bích' },
-    { type: 'narrow_service_spine',     w: 10, h: 21, c0: 111, r0: 180, label: 'Trục Kỹ Thuật Bê Tông Đông' },
+    { type: 'amber_brutalist_vault',    w: 22, h: 21, c0: 2,   r0: 179, label: 'Amber Concrete Vault Tunnel' },
+    { type: 'wallpaper_tear_void',      w: 14, h: 17, c0: 26,  r0: 178, label: 'Ripped Paper Off-Axis Corridor' },
+    { type: 'hotel_corridor_loop',      w: 9,  h: 17, c0: 42,  r0: 180, label: 'Looping Red Carpet Hotel Nook' },
+    { type: 'acoustic_baffle_hall',     w: 18, h: 15, c0: 53,  r0: 186, label: 'Dark Stripe Soundproof Atrium' },
+    { type: 'freight_loading_bay',      w: 21, h: 21, c0: 73,  r0: 178, label: 'Locked Shutter Loading Dock' },
+    { type: 'glass_block_solarium',     w: 13, h: 18, c0: 96,  r0: 178, label: 'Turquoise Tile Glass Corridor' },
+    { type: 'narrow_service_spine',     w: 10, h: 21, c0: 111, r0: 180, label: 'Eastern Concrete Tech Shaft' },
 
     // ROW BAND R5 (r: 200..236) — Far-South Outer Sector & Exit Approach
-    { type: 'laundromat_limbo',         w: 16, h: 16, c0: 2,   r0: 204, label: 'Khu Giặt Sấy Tự Động Tây Nam' },
-    { type: 'arched_arcade_rotunda',    w: 19, h: 17, c0: 20,  r0: 200, label: 'Mái Vòm Cột Vuông Tây Nam' },
-    { type: 'checker_diner_concourse',  w: 14, h: 16, c0: 41,  r0: 203, label: 'Quán Ăn Sàn Caro Nửa Đêm' },
-    { type: 'herringbone_gallery',      w: 10, h: 12, c0: 57,  r0: 204, label: 'Phòng Tranh Gỗ Dọc Trục Nam' },
-    { type: 'double_tier_mezzanine',    w: 18, h: 17, c0: 69,  r0: 203, label: 'Gác Lửng Thép Hai Tầng Đông' },
-    { type: 'sunken_terrazzo_basin',    w: 17, h: 18, c0: 89,  r0: 201, label: 'Hố Đá Mài Terrazzo Đông Nam' },
-    { type: 'exposed_stud_renovation',  w: 13, h: 17, c0: 108, r0: 204, label: 'Khu Dựng Tường Thô Rìa Đông Nam' },
-    { type: 'freight_loading_bay',      w: 18, h: 13, c0: 2,   r0: 223, label: 'Kho Tải Cửa Sắt Cực Tây Nam' },
-    { type: 'museum_plinth_hall',       w: 15, h: 16, c0: 22,  r0: 220, label: 'Sảnh Lưu Trữ Bệ Đá Trắng' },
-    { type: 'partition_bullpen_maze',   w: 16, h: 14, c0: 39,  r0: 222, label: 'Mê Cung Bàn Làm Việc Cực Nam' },
-    { type: 'acoustic_baffle_hall',     w: 10, h: 9,  c0: 57,  r0: 217, label: 'Tiền Sảnh Tiêu Âm Cổng Nam' },
-    { type: 'waiting_room_infinite',    w: 16, h: 13, c0: 69,  r0: 223, label: 'Nhà Chờ Cửa Khẩn Cấp Đông Nam' },
-    { type: 'boiler_manifold_room',     w: 17, h: 14, c0: 87,  r0: 222, label: 'Phòng Lò Hơi Cực Đông Nam' },
-    { type: 'server_tape_mainframe',    w: 15, h: 12, c0: 106, r0: 224, label: 'Trạm Lưu Trữ Dữ Liệu Rìa Nam' }
+    { type: 'laundromat_limbo',         w: 16, h: 16, c0: 2,   r0: 204, label: 'Southwestern Automatic Washer Dryer Area' },
+    { type: 'arched_arcade_rotunda',    w: 19, h: 17, c0: 20,  r0: 200, label: 'Southwestern Square Pillar Dome' },
+    { type: 'checker_diner_concourse',  w: 14, h: 16, c0: 41,  r0: 203, label: 'Midnight Checkerboard Diner' },
+    { type: 'herringbone_gallery',      w: 10, h: 12, c0: 57,  r0: 204, label: 'Vertical Axis South Wood Painting Room' },
+    { type: 'double_tier_mezzanine',    w: 18, h: 17, c0: 69,  r0: 203, label: 'Two-Story East Steel Mezzanine' },
+    { type: 'sunken_terrazzo_basin',    w: 17, h: 18, c0: 89,  r0: 201, label: 'Southeast Terrazzo Stone Grinding Pit' },
+    { type: 'exposed_stud_renovation',  w: 13, h: 17, c0: 108, r0: 204, label: 'Southeast Rough Wall Building Zone' },
+    { type: 'freight_loading_bay',      w: 18, h: 13, c0: 2,   r0: 223, label: 'Southwest Extreme Iron Gate Loading Dock' },
+    { type: 'museum_plinth_hall',       w: 15, h: 16, c0: 22,  r0: 220, label: 'White Stone Plinth Storage Atrium' },
+    { type: 'partition_bullpen_maze',   w: 16, h: 14, c0: 39,  r0: 222, label: 'Extreme South Office Labyrinth' },
+    { type: 'acoustic_baffle_hall',     w: 10, h: 9,  c0: 57,  r0: 217, label: 'South Acoustic Vestibule' },
+    { type: 'waiting_room_infinite',    w: 16, h: 13, c0: 69,  r0: 223, label: 'Southeast Emergency Exit Shelter' },
+    { type: 'boiler_manifold_room',     w: 17, h: 14, c0: 87,  r0: 222, label: 'Extreme Southeast Steam Boiler Room' },
+    { type: 'server_tape_mainframe',    w: 15, h: 12, c0: 106, r0: 224, label: 'South Data Storage Station' }
   ];
 
   for (const tpl of anchorTemplates) {
@@ -1518,9 +1518,9 @@ export function genMap(seed = 1337) {
 
   // Strange Familiar Level-0 Collectibles / Relics (`vhs_tape`, `locator`, `glitch_cassette`)
   const relicKinds = [
-    { kind: 'locator', name: 'La Bàn Định Tuyến A-Sync' },
-    { kind: 'vhs_tape', name: 'Cuộn Băng VHS #KV-31' },
-    { kind: 'glitch_cassette', name: 'Đài Cassette Băng Lỗi' }
+    { kind: 'locator', name: 'A-Sync Compass' },
+    { kind: 'vhs_tape', name: 'VHS Tape #KV-31' },
+    { kind: 'glitch_cassette', name: 'Faulty Cassette Deck' }
   ];
   const RELICS = pickBalancedSpots(22, 32, exitAvoid).map((sp, i) => {
     const rk = relicKinds[i % relicKinds.length];
@@ -2055,6 +2055,11 @@ export function collide(x, z, r, map, crouch = false, y = 0, bodyHeight = crouch
       if (z < r) z = r;
       if (z > maxZ) z = maxZ;
     }
+  }
+
+  if (map.hills) {
+    const d = Math.hypot(x - 256, z - 256), limit = map.hills.playRadius - r;
+    if (d > limit) { x = 256 + (x - 256) * limit / d; z = 256 + (z - 256) * limit / d; }
   }
 
   const near = wallGrid.queryNear(x, z, r + 1.4);

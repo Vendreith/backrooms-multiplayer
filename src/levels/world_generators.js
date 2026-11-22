@@ -4,17 +4,23 @@
  * Licensing & attribution: see LICENSE.md, ATTRIBUTION.md, and THIRD_PARTY_NOTICES.md
  */
 
-// ---------- Procedural Level Generators for All 20 Iconic Backrooms Realms ----------
-// Generates rich, massive (518m-900m) headless `map` objects tailored to each Level's
+// ---------- Procedural Level Generators for All 22 Iconic Backrooms Realms ----------
+// Generates rich, massive (500m-900m) headless `map` objects tailored to each Level's
 // signature liminal space: pools + water slides, colossal skies/horizons/plains, repeating
-// houses with full household interiors, winding mazes, ultra-empty staircase voids & crouch vents.
+// houses with full household interiors, winding mazes, ultra-empty staircase voids, crouch
+// vents, dreamcore rolling hills & the underhill brick utility tunnels.
 
 import { SpatialGrid2D } from '../engine.js';
-import { LEVEL_CATALOG } from './catalog.js';
+import { LEVEL_CATALOG, canonicalLevelId } from './catalog.js';
 import { initTerrainIndex, getTerrainAt } from './terrain.js';
 import { populateLevelLoreProps } from './level_populator.js';
 import { buildPoolroomsWorld } from './poolrooms_world.js';
 import { rasterizePoolroomsNavigation } from './poolrooms_v4_world.js';
+import {addFenceCollisions} from './hills_dressing.js';
+import {getHouseVariant} from './level94_architecture/variants.js';
+import {HILLS_PATHS,HILLS_HOUSE_SITES,HILLS_SCENIC_SITES,HILLS_REGIONS,HILLS_VIEWS,WATER_TOWER} from './hills_composition.js';
+import { prepareHillsArchitecture } from './level94_architecture/layout.js';
+import { buildHillsField, HILLS_PLAY_R } from './hills_terrain.js';
 
 function mulberry32(seed) {
   let a = seed | 0;
@@ -100,7 +106,7 @@ function stampEnterableHouse(out, cx, cz, w, d, h, doorSide, rnd, opts = {}) {
  * Generates a maze/wing corridor complex on an internal grid (gN x gN) with connected spanning tree + extra loops
  * plus large open plaza rooms & dedicated crouch vents.
  */
-function buildMazeCore(gN, gC, rnd, cfg, roomCount = 14) {
+export function buildMazeCore(gN, gC, rnd, cfg, roomCount = 14) {
   const hEdges = Array.from({ length: gN + 1 }, () => new Uint8Array(gN).fill(1));
   const vEdges = Array.from({ length: gN }, () => new Uint8Array(gN + 1).fill(1));
   const cellSolid = Array.from({ length: gN }, () => new Uint8Array(gN).fill(0));
@@ -178,7 +184,7 @@ function buildMazeCore(gN, gC, rnd, cfg, roomCount = 14) {
   return { hEdges, vEdges, cellSolid, plazas, CRAWL_WALLS };
 }
 
-function wallsFromEdges(gN, gC, wallH, hEdges, vEdges, CRAWL_WALLS, RECTS, WALLS) {
+export function wallsFromEdges(gN, gC, wallH, hEdges, vEdges, CRAWL_WALLS, RECTS, WALLS) {
   const t = Math.min(0.92, gC * 0.16);
   const hw = t * 0.5;
 
@@ -245,10 +251,35 @@ function wallsFromEdges(gN, gC, wallH, hEdges, vEdges, CRAWL_WALLS, RECTS, WALLS
   }
 }
 
+/** Opens every internal wall inside a rectangular hall of maze cells (boundaries preserved). */
+function carveHallRect(hEdges, vEdges, c0, c1, r0, r1) {
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0 + 1; c <= c1; c++) vEdges[r][c] = 0;
+  }
+  for (let c = c0; c <= c1; c++) {
+    for (let r = r0 + 1; r <= r1; r++) hEdges[r][c] = 0;
+  }
+}
+
+/** Cardinal side of a site that looks toward the nearest path polyline vertex. */
+function nearestPathSide(x, z, paths) {
+  let bx = 0, bz = 0, best = Infinity;
+  for (const p of paths) {
+    for (const [px, pz] of p.pts) {
+      const d = Math.hypot(x - px, z - pz);
+      if (d < best) { best = d; bx = px; bz = pz; }
+    }
+  }
+  const dx = bx - x, dz = bz - z;
+  if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0 ? 'east' : 'west';
+  return dz >= 0 ? 'south' : 'north';
+}
+
 /**
  * Main Entry: generates the complete map state for any sub-level ID (`levelId`).
  */
 export function genSubLevelMap(levelId, seed = 2026) {
+  levelId = canonicalLevelId(levelId);
   const cfg = LEVEL_CATALOG[levelId];
   if (!cfg) return null;
 
@@ -274,13 +305,13 @@ export function genSubLevelMap(levelId, seed = 2026) {
   const DECO_BLOCKS = [];
   const PROPS = [];
   const ANIM_PROPS = [];
-  const meta = { corrC: 10, atria: null, roadGrid: null, plazas: null, seaLine: 0 };
   const WATERS = []; // Almond Water collectibles
   const FLARES = [];
   const SCANS = [];
   const JELLIES = [];
   const RATIONS = [];
   const SPOTS = [];
+  const LEVEL_DOORS = []; // threshold doors that teleport between sub-levels
 
   const arch = cfg.archetype;
   const mid = span * 0.5;
@@ -296,6 +327,10 @@ export function genSubLevelMap(levelId, seed = 2026) {
   let SPIRAL_SLIDES = [];
   let hEdges = null, vEdges = null, cellSolid = null;
   let waterCells = null;
+  const meta = {
+    corrC: 10, atria: null, roadGrid: null, plazas: null, seaLine: 0,
+    hills: null, skylights: null, spawnPoints: null, portal: null, underhillHalls: null
+  };
 
   // =========================================================================
   // ARCHETYPE A: POOLROOMS (Level 37) - 40-Zone Liminal Aquatic Labyrinth
@@ -603,6 +638,290 @@ export function genSubLevelMap(levelId, seed = 2026) {
   }
 
   // =========================================================================
+  // ARCHETYPE E: DREAM HILLS (Level 94.2) - Bright dreamcore rolling meadows.
+  // Custom renderer (hills_world.js) owns every visual; this branch authors the
+  // deterministic heightfield, collision, houses, landmark tower, threshold
+  // doors down into Underhill and the meadow prop dressing.
+  // =========================================================================
+  else if (arch === 'dream_hills') {
+    const spawnPt = { x: 264, z: 438 };
+    const towerPt = { x: 388, z: 140 };
+    const doorSites = [
+      { id: 'ld_lone', kind: 'lone_door', x: 108, z: 238, rotY: -2.5, label: 'Lone Door on the Hill', tx: 26, tz: 30 },
+      { id: 'ld_frame', kind: 'frame', x: 428, z: 324, rotY: Math.PI * 0.5, label: 'Concrete Frame Across the Hills', tx: 30, tz: 30 },
+      { id: 'ld_mouth', kind: 'tunnel_mouth', x: 214, z: 104, rotY: Math.PI, label: 'Brick Tunnel Entrance', tx: 34, tz: 30 },
+      { id: 'ld_kiosk', kind: 'kiosk', x: 94, z: 333, rotY: -Math.PI * 0.5, label: 'Impossible Brick Kiosk', tx: 38, tz: 30 }
+    ];
+    const paths = HILLS_PATHS;
+    const structuralPads = [
+      { x: 388, z: 140, r: 23 },  // tower summit (task machine + return portal)
+      { x: 264, z: 438, r: 15 },  // spawn meadow
+      { x: 108, z: 238, r: 9 },   // lone door knoll top
+      { x: 428, z: 324, r: 9 },   // concrete frame clearing
+      { x: 214, z: 104, r: 11 },  // tunnel mouth forecourt
+      { x: 94, z: 333, r: 9 }     // brick kiosk hollow
+    ];
+
+    // Stage 1: bake the field without house pads and use it to pick house sites.
+    let field = buildHillsField(seed, { seedSalt: cfg.order, pads: structuralPads, paths });
+
+    const distToPaths = (x, z) => {
+      let best = Infinity;
+      for (const p of paths) {
+        for (let i = 0; i < p.pts.length - 1; i++) {
+          const [ax, az] = p.pts[i], [bx, bz] = p.pts[i + 1];
+          const vx = bx - ax, vz = bz - az;
+          const L2 = vx * vx + vz * vz || 1;
+          let t = ((x - ax) * vx + (z - az) * vz) / L2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const d = Math.hypot(x - (ax + vx * t), z - (az + vz * t));
+          if (d < best) best = d;
+        }
+      }
+      return best;
+    };
+    const distToDoors = (x, z) => {
+      let best = Infinity;
+      for (const d of doorSites) {
+        const dd = Math.hypot(x - d.x, z - d.z);
+        if (dd < best) best = dd;
+      }
+      return best;
+    };
+    const placedSites = [];
+    const farFromSites = (x, z, min) => {
+      for (const s of placedSites) {
+        if (Math.hypot(x - s.x, z - s.z) < min + s.r * 0.5) return false;
+      }
+      return true;
+    };
+    const WALL_COLS = [0xfff2dc, 0xf7e3c8, 0xeadfc8, 0xe8dcc2, 0xf3ead6];
+    const ROOF_COLS = [0x8a4a3a, 0x7d5a48, 0x6e4a3c, 0x9a5a42, 0x5f4638];
+
+    const makeSite=(site)=>{
+      const variant=getHouseVariant(site.variantId);
+      const padR=site.padR||Math.hypot(variant.width,variant.depth)*.72+5;
+      placedSites.push({x:site.x,z:site.z,r:padR});
+      return {...site,w:variant.width,d:variant.depth,h:variant.wallHeight,padR,doorSide:'south',wallCol:0xf6e6bb,roofCol:0x786455,enterable:false,solid:!site.scenic};
+    };
+    const mainSites=HILLS_HOUSE_SITES.map(makeSite);
+    const scenicSites=HILLS_SCENIC_SITES.map(makeSite);
+    // Stage 2: re-bake once with every house pad included.
+    field = buildHillsField(seed, { seedSalt: cfg.order, pads: [...structuralPads, ...placedSites], paths });
+    meta.hills = field;
+    field.paths = paths;
+    field.regions=HILLS_REGIONS;field.views=HILLS_VIEWS;field.waterTower={...WATER_TOWER,y:field.heightAt(WATER_TOWER.x,WATER_TOWER.z)};
+
+    // Provisional records are replaced below by the closed-exterior architecture layouts.
+    for (const s of mainSites) {
+      const baseY = field.heightAt(s.x, s.z);
+      if (s.enterable) {
+        stampEnterableHouse({ RECTS, PLATFORMS, FURNITURE, HOUSES, LIGHTS }, s.x, s.z, s.w, s.d, s.h, s.doorSide, rnd, { baseY, style: 'dream', wallCol: s.wallCol, roofCol: s.roofCol });
+        const rec = HOUSES[HOUSES.length - 1];
+        rec.porch = true;
+        rec.chimney = rnd() < 0.7;
+        rec.trimCol = 0xf9f4e6;
+        rec.lit = true;
+        rec.dreamPadR = s.padR;
+      } else {
+        HOUSES.push({ cx: s.x, cz: s.z, w: s.w, d: s.d, h: s.h, baseY, doorSide: s.doorSide, doorW: 2.0, wallCol: s.wallCol, roofCol: s.roofCol, style: 'dream', variantId:s.variantId,rotation:s.rotation,palette:s.palette,region:s.region,porch: true, chimney: rnd() < 0.7, trimCol: 0xf9f4e6, lit: true, dreamPadR: s.padR });
+        RECTS.push({ x0: s.x - s.w * 0.5, z0: s.z - s.d * 0.5, x1: s.x + s.w * 0.5, z1: s.z + s.d * 0.5, y0: baseY - 0.5, y1: baseY + s.h, h: s.h + 0.5, kind: 'wall', hidden: true });
+        LIGHTS.push({ x: s.x, z: s.z, y: baseY + s.h * 0.7, gain: 0.45 });
+      }
+      const mbDx = s.doorSide === 'east' ? s.w * 0.5 + 1.1 : s.doorSide === 'west' ? -(s.w * 0.5 + 1.1) : 1.3;
+      const mbDz = s.doorSide === 'south' ? s.d * 0.5 + 1.1 : s.doorSide === 'north' ? -(s.d * 0.5 + 1.1) : 1.0;
+      const mx = s.x + mbDx, mz = s.z + mbDz;
+      PROPS.push({ kind: 'mailbox', x: mx, y: field.heightAt(mx, mz) - 0.04, z: mz, ry: s.doorSide === 'south' ? Math.PI : s.doorSide === 'north' ? 0 : s.doorSide === 'east' ? -Math.PI * 0.5 : Math.PI * 0.5 });
+    }
+
+    // Scenic streets remain outside the playable disk, separated by open hills.
+    for (const s of scenicSites) {
+      const baseY = field.heightAt(s.x, s.z);
+      HOUSES.push({ cx: s.x, cz: s.z, w: s.w, d: s.d, h: s.h, baseY, doorSide: s.doorSide, doorW: 1.8, wallCol: s.wallCol, roofCol: s.roofCol, style: 'dream', variantId:s.variantId,rotation:s.rotation,palette:s.palette,region:s.region,scenic: true, porch: rnd() < 0.55, chimney: rnd() < 0.6, trimCol: 0xf3eee0, lit: rnd() < 0.4, dreamPadR: s.padR });
+      if (s.solid) {
+        RECTS.push({ x0: s.x - s.w * 0.5, z0: s.z - s.d * 0.5, x1: s.x + s.w * 0.5, z1: s.z + s.d * 0.5, y0: baseY - 0.5, y1: baseY + s.h, h: s.h + 0.5, kind: 'wall', hidden: true });
+      }
+      if (rnd() < 0.35) LIGHTS.push({ x: s.x, z: s.z, y: baseY + s.h * 0.7, gain: 0.32 });
+    }
+
+    // Replace provisional box-house records with the recovered structural variants.
+    prepareHillsArchitecture({ HOUSES, RECTS, PLATFORMS, RAMPS, field });
+    addFenceCollisions(RECTS,HOUSES,field);
+    for(const dx of[-2.4,2.4])for(const dz of[-2.4,2.4])RECTS.push({x0:WATER_TOWER.x+dx-.18,x1:WATER_TOWER.x+dx+.18,z0:WATER_TOWER.z+dz-.18,z1:WATER_TOWER.z+dz+.18,y0:field.waterTower.y-.2,y1:field.waterTower.y+14,h:14.2,hidden:true,kind:'tower_leg'});
+
+    // Landmark bell tower on the NE summit
+    const towerBaseY = field.heightAt(towerPt.x, towerPt.z);
+    TOWERS.push({ x: towerPt.x, z: towerPt.z, w: 7.2, d: 7.2, h: 11.5, col: 0xf5ead4, windowAccent: 0xfff3c2, kind: 'dream_tower', baseY: towerBaseY });
+    RECTS.push({ x0: towerPt.x - 3.6, z0: towerPt.z - 3.6, x1: towerPt.x + 3.6, z1: towerPt.z + 3.6, y0: towerBaseY - 0.5, y1: towerBaseY + 11.5, h: 12, hidden: true });
+    LIGHTS.push({ x: towerPt.x, z: towerPt.z, y: towerBaseY + 10.6, gain: 0.6 });
+
+    // Threshold doors down into Underhill (each arrives at a different slot)
+    for (const d of doorSites) {
+      LEVEL_DOORS.push({
+        id: d.id, kind: d.kind, x: d.x, z: d.z, y: field.heightAt(d.x, d.z), rotY: d.rotY,
+        targetLevel: 'level94u', tx: d.tx, ty: 0, tz: d.tz, tyaw: -Math.PI / 2,
+        label: d.label
+      });
+      LIGHTS.push({ x: d.x, z: d.z, y: field.heightAt(d.x, d.z) + 2.6, gain: 0.5 });
+    }
+
+    SPAWN = { x: 264, z: 438, y: field.heightAt(264, 438), yaw: -.45 };
+    END_POS = { x: 383.6, z: 147, y: field.heightAt(383.6, 147) };
+    TASK_POS = { x: 383, z: 146, y: field.heightAt(383, 146) };
+    meta.spawnPoints = [[-3, -3], [3, -3], [-3, 3], [3, 3], [0, -5.5], [0, 5.5]]
+      .map(([ox, oz]) => ({ x: 264 + ox, z: 438 + oz, y: field.heightAt(264 + ox, 438 + oz) }));
+
+    // Keep lawns clean. White pickets and curved roads are authored by the visual composer.
+    for(const [x,z,ry] of [[272,426,Math.PI],[284,310,.3],[365,245,1.5]])
+      PROPS.push({kind:'park_bench',x,z,y:field.heightAt(x,z),ry});
+    // Household objects deliberately left in empty meadows and beside the tunnel.
+    for (const [kind,x,z,ry] of [['armchair_table',288,346,.7],['office_chair',183,291,-.4],['wheelchair',226,120,1.2]]) {
+      const y=field.heightAt(x,z);PROPS.push({kind,x,y,z,ry});
+      RECTS.push({x0:x-.65,x1:x+.65,z0:z-.65,z1:z+.65,y0:y,y1:y+1.15,h:1.15,hidden:true});
+    }
+
+    // Waymarking oaks & birches across the meadows and the fog rim
+    let treeTries = 0;
+    while (TREES.length < 95 && treeTries++ < 1700) {
+      const a = rnd() * Math.PI * 2;
+      const r = 26 + rnd() * 240;
+      const x = 256 + Math.cos(a) * r, z = 256 + Math.sin(a) * r;
+      if (field.slopeAt(x, z) > 0.34) continue;
+      if (field.pathMaskAt(x, z) > 0.03 || distToPaths(x, z) < 4.5) continue;
+      if (distToDoors(x, z) < 9) continue;
+      if (Math.hypot(x - spawnPt.x, z - spawnPt.z) < 14) continue;
+      if (Math.hypot(x - towerPt.x, z - towerPt.z) < 16) continue;
+      if (!farFromSites(x, z, 2.5)) continue;
+      TREES.push({ x, z, h: 5.5 + rnd() * 4.5, kind: rnd() < 0.62 ? 'oak' : 'birch' });
+    }
+  }
+
+  // =========================================================================
+  // ARCHETYPE F: UNDERHILL (Level 94.3) - Brick utility tunnels beneath the
+  // dream hills: dripping pipe trunks, skylight shafts & puddle mirrors.
+  // Custom renderer (tunnel_world.js) owns visuals; maze authoring happens here.
+  // =========================================================================
+  else if (arch === 'underhill') {
+    const core = buildMazeCore(gN, gC, rnd, cfg, 9);
+    hEdges = core.hEdges;
+    vEdges = core.vEdges;
+    cellSolid = core.cellSolid;
+    meta.plazas = core.plazas;
+
+    // Two carved service halls: the drip-lit arrival hall (west) and the exit
+    // hall (east) hosting the breaker machine, return stair-door & supplies.
+    carveHallRect(hEdges, vEdges, 3, 9, 3, 9);
+    carveHallRect(hEdges, vEdges, 90, 95, 90, 95);
+    vEdges[6][3] = 1;   // solid backing wall for the door home on the arrival hall's west face
+    vEdges[7][3] = 1;
+
+    wallsFromEdges(gN, gC, wallH, hEdges, vEdges, core.CRAWL_WALLS, RECTS, WALLS);
+
+    meta.underhillHalls = {
+      arrival: { c0: 3, c1: 9, r0: 3, r1: 9 },
+      exit: { c0: 90, c1: 95, r0: 90, r1: 95 }
+    };
+    meta.skylights = [
+      { x: 24, z: 23, w: 3.4, d: 3.4 }, { x: 38, z: 37, w: 2.6, d: 2.6 },
+      { x: 458, z: 455, w: 3.4, d: 3.4 }, { x: 472, z: 470, w: 2.6, d: 2.6 }
+    ];
+
+    // Ceiling-height pipe trunks marching down both halls (start-based spec;
+    // tunnel_world.js renders these, the generic pipe pass never runs here)
+    for (const [hx0, hx1, hz] of [[16.5, 48.5, 18.5], [16.5, 48.5, 21.5], [16.5, 48.5, 46.5], [451.5, 478.5, 452.5], [451.5, 478.5, 455.5], [451.5, 478.5, 477.5]]) {
+      PIPES.push({ x: hx0, z: hz, y: 3.14, len: hx1 - hx0, axis: 'x', r: 0.14 });
+      PIPES.push({ x: hx0, z: hz + 0.42, y: 3.32, len: hx1 - hx0, axis: 'x', r: 0.09 });
+    }
+    for (const [rx, rz] of [[16.5, 18.5], [16.5, 46.5], [48.5, 18.5], [48.5, 46.5], [451.5, 452.5], [451.5, 477.5], [478.5, 452.5], [478.5, 477.5]]) {
+      PIPES.push({ x: rx, z: rz, y: 0.25, len: 2.75, axis: 'y', r: 0.11 });
+    }
+    for (const pl of meta.plazas) {
+      const px0 = (pl.c0 + 0.55) * gC, px1 = (pl.c1 - 0.55) * gC;
+      const pz0 = (pl.r0 + 0.55) * gC, pz1 = (pl.r1 - 0.55) * gC;
+      if (px1 - px0 >= pz1 - pz0) {
+        const mzp = (pz0 + pz1) * 0.5;
+        PIPES.push({ x: px0, z: mzp, y: 3.1, len: px1 - px0, axis: 'x', r: 0.11 });
+        PIPES.push({ x: px0, z: mzp + 0.4, y: 3.28, len: px1 - px0, axis: 'x', r: 0.07 });
+      } else {
+        const mxp = (px0 + px1) * 0.5;
+        PIPES.push({ x: mxp, z: pz0, y: 3.1, len: pz1 - pz0, axis: 'z', r: 0.11 });
+        PIPES.push({ x: mxp + 0.4, z: pz0, y: 3.28, len: pz1 - pz0, axis: 'z', r: 0.07 });
+      }
+      LIGHTS.push({ x: (pl.c0 + pl.c1) * 0.5 * gC, z: (pl.r0 + pl.r1) * 0.5 * gC, y: wallH - 0.35, gain: 0.85 });
+    }
+
+    // Still puddle mirrors (wading depth) across both halls
+    const puddleSpots = [[22, 34], [33, 22], [42, 42], [28, 44], [458, 462], [466, 452], [474, 464], [452, 472]];
+    puddleSpots.forEach(([wx, wz], i) => {
+      const pw = 2.2 + (i % 3) * 0.7, pd = 1.6 + ((i + 1) % 3) * 0.6;
+      WATER_RECTS.push({ x0: wx - pw / 2, z0: wz - pd / 2, x1: wx + pw / 2, z1: wz + pd / 2, bedY: -0.3, waterY: -0.06 });
+    });
+
+    // Skylight wells punch cool daylight through the brick vault
+    for (const sk of meta.skylights) {
+      LIGHTS.push({ x: sk.x, z: sk.z, y: wallH - 0.5, gain: 0.8, cool: true });
+    }
+
+    // Warm cage lamps on whatever hall wall faces survived the maze carve
+    const lampPts = [];
+    for (let r = 3; r <= 9; r++) {
+      if (vEdges[r][3] === 1) lampPts.push([15.75, (r + 0.5) * gC, 0]);
+      if (vEdges[r][10] === 1) lampPts.push([49.25, (r + 0.5) * gC, Math.PI]);
+    }
+    for (let c = 3; c <= 9; c++) {
+      if (hEdges[3][c] === 1) lampPts.push([(c + 0.5) * gC, 15.75, Math.PI * 0.5]);
+      if (hEdges[10][c] === 1) lampPts.push([(c + 0.5) * gC, 49.25, -Math.PI * 0.5]);
+    }
+    for (let r = 90; r <= 95; r++) {
+      if (vEdges[r][90] === 1) lampPts.push([450.75, (r + 0.5) * gC, 0]);
+      if (vEdges[r][96] === 1) lampPts.push([479.25, (r + 0.5) * gC, Math.PI]);
+    }
+    for (let c = 90; c <= 95; c++) {
+      if (hEdges[90][c] === 1) lampPts.push([(c + 0.5) * gC, 450.75, Math.PI * 0.5]);
+      if (hEdges[96][c] === 1) lampPts.push([(c + 0.5) * gC, 479.25, -Math.PI * 0.5]);
+    }
+    for (let i = 0; i < lampPts.length; i += 2) {
+      LIGHTS.push({ x: lampPts[i][0], z: lampPts[i][1], y: 2.6, gain: 0.85 });
+    }
+
+    // Utility dressing: drums, cones, valves, barricades & elbow joints
+    const propsUnderhill = [
+      ['oil_drum', 20, 26, 0.4], ['oil_drum', 21.5, 25.2, 1.2], ['warning_sign_cone', 44, 20, 2.1],
+      ['barricade', 36, 45, Math.PI * 0.5], ['pipe_valve', 26, 40, Math.PI * 0.75],
+      ['oil_drum', 456, 468, 0.9], ['warning_sign_cone', 474, 456, 1.7], ['pipe_valve', 462, 474, 0.2],
+      ['barricade', 468, 476, 0], ['hydraulic_pipe_elbow', 16.5, 18.5, 0.6], ['hydraulic_pipe_elbow', 478.5, 477.5, 2.2]
+    ];
+    for (const [kind, px2, pz2, pry] of propsUnderhill) {
+      PROPS.push({ kind, x: px2, y: 0, z: pz2, ry: pry });
+      if (kind === 'oil_drum') RECTS.push({ x0: px2 - 0.42, z0: pz2 - 0.42, x1: px2 + 0.42, z1: pz2 + 0.42, y0: 0, y1: 1.05, h: 1.05, hidden: true });
+      if (kind === 'barricade') RECTS.push({ x0: px2 - 1.2, z0: pz2 - 0.35, x1: px2 + 1.2, z1: pz2 + 0.35, y0: 0, y1: 1.15, h: 1.15, hidden: true });
+    }
+    for (const pl of meta.plazas) {
+      const pcx = (pl.c0 + pl.c1) * 0.5 * gC, pcz = (pl.r0 + pl.r1) * 0.5 * gC;
+      PROPS.push({ kind: 'warning_sign_cone', x: pcx + (rnd() - 0.5) * 6, y: 0, z: pcz + (rnd() - 0.5) * 6, ry: rnd() * Math.PI * 2 });
+      if (rnd() < 0.6) {
+        const dx2 = pcx + (rnd() - 0.5) * 8, dz2 = pcz + (rnd() - 0.5) * 8;
+        PROPS.push({ kind: 'oil_drum', x: dx2, y: 0, z: dz2, ry: rnd() * Math.PI * 2 });
+        RECTS.push({ x0: dx2 - 0.42, z0: dz2 - 0.42, x1: dx2 + 0.42, z1: dz2 + 0.42, y0: 0, y1: 1.05, h: 1.05, hidden: true });
+      }
+    }
+
+    SPAWN = { x: 30, z: 30, y: 0, yaw: -Math.PI / 2 };
+    END_POS = { x: 467.5, z: 467.5, y: 0 };
+    TASK_POS = { x: 460, z: 460, y: 0 };
+    meta.portal = { targetLevel: 'level94', x: 472.3, z: 467.5, y: 0, label: 'Stairway to Dreamcore Hills' };
+    meta.spawnPoints = [[26, 27], [34, 27], [26, 33], [34, 33]].map(([sx, sz]) => ({ x: sx, z: sz, y: 0 }));
+
+    // The door home: climb back out onto the lone-door knoll in Dream Hills
+    const probeField = buildHillsField(seed, { seedSalt: LEVEL_CATALOG.level94.order, pads: [], paths: [] });
+    LEVEL_DOORS.push({
+      id: 'ld_back', kind: 'door_back', x: 15.9, z: 30, y: 0, rotY: -Math.PI / 2,
+      targetLevel: 'level94', tx: 109, ty: probeField.heightAt(109, 239.5), tz: 239.5, tyaw: -2.5,
+      label: 'Stairway Back to Dreamcore Hills'
+    });
+  }
+
+  // =========================================================================
   // ARCHETYPE D: INDOOR MAZES, HOUSEHOLD ROOMS, COURTYARD, CAVES, PIPES, HOTEL
   // (Office, Warehouse, Pipes, Electrical, Hotel, Blackout, Caves, Attic, Courtyard, Kitty)
   // =========================================================================
@@ -710,6 +1029,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     SPAWN, END_POS, K_SPAWN: null, PROPS, ANIM_PROPS
   });
 
+  if (arch === 'dream_hills') for (const b of RECTS) { b.minY = b.y0 ?? 0; b.maxY = b.y1 ?? (b.y0 || 0) + (b.h || wallH); }
   const wallGrid = new SpatialGrid2D(Math.max(4, gC));
   wallGrid.build(RECTS);
   if (poolArchitecture) {
@@ -737,7 +1057,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
 
   const supplyContext=poolArchitecture?{...poolArchitecture,WATER_RECTS,PLATFORMS,RAMPS,SLIDES}:null;
   if(supplyContext)initTerrainIndex(supplyContext);
-  const supplySpots=poolArchitecture?SPOTS.filter(sp=>!poolArchitecture._poolCellGrid.queryNear(sp.x,sp.z,0).some(c=>c.art&&sp.x>=c.x0&&sp.x<=c.x1&&sp.z>=c.z0&&sp.z<=c.z1)&&!getTerrainAt(sp.x,sp.z,supplyContext,0).inWater):SPOTS;
+  const supplySpots=poolArchitecture?SPOTS.filter(sp=>!poolArchitecture._poolCellGrid.queryNear(sp.x,sp.z,0).some(c=>c.art&&sp.x>=c.x0&&sp.x<=c.x1&&sp.z>=c.z0&&sp.z<=c.z1)&&!getTerrainAt(sp.x,sp.z,supplyContext,0).inWater):meta.hills?SPOTS.filter(sp=>Math.hypot(sp.x-256,sp.z-256)<HILLS_PLAY_R-4):SPOTS;
   for (let i = 0; i < 42 && supplySpots.length; i++) {
     const sp = supplySpots[(rnd() * supplySpots.length) | 0];
     if (sp) WATERS.push({ id: i, x: sp.x, z: sp.z, taken: false });
@@ -753,7 +1073,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     id: 0,
     code: cfg.code,
     sym: '⚡',
-    label: arch === 'poolrooms' ? 'BẢNG ĐIỀU KHIỂN XẢ NƯỚC KHU J' : 'MÁY THOÁT TẦNG',
+    label: arch === 'poolrooms' ? 'ZONE J DRAINAGE CONTROL PANEL' : 'STAIRWELL ELEVATOR',
     col: '#56e892',
     hex: 0x56e892,
     x: tPos.x,
@@ -770,7 +1090,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     x: meta.customPoolrooms ? END_POS.x : (END_POS.x + 4.8),
     z: END_POS.z,
     y: END_POS.y || 0,
-    label: 'Cổng Trở Về Level 0',
+    label: 'Return Gate to Level 0',
     accent: cfg.palette?.accent ?? 0x56e892
   }];
 
@@ -882,7 +1202,7 @@ export function genSubLevelMap(levelId, seed = 2026) {
     ceilH: cfg.ceilH,
     isOutdoor: !!cfg.isOutdoor,
     noLightmap: !!cfg.isOutdoor || !!cfg.hasSkylights || arch === 'poolrooms',
-    defaultSurface: arch === 'poolrooms' ? 'tile' : arch === 'field' || arch === 'motion_town' ? 'grass' : arch === 'sunset_beach' ? 'sand' : 'concrete',
+    defaultSurface: arch === 'poolrooms' ? 'tile' : arch === 'field' || arch === 'motion_town' || arch === 'dream_hills' ? 'grass' : arch === 'sunset_beach' ? 'sand' : 'concrete',
     waterOnlyAI: cfg.entity?.behavior === 'water_only',
     waterCells,
     RECTS, WALLS, wallGrid, hEdges, vEdges, cellSolid,
@@ -891,7 +1211,8 @@ export function genSubLevelMap(levelId, seed = 2026) {
     POOL_CELLS: poolArchitecture?.POOL_CELLS,
     customPoolrooms:!!poolArchitecture,
     peaceful:!!cfg.peaceful,
-    SPAWN_POINTS: poolArchitecture?.SPAWN_POINTS,
+    SPAWN_POINTS: poolArchitecture?.SPAWN_POINTS || meta.spawnPoints,
+    hills: meta.hills, LEVEL_DOORS, underhillHalls: meta.underhillHalls,
     POOL_GRAPH: poolArchitecture?.POOL_GRAPH,
     POOL_DECOR:poolArchitecture?.POOL_DECOR,
     POOL_DECOR_CLUSTERS:poolArchitecture?.POOL_DECOR_CLUSTERS,

@@ -18,6 +18,17 @@ const commands=[
     "scripts/test-environment.mjs"
   ],
   [
+    "--experimental-loader",
+    "./scripts/map-test-loader.mjs",
+    "scripts/test-level94.mjs"
+  ],
+  [
+    "level94_gameplay/tests/run-tests.mjs"
+  ],
+  [
+    "level94_gameplay/tests/ambience-test.mjs"
+  ],
+  [
     "scripts/validate-poolrooms.mjs"
   ],
   [
@@ -34,4 +45,4 @@ const commands=[
   ]
 ];
 for(const args of commands){console.log('\nChecking '+args.at(-1));const result=spawnSync(process.execPath,args,{stdio:'inherit'});if(result.error)throw result.error;if(result.status!==0)process.exit(result.status??1);}
-console.log('All 10 runtime checks passed.');
+console.log('All 13 runtime checks passed.');

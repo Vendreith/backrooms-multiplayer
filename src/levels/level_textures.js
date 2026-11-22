@@ -173,18 +173,49 @@ function buildPatternCanvas(pattern, baseHex, trimHex, size = 512, seed = 101) {
       ctx.fillStyle = rgba(tRgb, 0.38, 1);
       ctx.fillRect(0, size * 0.55, size, 8);
     }
-  } else if (pattern === 'field_grass' || pattern === 'crimson_grass' || pattern === 'cartoon_grass') {
+  } else if (pattern === 'field_grass' || pattern === 'crimson_grass' || pattern === 'cartoon_grass' || pattern === 'dream_grass') {
     for (let i = 0; i < 2200; i++) {
-      const shade = pattern === 'cartoon_grass' ? (0.94 + rnd() * 0.16) : (0.68 + rnd() * 0.48);
+      const shade = pattern === 'cartoon_grass' ? (0.94 + rnd() * 0.16) : pattern === 'dream_grass' ? (0.86 + rnd() * 0.26) : (0.68 + rnd() * 0.48);
       ctx.fillStyle = rgba(rnd() < 0.28 ? tRgb : rgb, 0.65, shade);
       const bx = rnd() * size, by = rnd() * size;
       ctx.fillRect(bx, by, 2 + rnd() * 4, 6 + rnd() * 12);
     }
-    if (pattern !== 'cartoon_grass') {
+    if (pattern === 'dream_grass') {
+      // Dreamcore pastel meadow: pale sun-bleached drifts + scattered tiny daisies
+      for (let i = 0; i < 60; i++) {
+        ctx.fillStyle = 'rgba(226, 240, 178, 0.30)';
+        ctx.beginPath();
+        ctx.ellipse(rnd() * size, rnd() * size, 24 + rnd() * 70, 14 + rnd() * 40, rnd() * 3.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < 70; i++) {
+        ctx.fillStyle = 'rgba(248, 250, 238, 0.85)';
+        const dx = rnd() * size, dy = rnd() * size, dr = 1.4 + rnd() * 1.8;
+        ctx.beginPath(); ctx.arc(dx, dy, dr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(240, 214, 120, 0.8)';
+        ctx.beginPath(); ctx.arc(dx, dy, dr * 0.45, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (pattern !== 'cartoon_grass') {
       for (let i = 0; i < 90; i++) {
         ctx.fillStyle = pattern === 'crimson_grass' ? 'rgba(235, 165, 195, 0.38)' : 'rgba(230, 210, 125, 0.38)';
         ctx.fillRect(rnd() * size, rnd() * size, 3, 3);
       }
+    }
+  } else if (pattern === 'dream_stucco') {
+    // Soft cream dreamcore stucco: gentle mottling, faint horizontal weather band, warm base shadow
+    for (let i = 0; i < 90; i++) {
+      ctx.fillStyle = rgba(rgb, 0.10, 0.92 + rnd() * 0.16);
+      ctx.beginPath();
+      ctx.ellipse(rnd() * size, rnd() * size, 30 + rnd() * 90, 20 + rnd() * 60, rnd() * 3.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255, 255, 252, 0.20)';
+    ctx.fillRect(0, 0, size, size * 0.16);
+    ctx.fillStyle = 'rgba(120, 96, 66, 0.16)';
+    ctx.fillRect(0, size - 40, size, 40);
+    for (let i = 0; i < 500; i++) {
+      ctx.fillStyle = rgba(tRgb, 0.10, 0.9 + rnd() * 0.2);
+      ctx.fillRect(rnd() * size, rnd() * size, 3 + rnd() * 6, 3 + rnd() * 6);
     }
   } else if (pattern === 'sand') {
     for (let i = 0; i < 2400; i++) {

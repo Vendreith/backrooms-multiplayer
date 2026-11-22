@@ -261,7 +261,7 @@ export function buildPoolroomsV4World({ zones, seed = 2026, RECTS, WALLS, WATER_
     return { x: c.x, z: c.z0 + Math.min(1.1, c.depth / 3), y: c.floorY, cellId: c.id };
   };
   const PUMPS = [['zone_c','pump_c'], ['zone_e','pump_e'], ['zone_h','pump_h']].map(([zoneId, key], id) => ({ id, key, zoneId,
-    name: `Trạm Bơm Khu ${zoneMap.get(zoneId).code}`, ...anchor(zoneId, 15), ry: 0, p: 0, done: false }));
+    name: `Zone Pump Station ${zoneMap.get(zoneId).code}`, ...anchor(zoneId, 15), ry: 0, p: 0, done: false }));
   const SPAWN = { ...anchor('zone_a'), yaw: zoneMap.get('zone_a').teleYaw };
   const SPAWN_POINTS = [-1.7, 0, 1.7].flatMap(dx => [0, .9].map(dz => ({ x: SPAWN.x + dx, z: SPAWN.z + .2 + dz, y: 0 })));
   const END_POS = anchor('zone_j', 15), TASK_POS = anchor('zone_j', 12);

@@ -8,6 +8,7 @@ import { THREE, GLTFLoader, SkeletonUtils, BufferGeometryUtils, PreloaderSystem 
 import { C, WH, N, SURV_COLORS, GFX_PRESETS, TASK_SYMBOLS } from './constants.js';
 import { buildSymbolPlateTexture } from './textures.js';
 import { buildSubLevelWorld, buildLevel0EntrancesGroup } from './levels/world_mesh.js';
+import { buildHillsWorld } from './levels/hills_world.js';
 import { buildClassicWorld } from './levels/classic_world.js';
 import {buildEnvironmentWorld} from './levels/environment_world.js';
 import { inClassicPresentation } from './levels/classic_layout.js';
@@ -15,7 +16,7 @@ import { inClassicPresentation } from './levels/classic_layout.js';
 let cachedSoldierGLTF = null;
 
 export function registerModelTasks(preloader) {
-  preloader.addTask('Tải mô hình 3D Nhân vật (Soldier.glb)...', async () => {
+  preloader.addTask('Loading 3D Character Model (Soldier.glb)...', async () => {
     const loader = new GLTFLoader();
     try {
       cachedSoldierGLTF = await new Promise((resolve, reject) => {
@@ -67,7 +68,7 @@ function assignWorldLightMapUV1(geom, spanX, offsetX = 0, offsetZ = 0, spanZ = s
  */
 export function buildWorld(scene, map, texStore, gfxKey = 'high') {
   if (map?.levelId && map.levelId !== 'level0') {
-    return buildSubLevelWorld(scene, map, gfxKey);
+    return map.hills ? buildHillsWorld(scene, map, gfxKey) : buildSubLevelWorld(scene, map, gfxKey);
   }
   const preset = GFX_PRESETS[gfxKey] || GFX_PRESETS.high;
   const root = new THREE.Group();

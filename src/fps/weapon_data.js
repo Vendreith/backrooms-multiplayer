@@ -1,6 +1,6 @@
 /* Copyright (c) 2026 Vendreith. Original weapon gameplay definitions. */
 export const WEAPONS = Object.freeze({
-  none: { name: 'Tay không', interval: 0, range: 0 },
+  none: { name: 'Empty hand', interval: 0, range: 0 },
   deagle: { name: 'Desert Eagle', capacity: 7, reserve: 35, interval: .32, reload: 2.25, reloadEmpty: 2.25, range: 75, sightY: .062, draw: .58, shotSound: 'shot' },
   relic: { name: 'Meridian-6', capacity: 6, reserve: 30, interval: .42, reload: 2.65, reloadEmpty: 3.10, range: 80, sightY: .080, draw: .72, shotSound: 'relic_shot' },
   butterfly: { name: 'Butterfly Knife', interval: .52, range: 1.85, draw: .66 }

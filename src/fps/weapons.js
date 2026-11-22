@@ -15,7 +15,7 @@ export class WeaponSystem {
     this.options = {inspectKey:'KeyT',loop:true,motion:1,sway:1,offset:'standard'};
     this._position = new THREE.Vector3(); this.remote = new Map(); this.remoteMaterials = new Map();
     this.bar = document.createElement('div'); this.bar.id = 'weaponBar'; this.bar.hidden = true;
-    this.bar.innerHTML = '<div class="weapon-slots"><button data-weapon="relic" title="2 · Meridian-6"><kbd>2</kbd> MERIDIAN-6</button><button data-weapon="butterfly" title="3 · Butterfly Knife"><kbd>3</kbd> BUTTERFLY</button><button data-weapon="deagle" title="6 · Desert Eagle"><kbd>6</kbd> DEAGLE</button><button data-weapon="none" title="8 · Cất vũ khí"><kbd>8</kbd> CẤT</button></div><div class="weapon-status"><span data-weapon-profile></span><span data-weapon-name></span><b data-weapon-ammo></b><span data-weapon-state></span></div><div class="weapon-help">T giữ: flex · R: thay đạn · Chuột phải: ngắm · F: đèn pin</div><div class="weapon-touch"><button data-wact="fire">BẮN / CHÉM</button><button data-wact="aim">NGẮM</button><button data-wact="inspect">XOAY</button><button data-wact="reload">ĐẠN</button></div>';
+    this.bar.innerHTML = '<div class="weapon-slots"><button data-weapon="relic" title="2 · Meridian-6"><kbd>2</kbd> MERIDIAN-6</button><button data-weapon="butterfly" title="3 · Butterfly Knife"><kbd>3</kbd> BUTTERFLY</button><button data-weapon="deagle" title="6 · Desert Eagle"><kbd>6</kbd> DEAGLE</button><button data-weapon="none" title="8 · Holster"><kbd>8</kbd> EQUIP</button></div><div class="weapon-status"><span data-weapon-profile></span><span data-weapon-name></span><b data-weapon-ammo></b><span data-weapon-state></span></div><div class="weapon-help">T hold: flex · R: reload · Right-click: aim · F: flashlight</div><div class="weapon-touch"><button data-wact="fire">SHOOT / STRIKE</button><button data-wact="aim">AIM</button><button data-wact="inspect">XOAY</button><button data-wact="reload">BULLET</button></div>';
     hud.append(this.bar);
     this.nameNode = this.bar.querySelector('[data-weapon-name]'); this.ammoNode = this.bar.querySelector('[data-weapon-ammo]'); this.stateNode = this.bar.querySelector('[data-weapon-state]');
     this.buttons = [...this.bar.querySelectorAll('[data-weapon]')];
@@ -38,7 +38,7 @@ export class WeaponSystem {
   configure(options) {
     if(options.inspectKey!==this.options.inspectKey)this.clearInput();
     this.options={...this.options,...options};this.view.presentation=this.options;this.view.animation.allowLoop=!!this.options.loop;
-    this.bar.querySelector('.weapon-help').textContent=`${this.options.inspectKey.slice(3)} giữ: ${this.options.loop?'flex':'một lượt'} · R: thay đạn · Chuột phải: ngắm · F: đèn pin`;
+    this.bar.querySelector('.weapon-help').textContent=`${this.options.inspectKey.slice(3)} hold: ${this.options.loop?'flex':'one turn'} · R: reload · Right-click: aim · F: flashlight`;
   }
   inspect(down) { if(!down||this.available())this.view.animation.inspect(down); }
   pendingCount(weapon) { let count=0;for(const w of this.pendingShots.values())if(w===weapon)count++;return count; }
@@ -114,9 +114,9 @@ export class WeaponSystem {
     const selectedAmmo=weaponAmmo(this.authority,this.equipped),name = WEAPONS[this.equipped]?.name || '', count = WEAPONS[this.equipped]?.capacity ? `${Math.max(0, selectedAmmo.mag - this.pendingCount(this.equipped))} / ${selectedAmmo.reserve}` : this.equipped === 'butterfly' ? '∞' : '';
     if (this.nameNode.textContent !== name) this.nameNode.textContent = name;
     if (this.ammoNode.textContent !== count) this.ammoNode.textContent = count;
-    const state = this.view.animation.state === 'RELOADING' ? 'ĐANG THAY ĐẠN' : this.ads > .9 ? 'ADS' : '';
+    const state = this.view.animation.state === 'RELOADING' ? 'RELOADING' : this.ads > .9 ? 'ADS' : '';
     if (this.stateNode.textContent !== state) this.stateNode.textContent = state;
-    const profileLabel=p.player?.movement?.key==='tactical'?'TACTICAL · SHIFT ĐI CHẬM':'';const label=this.bar.querySelector('[data-weapon-profile]');if(label.textContent!==profileLabel)label.textContent=profileLabel;
+    const profileLabel=p.player?.movement?.key==='tactical'?'TACTICAL · SHIFT MOVE SLOWER':'';const label=this.bar.querySelector('[data-weapon-profile]');if(label.textContent!==profileLabel)label.textContent=profileLabel;
     for (const b of this.buttons) b.classList.toggle('selected', b.dataset.weapon === this.equipped);
   }
   updateRemote(id, av, p, dt) {

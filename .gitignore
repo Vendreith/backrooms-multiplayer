@@ -4,3 +4,7 @@ dist/
 Thumbs.db
 *.log
 output/
+.env
+.env.*
+!.env.example
+research/

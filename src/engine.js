@@ -92,10 +92,10 @@ export class PreloaderSystem {
       await PreloaderSystem.yieldFrame();
       await task.asyncFn();
     }
-    onProgress((total - 1) / total, 'Đang biên dịch Shaders & nạp VRAM (GPU Warm-up)...');
+    onProgress((total - 1) / total, 'Compiling Shaders & loading VRAM (GPU Warm-up)...');
     await PreloaderSystem.yieldFrame();
     await this.warmUpGPU();
-    onProgress(1, 'Hoàn tất!');
+    onProgress(1, 'Done!');
     await PreloaderSystem.yieldFrame();
   }
 
@@ -160,19 +160,22 @@ export class SpatialGrid2D {
 
 /**
  * WebRTC ICE config (public STUN + optional TURN relay via environment config) for cross-network browser multiplayer.
- * Credentials are never hardcoded in public client bundles; inject VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL at build time if a custom TURN relay is needed.
+ * Vite embeds these values in the browser bundle. Supply only client-scoped TURN
+ * credentials, never a provider API key or a TURN shared secret.
  */
 const TURN_USERNAME = typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_TURN_USERNAME || '') : '';
 const TURN_CREDENTIAL = typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_TURN_CREDENTIAL || '') : '';
+const TURN_URLS = (import.meta.env?.VITE_TURN_URLS || '').split(',').map(url => url.trim()).filter(url => /^turns?:/i.test(url));
+export const HAS_TURN_RELAY = Boolean(TURN_USERNAME && TURN_CREDENTIAL);
 
 export const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
   { urls: 'stun:stun.relay.metered.ca:80' },
-  ...(TURN_USERNAME && TURN_CREDENTIAL
+  ...(HAS_TURN_RELAY
     ? [{
-        urls: [
+        urls: TURN_URLS.length ? TURN_URLS : [
           'turn:global.relay.metered.ca:80',
           'turn:global.relay.metered.ca:80?transport=tcp',
           'turn:global.relay.metered.ca:443',

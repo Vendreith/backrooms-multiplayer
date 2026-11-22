@@ -1244,7 +1244,7 @@ function bakeLightmap(map, forCeiling = false) {
 export function registerTextureTasks(preloader, texStore) {
   let imgs = {};
 
-  preloader.addTask('Tải kết cấu tường, thảm và trần Backrooms (PBR)...', async () => {
+  preloader.addTask('Loading Backrooms wall, carpet, and ceiling textures (PBR)...', async () => {
     const urls = {
       wallC: './textures/wall_color.jpg',
       wallN: './textures/wall_normal.jpg',
@@ -1354,7 +1354,7 @@ export function registerTextureTasks(preloader, texStore) {
     texStore.ceilRough = texFromImage(imgs.ceilR, { srgb: false, repeat: ceilRep });
   });
 
-  preloader.addTask('Tải & xử lý Alpha vết bẩn tường, rỉ nước, nấm mốc CC0...', async () => {
+  preloader.addTask('Loading & processing wall stains, water drips, and mold CC0...', async () => {
     const [leakA, leakB, leakC, dmgC, dmgOp] = await Promise.all([
       loadImage('./textures/decals/Leaking012A/Leaking012A_1K-JPG_Color.jpg'),
       loadImage('./textures/decals/Leaking013A/Leaking013A_1K-JPG_Color.jpg'),

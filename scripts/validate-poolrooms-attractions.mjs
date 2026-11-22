@@ -1,8 +1,5 @@
-import {mkdirSync as createCheckDirectory} from 'node:fs';
-createCheckDirectory('output/checks/poolrooms/v5',{recursive:true});
-createCheckDirectory('output/checks/poolrooms/architectural_breakdown',{recursive:true});
 import * as THREE from '../node_modules/three/build/three.module.js';
-import {writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync} from 'node:fs';
 import {POOL_ZONE_DEFS} from '../src/levels/poolrooms_zones.js';
 import {buildPoolroomsV4World} from '../src/levels/poolrooms_v4_world.js';
 const lists=Object.fromEntries(['RECTS','WALLS','WATER_RECTS','PLATFORMS','RAMPS','SLIDES','PROPS','ANIM_PROPS','LIGHTS'].map(k=>[k,[]]));
@@ -23,4 +20,6 @@ for(const slide of map.SLIDES.filter(s=>s.richChute)){
  chutes.push({zoneId:slide.zoneId,maxRenderTerrainHeightError:maxError,passed:maxError<1e-5});if(maxError>=1e-5)errors.push(slide.zoneId+': chute render/terrain mismatch');
 }
 const report={passed:!errors.length,errors,method:'121 centreline samples per sweep; conservative full circular envelope for open channels. Intentional structural wall penetrations are not an attraction/attraction collision.',clearances,chutes};
-writeFileSync('output/checks/poolrooms/v5/attraction-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));if(errors.length)process.exitCode=1;
+
+mkdirSync('research/poolrooms/v5',{recursive:true});
+writeFileSync('research/poolrooms/v5/attraction-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));if(errors.length)process.exitCode=1;

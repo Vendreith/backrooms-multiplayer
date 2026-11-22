@@ -261,8 +261,8 @@ export function updatePoolroomsWorldEvents(dt, elapsed, me, map, world, audio, s
       if (typeof showCueCb === 'function') {
         showCueCb(
           doneCount >= map.PUMPS.length
-            ? 'CẢ 3 TRẠM BƠM ĐÃ HOẠT ĐỘNG — Cổng Cống Khu J đang mở!'
-            : `Đã kích hoạt Trạm Bơm (${doneCount}/${map.PUMPS.length})`
+            ? 'ALL 3 PUMP STATIONS ACTIVE — Zone J Outfall Gate is open!'
+            : `Pump Station activated (${doneCount}/${map.PUMPS.length})`
         );
       }
       if (audio?.playPumpActivation) {

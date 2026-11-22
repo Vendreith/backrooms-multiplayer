@@ -4,10 +4,11 @@
  * Third-party notices: see THIRD_PARTY_NOTICES.md
  */
 
-import { Peer, PEER_OPTS } from './engine.js';
+import { Peer, PEER_OPTS, HAS_TURN_RELAY } from './engine.js';
 import { MAXP, SURV_COLORS, ENTITY_ARCHETYPES, selectMatchEntities } from './constants.js';
 
 const ROOM_PREFIX = 'br-dbd-v2-';
+const JOIN_TIMEOUT_MS = 30000;
 
 export function randomRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -30,6 +31,9 @@ export class NetworkManager {
     this.myId = 'LOCAL';
     this.conns = new Map(); // peerId -> DataConnection (host side)
     this.hostConn = null;   // client side
+    this.pending = new Set();
+    this.joined = false;
+    this.roomStarted = false;
     this.roster = [];       // [{ id, name, role: 's'|'k', colorIdx, isAI }]
     this.aiEnabled = false;
     this.pingMs = 0;
@@ -44,10 +48,16 @@ export class NetworkManager {
 
   destroy() {
     this._clearTimers();
-    for (const c of this.conns.values()) { try { c.close(); } catch {} }
+    const peer = this.peer;
+    const connections = [...this.conns.values(), ...this.pending, this.hostConn];
+    this.peer = null;
+    this.hostConn = null;
+    this.joined = false;
+    this.roomStarted = false;
     this.conns.clear();
-    if (this.hostConn) { try { this.hostConn.close(); } catch {} this.hostConn = null; }
-    if (this.peer) { try { this.peer.destroy(); } catch {} this.peer = null; }
+    this.pending.clear();
+    for (const connection of connections) { try { connection?.close(); } catch {} }
+    peer?.destroy();
   }
 
   _appendAIEntities(seed) {
@@ -90,7 +100,7 @@ export class NetworkManager {
     this.isHost = true;
     this.isSolo = false;
     this.roomCode = (preferredCode || randomRoomCode()).toUpperCase();
-    this.h.onStatus('Đang khởi tạo phòng P2P Online (STUN/TURN)...');
+    this.h.onStatus('Opening an online room…');
 
     const peer = new Peer(ROOM_PREFIX + this.roomCode, PEER_OPTS);
     this.peer = peer;
@@ -101,16 +111,25 @@ export class NetworkManager {
       this.roster = [
         { id, name: (playerName || 'Host').slice(0, 18), role: 's', colorIdx: 0, isAI: false }
       ];
-      this.h.onStatus(`Phòng sẵn sàng: ${this.roomCode}`);
+      this.h.onStatus(`Room ready: ${this.roomCode}`);
       this.h.onLobbyUpdate(this.roster, this);
     });
 
     peer.on('connection', (conn) => {
-      if (this.conns.size >= MAXP - 1) {
-        conn.on('open', () => { conn.send({ t: 'err', msg: 'Phòng đã đầy!' }); conn.close(); });
-        return;
-      }
-      conn.on('open', () => {
+      if (this.peer !== peer) { conn.close(); return; }
+      this.pending.add(conn);
+      const pendingTimeout = setTimeout(() => conn.close(), JOIN_TIMEOUT_MS);
+      let offered = false;
+      const reject = message => {
+        conn.send({ t: 'err', msg: message });
+        setTimeout(() => conn.close(), 1000);
+      };
+      const admit = () => {
+        if (this.conns.has(conn.peer)) return;
+        if (this.roomStarted) { reject('This match has already started.'); return; }
+        if (this.conns.size >= MAXP - 1) { reject('This room is full.'); return; }
+        clearTimeout(pendingTimeout);
+        this.pending.delete(conn);
         this.conns.set(conn.peer, conn);
         const usedColors = new Set(this.roster.map(r => r.colorIdx));
         let colorIdx = 0;
@@ -119,7 +138,7 @@ export class NetworkManager {
         }
         const guest = {
           id: conn.peer,
-          name: (conn.metadata?.name || `Khách ${this.conns.size}`).slice(0, 18),
+          name: (typeof conn.metadata?.name === 'string' ? conn.metadata.name.trim().slice(0, 18) : '') || `Guest ${this.conns.size}`,
           role: 's',
           colorIdx,
           isAI: false
@@ -128,10 +147,19 @@ export class NetworkManager {
         conn.send({ t: 'welcome', id: conn.peer, roster: this.roster, aiEnabled: this.aiEnabled });
         this.broadcast({ t: 'lobby', roster: this.roster, aiEnabled: this.aiEnabled });
         this.h.onLobbyUpdate(this.roster, this);
-      });
+      };
 
       conn.on('data', (msg) => {
-        if (!msg || typeof msg !== 'object') return;
+        if (this.peer !== peer || !msg || typeof msg !== 'object') return;
+        if (msg.t === 'join-request' && !this.conns.has(conn.peer)) {
+          if (this.roomStarted) { reject('This match has already started.'); return; }
+          if (this.conns.size >= MAXP - 1) { reject('This room is full.'); return; }
+          offered = true;
+          conn.send({ t: 'join-offer' });
+          return;
+        }
+        if (msg.t === 'join-ack' && offered) { admit(); return; }
+        if (this.conns.get(conn.peer) !== conn) return;
         if (msg.t === 'ping') {
           conn.send({ t: 'pong', ts: msg.ts });
           return;
@@ -151,12 +179,16 @@ export class NetworkManager {
       });
 
       conn.on('close', () => {
+        clearTimeout(pendingTimeout);
+        this.pending.delete(conn);
+        if (this.peer !== peer || this.conns.get(conn.peer) !== conn) return;
         this.conns.delete(conn.peer);
         this.roster = this.roster.filter(r => r.id !== conn.peer);
         this.broadcast({ t: 'lobby', roster: this.roster, aiEnabled: this.aiEnabled });
         this.h.onLobbyUpdate(this.roster, this);
         this.h.onPeerDisconnect?.(conn.peer);
       });
+      conn.on('error', () => conn.close());
     });
 
     peer.on('error', (err) => {
@@ -165,7 +197,7 @@ export class NetworkManager {
         this.createOnlineRoom(playerName, '', _retryCount + 1);
         return;
       }
-      this.h.onStatus(`Lỗi kết nối P2P: ${err.type || err.message}`);
+      this.h.onStatus(`P2P connection error: ${err.type || err.message}`);
     });
   }
 
@@ -174,43 +206,64 @@ export class NetworkManager {
     this.isHost = false;
     this.isSolo = false;
     this.roomCode = code.trim().toUpperCase();
-    this.h.onStatus(`Đang kết nối vào phòng ${this.roomCode}...`);
+    this.roster = [];
+    this.aiEnabled = false;
+    this.h.onLobbyUpdate(this.roster, this);
+    if (!/^[A-Z0-9]{6}$/.test(this.roomCode)) {
+      this.h.onStatus('Enter a valid six-character room code.');
+      return;
+    }
+    this.h.onStatus(`Connecting to room ${this.roomCode}...`);
 
     const peer = new Peer(undefined, PEER_OPTS);
     this.peer = peer;
 
+    const fail = message => {
+      if (this.peer !== peer) return;
+      this.destroy();
+      this.roster = [];
+      this.h.onLobbyUpdate(this.roster, this);
+      this.h.onStatus(message);
+    };
     this._joinTimer = setTimeout(() => {
-      if (this.peer === peer && (!this.hostConn || !this.hostConn.open)) {
-        this.h.onStatus(`Hết thời gian kết nối vào phòng ${this.roomCode} — Kiểm tra mã phòng hoặc mạng!`);
+      if (!this.joined) {
+        const relayHint = HAS_TURN_RELAY ? '' : ' This build has no TURN relay for restricted networks.';
+        fail(`Could not join room ${this.roomCode}. Check the code and internet connection.${relayHint}`);
       }
-    }, 12000);
+    }, JOIN_TIMEOUT_MS);
 
     peer.on('open', (id) => {
       if (this.peer !== peer) return;
       this.myId = id;
       const conn = peer.connect(ROOM_PREFIX + this.roomCode, {
         reliable: true,
+        serialization: 'json',
         metadata: { name: (playerName || 'Operative').slice(0, 18) }
       });
+      if (!conn) { fail('Could not open a connection to the host.'); return; }
       this.hostConn = conn;
 
       conn.on('open', () => {
-        if (this._joinTimer) { clearTimeout(this._joinTimer); this._joinTimer = null; }
-        this.h.onStatus(`Đã vào phòng ${this.roomCode}! Đang chờ Host bắt đầu...`);
-        this._pingTimer = setInterval(() => {
-          if (conn.open) conn.send({ t: 'ping', ts: performance.now() });
-        }, 2000);
+        if (this.hostConn === conn) conn.send({ t: 'join-request' });
       });
 
       conn.on('data', (msg) => {
-        if (!msg || typeof msg !== 'object') return;
+        if (this.hostConn !== conn || !msg || typeof msg !== 'object') return;
+        if (msg.t === 'join-offer') { conn.send({ t: 'join-ack' }); return; }
+        if (msg.t === 'err') { fail(String(msg.msg || 'The host rejected the connection.')); return; }
+        if (!this.joined) {
+          if (msg.t !== 'welcome' || msg.id !== this.myId || !Array.isArray(msg.roster) || !msg.roster.some(player => player.id === this.myId)) return;
+          this.joined = true;
+          clearTimeout(this._joinTimer);
+          this._joinTimer = null;
+          this.h.onStatus(`Joined room ${this.roomCode}. Waiting for the host to start.`);
+          this._pingTimer = setInterval(() => {
+            if (conn.open) conn.send({ t: 'ping', ts: performance.now() });
+          }, 2000);
+        }
         if (msg.t === 'pong') {
           this.pingMs = Math.round(performance.now() - msg.ts);
           this.h.onPing?.(this.pingMs);
-          return;
-        }
-        if (msg.t === 'err') {
-          this.h.onStatus(msg.msg);
           return;
         }
         if (msg.t === 'welcome' || msg.t === 'lobby') {
@@ -227,16 +280,19 @@ export class NetworkManager {
       });
 
       conn.on('close', () => {
-        this._clearTimers();
-        this.h.onStatus('Mất kết nối tới Host.');
-        this.h.onHostDisconnect?.();
+        if (this.hostConn !== conn) return;
+        const wasJoined = this.joined;
+        fail(wasJoined ? 'Disconnected from the host.' : 'The connection closed before the host confirmed your join.');
+        if (wasJoined) this.h.onHostDisconnect?.();
+      });
+      conn.on('error', () => {
+        if (!this.joined) fail('The data channel could not connect to the host.');
       });
     });
 
     peer.on('error', (err) => {
       if (this.peer !== peer) return;
-      if (this._joinTimer) { clearTimeout(this._joinTimer); this._joinTimer = null; }
-      this.h.onStatus(`Không tìm thấy phòng hoặc lỗi mạng: ${err.type || err.message}`);
+      if (!this.joined) fail(`Could not connect to room ${this.roomCode}: ${err.type || err.message}`);
     });
   }
 
@@ -283,6 +339,7 @@ export class NetworkManager {
 
   broadcast(msg) {
     if (!this.isHost || this.isSolo) return;
+    if (msg.t === 'start') this.roomStarted = true;
     for (const c of this.conns.values()) {
       if (c.open) {
         try { c.send(msg); } catch {}
@@ -292,7 +349,7 @@ export class NetworkManager {
 
   sendToHost(msg) {
     if (this.isHost) return;
-    if (this.hostConn && this.hostConn.open) {
+    if (this.joined && this.hostConn?.open) {
       try { this.hostConn.send(msg); } catch {}
     }
   }

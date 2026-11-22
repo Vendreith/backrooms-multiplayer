@@ -36,7 +36,10 @@ import { GraphicsManager } from './postfx.js';
 import { audio, MUSIC_TRACKS, AMBIENT_TRACK_KEYS, CHASE_TRACK_KEYS, HORROR_SFX_TRACKS, CREEPY_RANDOM_KEYS } from './audio.js';
 import { EntityAIController, findGridPath } from './ai.js';
 import { NetworkManager } from './network.js';
-import { LEVEL_CATALOG, LEVEL_LIST, getLevelMeta } from './levels/catalog.js';
+import { LEVEL_CATALOG, LEVEL_LIST, getLevelMeta, canonicalLevelId } from './levels/catalog.js';
+import { resolveThreshold } from './levels/thresholds.js';
+import { ExplorationSystem } from '../level94_gameplay/exploration.js';
+import { Level94Ambience } from '../level94_gameplay/ambience.js';
 import { getTerrainAt } from './levels/terrain.js';
 import { genSubLevelMap } from './levels/world_generators.js';
 import { getPoolroomsZoneAt, updatePoolroomsWorldEvents, resetPoolroomsEventsState } from './levels/poolrooms_world.js';
@@ -262,8 +265,29 @@ function isMobileDevice() {
 
 const mobileAutoBoot = isMobileDevice();
 let currentGfx = localStorage.getItem('br_gfx_v2') || (mobileAutoBoot ? 'mobile' : 'ultra');
+const PC_DEFAULT_FX = {
+  idleMotion: 'natural', autoBhop: true, movementShake: 3, handheldTremor: 3,
+  verticalBob: 1, reducedMotion: false, footageFilterMode: 'found_vhs',
+  footageFilterStrength: .35, upscaleSoftness: .9, halation: 2.5, clarity: 1,
+  baseGrain: .35, grain: 1.5, bloom: 2.3, lensCurve: 1.4, crtScanlines: true,
+  scanlines: 1.5, vignette: 2, motionBlur: 1, dofBlur: .05, brightness: .9,
+  contrast: 1.04, gamma: .88, hue: 1, saturation: 1.14,
+  eyeAdaptPreset: 'custom', eyeAdaptEnabled: true, eyeAdaptStrength: 2,
+  eyeAdaptBrightSpeed: .6, eyeAdaptDarkSpeed: 6, eyeAdaptComp: .15,
+  eyeAdaptMinExp: .65, eyeAdaptMaxExp: 4,
+  renderDistPreset: '800', renderDistance: 800, renderScale: 1.5, aaMode: 'msaa',
+  shadows: true, rtShadow: 1.6, waterQuality: 'ultra', cloudQuality: 'ultra',
+  postFX: true, dust: true, touchControls: 'auto', cleanCamHud: false
+};
+
+function getPlatformDefaultFx(presetKey) {
+  const base = getPresetDefaultFx(presetKey);
+  if (mobileAutoBoot || presetKey !== 'ultra') return { ...base, userFxKeys: [] };
+  return { ...base, ...PC_DEFAULT_FX, userFxKeys: Object.keys(PC_DEFAULT_FX) };
+}
+
 function loadFxSettings(presetKey) {
-  const base = { ...getPresetDefaultFx(presetKey), ...loadFpsPreferences() };
+  const base = { ...getPlatformDefaultFx(presetKey), ...loadFpsPreferences() };
   try {
     const saved = JSON.parse(localStorage.getItem('br_fx_v2') || 'null');
     if (saved && typeof saved === 'object') {
@@ -279,6 +303,11 @@ function loadFxSettings(presetKey) {
           merged[c.key] = Number.isFinite(n) ? Math.min(c.max, Math.max(c.min, n)) : base[c.key];
         }
       }
+      // Preserve deliberate edits across map changes and browser reloads. Older
+      // saves have no key list, so infer edits from their preset's defaults.
+      merged.userFxKeys = Array.isArray(saved.userFxKeys)
+        ? saved.userFxKeys.filter(key => FX_CONTROLS.some(c => c.key === key))
+        : [...new Set([...base.userFxKeys, ...FX_CONTROLS.filter(c => Object.hasOwn(saved,c.key) && saved[c.key] !== base[c.key]).map(c => c.key)])];
       return merged;
     }
   } catch {}
@@ -290,7 +319,7 @@ function loadFpsPreferences() {
 }
 function saveFpsPreferences() { localStorage.setItem('br_fps_preferences_v1', JSON.stringify(Object.fromEntries(FPS_SETTING_KEYS.map(k => [k, fxSettings[k]])))); }
 const rawSavedFps = localStorage.getItem('br_fps_v2');
-const defaultFps = mobileAutoBoot ? 30 : 15;
+const defaultFps = mobileAutoBoot ? 30 : 60;
 const savedFps = rawSavedFps === null ? defaultFps : Number(rawSavedFps);
 let fpsCap = FPS_CAPS.includes(savedFps) ? savedFps : defaultFps;
 const rawSavedAspect = localStorage.getItem('br_aspect_v2');
@@ -517,50 +546,50 @@ let tpActiveTab = 'all';
 let tpSearchQuery = '';
 
 const ZONE_LABELS = {
-  manila: 'PHÒNG MANILA', arches: 'KHU VÒM NƯỚC', pitfalls: 'HỐ SÂU PITFALLS', huge_pitfall: 'VỰC THẲM PITFALLS',
-  poolrooms: 'HỒ BƠI NGẦM', wet_concrete: 'BÊ TÔNG ẨM', blackout: 'VÙNG TẮT ĐIỆN',
-  redrooms: 'PHÒNG ĐỎ DỊ THƯỜNG', colonnade: 'ĐẠI SẢNH CỘT', office: 'MÊ CUNG VĂN PHÒNG',
-  crawl_bay: 'KHE HẦM THẤP', mold_utility: 'KHU KỸ THUẬT MỐC', monolith_maze: 'MÊ CUNG KHỐI VÀNG',
-  async_threshold: 'NGƯỠNG CỬA A-SYNC', suburb_pitfalls: 'KHU PHỐ NGÕ CỤT', red_city: 'THÀNH PHỐ ĐỎ & ỐNG RỈ',
-  null_kx_glitch: 'VÙNG LỖI NULL_KX', async_archive: 'KHO HỒ SƠ KV-31', flooded_sump: 'TRẠM BƠM NƯỚC ĐỌNG',
-  breaker_vault: 'TRẠM BIẾN ÁP XANH', gravity_error: 'PHÒNG LỖI TRỌNG LỰC', ceiling_plenum: 'TRẦN SỤP & GIẾNG THANG',
-  still_life_relay: 'TRẠM SÓNG STILL-LIFE', fluorescent_greenhouse: 'HÀNH LANG ĐÈN LỤC', stairwell_loop: 'CẦU THANG VÔ TẬN',
-  ff1_ladder_hatch: 'HỐC THANG SẮT (FF#1)', ff1_dont_move: 'TƯỜNG DON\'T MOVE (FF#1)',
-  ff1_white_gallery: 'SẢNH TRẮNG & CỬA SỔ (FF#1)', ff1_filing_corridor: 'DÃY TỦ HỒ SƠ & KEEP CLEAR (FF#1)',
-  ff2_tape_kitchen: 'Ô BĂNG XANH & BẾP (FF#2)', ff2_crashed_car: 'XE HƠI ĐÂM TƯỜNG (FF#2)',
-  ff2_hardwood_home: 'NHÀ SÀN GỖ & LAN CAN (FF#2)', ff2_vine_plasma: 'TỔ RỄ ĐEN & VẾT NỨT LỤC (FF#2)',
-  flooded_yellow_hall: 'ĐẠI SẢNH VÀNG NGẬP NƯỚC', mb_courtyard: 'SÂN CHUNG CƯ 3 TẦNG NGẦM',
-  mb_mall_atrium: 'TRUNG TÂM THƯƠNG MẠI 1990S', mb_red_skybridge: 'CẦU KÍNH ĐỎ & THÀNH PHỐ ĐÊM',
-  mb_brick_alcove_hall: 'HÀNH LANG GẠCH NÂU & CỬA SỔ', mb_bicycle_tripod: 'GÓC XE ĐẠP & GIÁ BA CHÂN LỤC',
-  mb_library_fan_hall: 'PHÒNG QUẠT TRẦN & GIÁ SÁCH', mb_unrealized_mural: 'BỨC TRANH TƯỜNG UNREALIZED',
-  mb_diner_fridge: 'PHÒNG ĂN NEON OPEN & TỦ LẠNH', mb_van_tunnel: 'HẦM XE TẢI TRẮNG & DOLLAR GENER',
-  mb_grey_basement: 'TẦNG HẦM XÁM & CỬA BĂNG XANH', mb_cctv_cove: 'HỐC CAMERA CCTV & CỬA CHUI',
-  mb_dining_blue_drapes: 'PHÒNG ĂN RÈM XANH HOÀNG GIA', mb_gold_tile_blood: 'TƯỜNG GẠCH VÀNG & VẾT MÁU KÉO',
-  mb_floating_wall_glitch: 'TƯỜNG TREO LƠ LỬNG & GIƯỜNG CŨI',
-  rear_atrium_threshold: 'SẢNH HẬU A-SYNC 360° (REAR)',
-  herringbone_gallery: 'PHÒNG TRANH SÀN GỖ XƯƠNG CÁ',
-  sunken_terrazzo_basin: 'HỒ CẠN ĐÁ MÀI TERRAZZO',
-  partition_bullpen_maze: 'MÊ CUNG VÁCH NGĂN VĂN PHÒNG',
-  arched_arcade_rotunda: 'ĐẠI SẢNH VÒM TRÒN CỔ ĐIỂN',
-  narrow_service_spine: 'HÀNH LANG KỸ THUẬT HẸP DÀI',
-  checker_diner_concourse: 'QUẦY ĂN SÀN CA-RÔ ĐEN TRẮNG',
-  exposed_stud_renovation: 'KHU THI CÔNG KHUNG XƯƠNG GỖ',
-  glass_block_solarium: 'SẢNH KÍNH MỜ ÁNH SÁNG LẠNH',
-  stepped_amphitheater_well: 'GIẾNG BẬC THANG ĐẤU TRƯỜNG',
-  laundromat_limbo: 'TIỆM GIẶT ỦI VÔ TẬN',
-  double_tier_mezzanine: 'SÀN GÁC LỬNG HAI TẦNG',
-  waiting_room_infinite: 'PHÒNG CHỜ GHẾ XANH & TV',
-  amber_brutalist_vault: 'HẦM BÊ TÔNG ÁNH VÀNG HỔ PHÁCH',
-  wallpaper_tear_void: 'KHE RÁCH GIẤY DÁN TƯỜNG HƯ KHÔNG',
-  acoustic_baffle_hall: 'HÀNH LANG TIÊU ÂM CÁCH LY',
-  freight_loading_bay: 'BẾN BỐC DỠ HÀNG HÓA CỬA CUỐN',
-  hotel_corridor_loop: 'HÀNH LANG KHÁCH SẠN THẢM ĐỎ',
-  boiler_manifold_room: 'PHÒNG LÒ HƠI & ỐNG ÁP SUẤT',
-  museum_plinth_hall: 'SẢNH TRƯNG BÀY BỆ TỦ KÍNH',
-  bowling_alley_deadend: 'ĐƯỜNG BOWLING SÀN GỖ CỤT ĐẦU',
-  server_tape_mainframe: 'PHÒNG MÁY CHỦ BĂNG TỪ A-SYNC',
-  indoor_fountain_plaza: 'QUẢNG TRƯỜNG ĐÀI PHUN NƯỚC CẠN',
-  infinity_arch_perspective: 'ĐẠI LỘ VÒM VÔ CỰC ÁNH SÁNG'
+  manila: 'MANILA ROOM', arches: 'WATER POOL', pitfalls: 'PITFALLS', huge_pitfall: 'PITFALLS',
+  poolrooms: 'SUBMERGED POOL', wet_concrete: 'WET CONCRETE', blackout: 'Power Outage Zone',
+  redrooms: 'Red Room Anomaly', colonnade: 'Pillar Lobby', office: 'Office Labyrinth',
+  crawl_bay: 'Low Crawl Space', mold_utility: 'Milestone Tech Zone', monolith_maze: 'Gold Block Labyrinth',
+  async_threshold: 'A-Sync Threshold', suburb_pitfalls: 'Dead-End Alley', red_city: 'Red City & Rust Pipes',
+  null_kx_glitch: 'NULL_KX Glitch Zone', async_archive: 'KV-31 Archive Vault', flooded_sump: 'Sludge Pump Station',
+  breaker_vault: 'Blue Substation', gravity_error: 'Gravity Error Room', ceiling_plenum: 'Sagging Ceiling & Ladder Well',
+  still_life_relay: 'Still-Life Wave Station', fluorescent_greenhouse: 'Green Light Walkway', stairwell_loop: 'INFINITE LADDER',
+  ff1_ladder_hatch: 'STEEL LADDER (FF#1)', ff1_dont_move: 'DON\'T MOVE WALL (FF#1)',
+  ff1_white_gallery: 'WHITE PORCH & WINDOW (FF#1)', ff1_filing_corridor: 'FILE CABINET ROW & KEEP CLEAR (FF#1)',
+  ff2_tape_kitchen: 'BLUE ICEBOX & STOVE (FF#2)', ff2_crashed_car: 'CAR CRASHES INTO WALL (FF#2)',
+  ff2_hardwood_home: 'WOODEN FLOOR & RAILING (FF#2)', ff2_vine_plasma: 'BLACK ROOT & GREEN CRACK',
+  flooded_yellow_hall: 'GOLDEN FLOODGATE', mb_courtyard: 'THREE-STOREY GROUND FLOOR',
+  mb_mall_atrium: '1990s MALL', mb_red_skybridge: 'RED GLASS & NIGHT CITY',
+  mb_brick_alcove_hall: 'BROWN TILES & WINDOW', mb_bicycle_tripod: 'BICYCLE CORNER & TRIPOD',
+  mb_library_fan_hall: 'CEILING FAN & BOOKSHELF', mb_unrealized_mural: 'UNREALIZED WALL PICTURE',
+  mb_diner_fridge: 'NEON OPEN DINING & FRIDGE', mb_van_tunnel: 'White Cargo Elevator & Dollar Generator',
+  mb_grey_basement: 'Gray Basement & Blue Door', mb_cctv_cove: 'CCTV Camera Pit & Doorway',
+  mb_dining_blue_drapes: 'Green Curtain Dining Room (Royal Family)', mb_gold_tile_blood: 'Yellow Brick Wall & Blood Stain',
+  mb_floating_wall_glitch: 'Swinging Curtain & Old Bed',
+  rear_atrium_threshold: 'A-SYNC 360° Rear Lobby',
+  herringbone_gallery: 'Fishbone Wood Floor Art Room',
+  sunken_terrazzo_basin: 'Terrazzo Stone Basin',
+  partition_bullpen_maze: 'Office Partitioned Room',
+  arched_arcade_rotunda: 'Classic Round Dome Lobby',
+  narrow_service_spine: 'Long Narrow Technical Corridor',
+  checker_diner_concourse: 'Black and White Checkered Dining Counter',
+  exposed_stud_renovation: 'Wooden Frame Construction Area',
+  glass_block_solarium: 'Frosted Glass Bright Lobby',
+  stepped_amphitheater_well: 'Staircase Pit Arena',
+  laundromat_limbo: 'Infinite Laundry Shop',
+  double_tier_mezzanine: 'Two-Story Swinging Floor',
+  waiting_room_infinite: 'Green Chair & TV Waiting Room',
+  amber_brutalist_vault: 'Concrete Basement with Golden Tiger',
+  wallpaper_tear_void: 'Wallpaper Gap Void',
+  acoustic_baffle_hall: 'Soundproof Corridor',
+  freight_loading_bay: 'Cargo Dock with Rolling Doors',
+  hotel_corridor_loop: 'Red Carpet Guest Corridor',
+  boiler_manifold_room: 'Steam Room & Pressure Pipe',
+  museum_plinth_hall: 'Display Case with Glass Cabinet',
+  bowling_alley_deadend: 'Bowling Lane with Chipped Wood Floor',
+  server_tape_mainframe: 'A-SYNC Master Control Room',
+  indoor_fountain_plaza: 'Water Fountain Square',
+  infinity_arch_perspective: 'Infinite Dome Highway'
 };
 
 function syncNoclipUI() {
@@ -569,19 +598,19 @@ function syncNoclipUI() {
   const bTxt = $('noclipBadgeText');
   if (bTxt) {
     bTxt.textContent = isMobileUiActive()
-      ? `NOCLIP BẬT • ${Math.round(noclipSpeed)} m/s`
-      : `NOCLIP BẬT [N] • ${Math.round(noclipSpeed)} m/s • Space: Bay lên • C/Ctrl: Xuống`;
+      ? `NOCLIP ON • ${Math.round(noclipSpeed)} m/s`
+      : `NOCLIP ON [N] • ${Math.round(noclipSpeed)} m/s • Space: Fly Up • C/Ctrl: Fly Down`;
   }
   const tpBtn = $('tpHudBtn');
   if (tpBtn) tpBtn.classList.toggle('noclip-on', noclipMode);
   const tpNc = $('tpHudNcBtn');
-  if (tpNc) tpNc.textContent = noclipMode ? 'NC BẬT [N]' : 'NOCLIP [N]';
+  if (tpNc) tpNc.textContent = noclipMode ? 'NC ON [N]' : 'NOCLIP [N]';
   const mobTp = $('mobTpBtn');
   if (mobTp) mobTp.classList.toggle('noclip-on', noclipMode);
   const pNcBtn = $('tpNoclipBtn');
   if (pNcBtn) {
     pNcBtn.classList.toggle('on', noclipMode);
-    pNcBtn.textContent = noclipMode ? 'CHẾ ĐỘ NO-CLIP [N]: ĐANG BẬT' : 'CHẾ ĐỘ NO-CLIP [N]: TẮT';
+    pNcBtn.textContent = noclipMode ? 'NO-CLIP MODE [N]: ON' : 'NO-CLIP MODE [N]: OFF';
   }
   const spdInput = $('tpNoclipSpeed');
   if (spdInput && Number(spdInput.value) !== Math.round(noclipSpeed)) {
@@ -590,9 +619,9 @@ function syncNoclipUI() {
   const spdVal = $('tpNoclipSpeedVal');
   if (spdVal) spdVal.textContent = `${Math.round(noclipSpeed)} m/s`;
   const mJump = $('mobJumpBtn');
-  if (mJump) mJump.innerHTML = noclipMode ? 'BAY LÊN<small>↑ Y+</small>' : 'NHẢY<small>Bhop</small>';
+  if (mJump) mJump.innerHTML = noclipMode ? 'JUMP<small>↑ Y+</small>' : 'JUMP<small>Bhop</small>';
   const mCrouch = $('mobCrouchBtn');
-  if (mCrouch) mCrouch.innerHTML = noclipMode ? 'HẠ XUỐNG<small>↓ Y-</small>' : 'NGỒI<small>Ctrl</small>';
+  if (mCrouch) mCrouch.innerHTML = noclipMode ? 'DROP<small>↓ Y-</small>' : 'SIT<small>Ctrl</small>';
 }
 
 function setNoclipMode(nextOn, silent = false) {
@@ -615,8 +644,8 @@ function setNoclipMode(nextOn, silent = false) {
   if (!silent && inMatch) {
     pushFeed(
       on
-        ? `NO-CLIP: BẬT (${Math.round(noclipSpeed)} m/s) — Bay xuyên tường bằng WASD + Space / C!`
-        : 'NO-CLIP: ĐÃ TẮT — Khôi phục vật lý va chạm & trọng lực.',
+        ? `NO-CLIP: ON (${Math.round(noclipSpeed)} m/s) — Fly through walls with WASD + Space / C!`
+        : 'NO-CLIP: OFF — Restore physics collisions & gravity.',
       on ? '#56e892' : '#ffe066'
     );
   }
@@ -654,8 +683,8 @@ function collectLevelLandmarks(levelId) {
 
   if (m.SPAWN) {
     list.push({
-      id: `${levelId}_spawn`, cat: 'here', subGroup: 'core', badge: 'XUẤT PHÁT', badgeClass: '',
-      title: `Điểm Xuất Phát (${meta.code})`,
+      id: `${levelId}_spawn`, cat: 'here', subGroup: 'core', badge: 'START', badgeClass: '',
+      title: `Start Point (${meta.code})`,
       subtitle: `${meta.vnName} • (${Math.round(m.SPAWN.x)}, ${Math.round(m.SPAWN.y || 0)}, ${Math.round(m.SPAWN.z)})`,
       levelId, x: m.SPAWN.x, y: m.SPAWN.y || 0, z: m.SPAWN.z, yaw: m.SPAWN.yaw || 0
     });
@@ -663,34 +692,34 @@ function collectLevelLandmarks(levelId) {
 
   if (levelId === 'level0' && m.ELEVATOR) {
     list.push({
-      id: 'level0_elev', cat: 'here', subGroup: 'core', badge: 'THANG MÁY', badgeClass: 'done',
-      title: 'Thang Máy — Khu Classic',
-      subtitle: `Điểm xuất phát giữa mê cung vàng • (${Math.round(m.ELEVATOR.x)}, ${Math.round(m.ELEVATOR.z)})`,
+      id: 'level0_elev', cat: 'here', subGroup: 'core', badge: 'ELEVATOR', badgeClass: 'done',
+      title: 'Elevator — Classic Area',
+      subtitle: `Midpoint of the yellow maze • (${Math.round(m.ELEVATOR.x)}, ${Math.round(m.ELEVATOR.z)})`,
       levelId: 'level0', x: m.ELEVATOR.x, y: 0, z: m.ELEVATOR.z - 5.2, yaw: 0
     });
     const oldCab=m.legacyElevator||m.ELEVATOR;
     const rearHubPt = resolveWalkablePoint(m, oldCab.x, oldCab.z + 6.5, 0);
     list.push({
-      id: 'level0_rear_hub', cat: 'here', subGroup: 'core', badge: 'PHÍA SAU 180°', badgeClass: 'accent',
-      title: 'Sảnh Hậu Phía Sau Thang Máy (Rear Atrium 180°)',
-      subtitle: `Hướng thẳng vào thế giới phía sau • (${Math.round(rearHubPt.x)}, ${Math.round(rearHubPt.z)})`,
+      id: 'level0_rear_hub', cat: 'here', subGroup: 'core', badge: 'REAR 180°', badgeClass: 'accent',
+      title: 'Rear Atrium 180°',
+      subtitle: `Straight into the world behind • (${Math.round(rearHubPt.x)}, ${Math.round(rearHubPt.z)})`,
       levelId: 'level0', ...rearHubPt, yaw: Math.PI
     });
   }
 
   if(levelId==='level0'&&m.classic){
-    const names={spawn:'Cửa thang máy Classic',corridor:'Hành lang vàng hẹp',intersection:'Ngã rẽ vách ngăn',dark:'Phòng tắt đèn',lit:'Phòng đèn huỳnh quang trắng',dream:'Dãy cửa lặp',pit:'Miệng vực đen',props:'Cụm đồ gia dụng',exit:'Sảnh chuyển tiếp'};
-    for(const [key,v]of Object.entries(m.classic.views))list.push({id:'classic_'+key,cat:'here',subGroup:'core',badge:'CLASSIC',title:names[key],subtitle:'Khu classic 150 × 150 m',levelId:'level0',x:v.x,z:v.z,y:0,yaw:v.yaw});
+    const names={spawn:'Classic Elevator Door',corridor:'Narrow yellow corridor',intersection:'Partitioned junction',dark:'Dark room',lit:'Fluorescent white room',dream:'Repeating door sequence',pit:'Black Pit',props:'Appliance Cluster',exit:'Transition Hall'};
+    for(const [key,v]of Object.entries(m.classic.views))list.push({id:'classic_'+key,cat:'here',subGroup:'core',badge:'CLASSIC',title:names[key],subtitle:'Classic area, 150 × 150 m',levelId:'level0',x:v.x,z:v.z,y:0,yaw:v.yaw});
   }
   if (levelId === 'level0' && m.EXITS?.length) {
     m.EXITS.forEach((ex, i) => {
       const safeZ = ex.dirZ < 0 ? 3.5 : (m.spanZ ?? m.worldSpan ?? (N * C)) - 3.5;
       const pt = resolveWalkablePoint(m, ex.x, safeZ, 0);
       list.push({
-        id: `level0_exit_${i}`, cat: 'here', subGroup: 'core', badge: m.exitsOpen ? 'ĐÃ MỞ' : 'CỔNG THOÁT',
+        id: `level0_exit_${i}`, cat: 'here', subGroup: 'core', badge: m.exitsOpen ? 'OPEN' : 'EXIT GATE',
         badgeClass: m.exitsOpen ? 'done' : 'warn',
-        title: `Cổng Thoát Hiểm ${ex.dirZ < 0 ? 'Bắc (North Front)' : 'Nam (South Rear)'}`,
-        subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        title: `Emergency Exit ${ex.dirZ < 0 ? 'North Front' : 'Nam (South Rear)'}`,
+        subtitle: `Coordinates (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
         levelId: 'level0', ...pt, yaw: ex.dirZ < 0 ? 0 : Math.PI
       });
     });
@@ -700,13 +729,13 @@ function collectLevelLandmarks(levelId) {
     m.TASKS.forEach((t, idx) => {
       const pt = resolveWalkablePoint(m, t.x + 2.2, t.z, t.y || 0);
       const tTitle = levelId === 'level0'
-        ? `Tủ Điện #${idx + 1} (${t.code || ''} ${t.symbol || ''})`.trim()
-        : `Máy Thoát Tầng (${meta.code})`;
+        ? `Electrical Panel #${idx + 1} (${t.code || ''} ${t.symbol || ''})`.trim()
+        : `Elevator (${meta.code})`;
       list.push({
         id: `${levelId}_task_${idx}`, cat: 'here',
-        badge: t.done ? 'ĐÃ SỬA' : 'MÁY', badgeClass: t.done ? 'done' : '',
+        badge: t.done ? 'REPAIRED' : 'MACHINE', badgeClass: t.done ? 'done' : '',
         title: tTitle,
-        subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.y)}, ${Math.round(pt.z)})`,
+        subtitle: `Coordinates (${Math.round(pt.x)}, ${Math.round(pt.y)}, ${Math.round(pt.z)})`,
         levelId, ...pt, yaw: Math.PI * 0.5
       });
     });
@@ -717,24 +746,24 @@ function collectLevelLandmarks(levelId) {
       const pt = resolveWalkablePoint(m, po.x, po.z - 3.0, po.y || 0);
       list.push({
         id: `${levelId}_portal_${idx}`, cat: 'here',
-        badge: 'CỔNG VỀ', badgeClass: m.exitsOpen ? 'done' : 'warn',
-        title: `Cổng Trở Về Level 0 #${idx + 1}`,
-        subtitle: `Tọa độ (${Math.round(pt.x)}, ${Math.round(pt.y)}, ${Math.round(pt.z)})`,
+        badge: 'RETURN GATE', badgeClass: m.exitsOpen ? 'done' : 'warn',
+        title: `Return to Level 0 #${idx + 1}`,
+        subtitle: `Coordinates (${Math.round(pt.x)}, ${Math.round(pt.y)}, ${Math.round(pt.z)})`,
         levelId, ...pt, yaw: 0
       });
     });
   }
 
   if (levelId === 'level0' && m.ENTRANCES?.length) {
-    const typeName = { noclip_floor: 'Sàn Noclip Ẩn', pickup: 'Vật Phẩm Dị Thường', crawl_hatch: 'Hầm Chui', portal: 'Cánh Cổng' };
+    const typeName = { noclip_floor: 'Hidden Noclip Floor', pickup: 'Anomalous Item', crawl_hatch: 'Tunnel', portal: 'Gate' };
     m.ENTRANCES.forEach((ent) => {
       const subMeta = getLevelMeta(ent.levelId);
       const pt = resolveWalkablePoint(m, ent.x + 2.8, ent.z, 0);
       list.push({
         id: `lvl0_ent_${ent.levelId}`, cat: 'entrances',
         badge: subMeta.code, badgeClass: levelsClearedSet.has(ent.levelId) ? 'done' : '',
-        title: `Lối vào ${subMeta.code}: ${subMeta.vnName}`,
-        subtitle: `${typeName[ent.entryType] || 'Cổng'} tại (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        title: `Entrance ${subMeta.code}: ${subMeta.vnName}`,
+        subtitle: `${typeName[ent.entryType] || 'Gate'} at (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
         levelId: 'level0', ...pt, yaw: Math.PI * 0.5, safeDropGuard: true
       });
     });
@@ -744,9 +773,9 @@ function collectLevelLandmarks(levelId) {
     m.SLIDES.forEach((sl, idx) => {
       if (idx > 7) return;
       list.push({
-        id: `${levelId}_slide_${idx}`, cat: 'here', badge: 'CẦU TRƯỢT', badgeClass: '',
-        title: `Tháp Cầu Trượt Nước #${idx + 1}`,
-        subtitle: `Đỉnh trượt Y=${Math.round(sl.y0 || 4)}m • (${Math.round(sl.x0)}, ${Math.round(sl.z0)})`,
+        id: `${levelId}_slide_${idx}`, cat: 'here', badge: 'SLIDE BRIDGE', badgeClass: '',
+        title: `Water Slide Tower #${idx + 1}`,
+        subtitle: `Slide Top Y=${Math.round(sl.y0 || 4)}m • (${Math.round(sl.x0)}, ${Math.round(sl.z0)})`,
         levelId, x: sl.x0, y: (sl.y0 || 3) + 0.35, z: sl.z0, yaw: 0, preserveY: true
       });
     });
@@ -758,9 +787,9 @@ function collectLevelLandmarks(levelId) {
       const wx = (w.x0 + w.x1) * 0.5;
       const wz = (w.z0 + w.z1) * 0.5;
       list.push({
-        id: `${levelId}_water_${idx}`, cat: 'here', badge: 'HỒ NƯỚC', badgeClass: '',
-        title: idx === 0 ? 'Vùng Nước Chính' : `Hồ Bơi / Sông #${idx + 1}`,
-        subtitle: `Mặt nước Y=${(w.waterY || 0).toFixed(1)}m • (${Math.round(wx)}, ${Math.round(wz)})`,
+        id: `${levelId}_water_${idx}`, cat: 'here', badge: 'WATER', badgeClass: '',
+        title: idx === 0 ? 'Main Water Area' : `Pool / River #${idx + 1}`,
+        subtitle: `Water Surface Y=${(w.waterY || 0).toFixed(1)}m • (${Math.round(wx)}, ${Math.round(wz)})`,
         levelId, x: wx, y: (w.waterY || 0) + 0.15, z: wz, yaw: 0, preserveY: true
       });
     });
@@ -773,9 +802,9 @@ function collectLevelLandmarks(levelId) {
       const dz = h.doorSide === 'north' ? -(h.d * 0.5 + 3.5) : (h.d * 0.5 + 3.5);
       const pt = resolveWalkablePoint(m, h.cx, h.cz + dz, h.baseY || 0);
       list.push({
-        id: `${levelId}_house_${i}`, cat: 'here', badge: 'NGÔI NHÀ', badgeClass: '',
-        title: `Ngôi Nhà / Kiến Trúc #${i + 1}`,
-        subtitle: `Trước cửa (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        id: `${levelId}_house_${i}`, cat: 'here', badge: 'HOUSE', badgeClass: '',
+        title: `House / Architecture #${i + 1}`,
+        subtitle: `In front of (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
         levelId, ...pt, yaw: 0
       });
     }
@@ -788,9 +817,9 @@ function collectLevelLandmarks(levelId) {
       const off = Math.max(tw.w || 6, tw.d || 6) * 0.5 + 4.5;
       const pt = resolveWalkablePoint(m, tw.x + off, tw.z, tw.baseY || 0);
       list.push({
-        id: `${levelId}_tower_${i}`, cat: 'here', badge: 'CÔNG TRÌNH', badgeClass: '',
-        title: `Tòa Tháp / Khối Kiến Trúc #${i + 1}`,
-        subtitle: `Cao ${Math.round(tw.h || 20)}m • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        id: `${levelId}_tower_${i}`, cat: 'here', badge: 'BUILDING', badgeClass: '',
+        title: `Tower / Building Block #${i + 1}`,
+        subtitle: `Height: ${Math.round(tw.h || 20)}m • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
         levelId, ...pt, yaw: Math.PI * 0.5
       });
     }
@@ -817,7 +846,7 @@ function collectLevelLandmarks(levelId) {
         badge: isRear ? 'REAR' : 'FRONT',
         badgeClass: isRear ? 'accent' : '',
         title: ZONE_LABELS[z.type] || z.type.toUpperCase(),
-        subtitle: `${isRear ? 'Khu Phía Sau (Rear)' : 'Khu Phía Trước (Front)'} • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
+        subtitle: `${isRear ? 'Rear Area' : 'Front Area'} • (${Math.round(pt.x)}, ${Math.round(pt.z)})`,
         levelId: 'level0', ...pt, yaw: isRear ? Math.PI : 0
       });
     }
@@ -831,7 +860,7 @@ function collectLevelLandmarks(levelId) {
         badge: `KHU ${z.code}`,
         badgeClass: 'accent',
         title: z.name,
-        subtitle: z.desc || `Khu vực Poolrooms (${Math.round(z.teleX)}, ${Math.round(z.teleZ)})`,
+        subtitle: z.desc || `Poolrooms Area (${Math.round(z.teleX)}, ${Math.round(z.teleZ)})`,
         levelId,
         x: z.teleX,
         y: z.teleY || 0,
@@ -847,10 +876,10 @@ function collectLevelLandmarks(levelId) {
       list.push({
         id: `${levelId}_pump_${pm.id}`,
         cat: 'here',
-        badge: pm.done ? 'BƠM XONG' : 'TRẠM BƠM',
+        badge: pm.done ? 'PUMP DONE' : 'PUMP STATION',
         badgeClass: pm.done ? 'done' : 'portal',
         title: pm.name,
-        subtitle: `Van thủy lực (${Math.round(pm.x)}, ${Math.round(pm.z)})`,
+        subtitle: `Hydraulic Valve (${Math.round(pm.x)}, ${Math.round(pm.z)})`,
         levelId,
         x: pm.x,
         y: (pm.y || 0) + 0.15,
@@ -871,10 +900,10 @@ function collectLevelLandmarks(levelId) {
       : resolveWalkablePoint(targetM, p.x + 1.8, p.z, p.y || 0);
     list.push({
       id: `player_${p.id}`, cat: 'here',
-      badge: p.role === 'k' ? 'THỰC THỂ' : 'ĐỒNG ĐỘI',
+      badge: p.role === 'k' ? 'ENTITY' : 'TEAM',
       badgeClass: p.role === 'k' ? 'warn' : 'done',
-      title: p.role === 'k' ? `Thực Thể: ${p.name}` : `Đồng đội: ${p.name}`,
-      subtitle: `Đang ở (${Math.round(p.x)}, ${Math.round(p.y || 0)}, ${Math.round(p.z)})`,
+      title: p.role === 'k' ? `Entity: ${p.name}` : `Team: ${p.name}`,
+      subtitle: `Currently at (${Math.round(p.x)}, ${Math.round(p.y || 0)}, ${Math.round(p.z)})`,
       levelId: pLvl, ...pt, yaw: Math.PI * 0.5
     });
   }
@@ -919,7 +948,7 @@ function teleportToTarget(target, keepOpen = false) {
   }
 
   const label = target?.title || `${getLevelMeta(dstLvl).code} (${Math.round(tx)}, ${Math.round(ty)}, ${Math.round(tz)})`;
-  pushFeed(`DỊCH CHUYỂN: ${label}`, '#48d0f5');
+  pushFeed(`TRANSITION: ${label}`, '#48d0f5');
   if (!keepOpen && tpOpen) closeTpPanel(true);
   else if (tpOpen) renderTpPanel();
   return true;
@@ -931,7 +960,7 @@ function renderTpPanel() {
   const me = players[myId];
   const curMeta = getLevelMeta(activeLocalLevelId);
   if ($('tpCurrentPos') && me) {
-    $('tpCurrentPos').textContent = `Tầng: ${curMeta.code} (${curMeta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
+    $('tpCurrentPos').textContent = `Floor: ${curMeta.code} (${curMeta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
   }
 
   const q = (tpSearchQuery || '').trim().toLowerCase();
@@ -947,11 +976,11 @@ function renderTpPanel() {
       const rearSpots = hereSpots.filter(it => it.subGroup === 'rear');
       const frontSpots = hereSpots.filter(it => it.subGroup === 'front');
       const coreSpots = hereSpots.filter(it => it.subGroup !== 'rear' && it.subGroup !== 'front');
-      if (coreSpots.length) sections.push({ heading: `CỐT LÕI LEVEL 0 & LỐI ĐI 360° (${coreSpots.length})`, items: coreSpots });
-      if (rearSpots.length) sections.push({ heading: `THẾ GIỚI PHÍA SAU MỞ RỘNG — REAR (${rearSpots.length})`, items: rearSpots });
-      if (frontSpots.length) sections.push({ heading: `THẾ GIỚI PHÍA TRƯỚC — FRONT (${frontSpots.length})`, items: frontSpots });
+      if (coreSpots.length) sections.push({ heading: `CORE LEVEL 0 & 360° PATHWAYS (${coreSpots.length})`, items: coreSpots });
+      if (rearSpots.length) sections.push({ heading: `REAR WORLD EXPANDED — REAR (${rearSpots.length})`, items: rearSpots });
+      if (frontSpots.length) sections.push({ heading: `FRONT WORLD — FRONT (${frontSpots.length})`, items: frontSpots });
     } else if (hereSpots.length) {
-      sections.push({ heading: `ĐỊA ĐIỂM TRONG ${curMeta.code} (${hereSpots.length})`, items: hereSpots });
+      sections.push({ heading: `INTERIOR LOCATIONS ${curMeta.code} (${hereSpots.length})`, items: hereSpots });
     }
   }
 
@@ -960,13 +989,13 @@ function renderTpPanel() {
       it => it.cat === 'entrances' && matchesQ(`${it.title} ${it.subtitle} ${it.badge}`)
     );
     if (entSpots.length) {
-      sections.push({ heading: `LỐI VÀO 20 SUB-LEVELS TẠI LEVEL 0 (${entSpots.length})`, items: entSpots });
+      sections.push({ heading: `20 SUB-LEVEL ENTRANCES AT LEVEL 0 (${entSpots.length})`, items: entSpots });
     }
   }
 
   if (tpActiveTab === 'all' || tpActiveTab === 'levels') {
     const allLvls = [
-      { id: 'level0', code: 'LEVEL 0', vnName: 'Mê Cung 360° Front + Rear & Thang Máy', tagline: '908m • 70+ Biến Thể Vô Tận, Tủ Điện & 20 Lối Vào' },
+      { id: 'level0', code: 'LEVEL 0', vnName: '360° Front + Rear Maze & Elevators', tagline: '908m • 70+ Infinite Variants, Electrical Panels & 20 Entrances' },
       ...LEVEL_LIST.map(l => ({ id: l.id, code: l.code, vnName: l.vnName, tagline: `${l.span}m • ${l.entity?.name || ''}` }))
     ];
     const lvlItems = allLvls.filter(l => matchesQ(`${l.code} ${l.vnName} ${l.tagline}`)).map(l => {
@@ -978,19 +1007,19 @@ function renderTpPanel() {
         levelId: l.id,
         title: `${l.code} — ${l.vnName}`,
         subtitle: l.tagline,
-        badge: isHere ? 'ĐANG Ở ĐÂY' : isClr ? '✓ ĐÃ SỬA' : 'ĐẾN TẦNG',
+        badge: isHere ? 'HERE NOW' : isClr ? '✓ FIXED' : 'GO TO FLOOR',
         badgeClass: isHere || isClr ? 'done' : '',
         hereClass: isHere,
         x: m?.SPAWN?.x, y: m?.SPAWN?.y, z: m?.SPAWN?.z, yaw: m?.SPAWN?.yaw
       };
     });
     if (lvlItems.length) {
-      sections.push({ heading: `21 TẦNG BACKROOMS (DỊCH CHUYỂN TRỰC TIẾP) (${lvlItems.length})`, items: lvlItems });
+      sections.push({ heading: `21 BACKROOMS FLOORS (DIRECT TRANSITION) (${lvlItems.length})`, items: lvlItems });
     }
   }
 
   if (!sections.length) {
-    listEl.innerHTML = `<div style="grid-column:1/-1;padding:18px;text-align:center;color:#9eb8c2;">Không tìm thấy địa điểm phù hợp với "${esc(q)}".</div>`;
+    listEl.innerHTML = `<div style="grid-column:1/-1;padding:18px;text-align:center;color:#9eb8c2;">No location found matching "${esc(q)}".</div>`;
     return;
   }
 
@@ -1084,7 +1113,8 @@ function closeCreditsModal() {
 }
 
 function getOrCreateLevelMap(levelId) {
-  const id = levelId || 'level0';
+  const id = canonicalLevelId(levelId);
+  if (id !== 'level0' && !LEVEL_CATALOG[id]) return null;
   if (levelMaps.has(id)) return levelMaps.get(id);
   const m = id === 'level0' ? genMap(seed) : genSubLevelMap(id, seed);
   if (m) levelMaps.set(id, m);
@@ -1096,11 +1126,11 @@ function showNoclipOverlay(levelId, via) {
   const ov = $('noclipOverlay');
   if (!ov) return;
   const meta = getLevelMeta(levelId);
-  const viaTag = via === 'noclip_floor' ? 'NOCLIP XUYÊN SÀN // '
-    : via === 'pickup' ? 'VẬT PHẨM DỊ THƯỜNG // '
-    : via === 'crawl_hatch' ? 'CHUI ĐƯỜNG ỐNG // '
-    : via === 'join' ? 'DỊCH CHUYỂN ĐỒNG ĐỘI // '
-    : via === 'return' ? 'TRỞ VỀ KHỞI ĐIỂM // ' : '';
+  const viaTag = via === 'noclip_floor' ? 'NOCLIP THROUGH FLOOR // '
+    : via === 'pickup' ? 'ABNORMAL ITEM // '
+    : via === 'crawl_hatch' ? 'PIPELINE // '
+    : via === 'join' ? 'TEAM TRANSPORT // '
+    : via === 'return' ? 'RETURN TO SPAWN // ' : '';
   $('noclipCode').textContent = `${viaTag}${meta.code}`;
   $('noclipName').textContent = meta.vnName || meta.name;
   $('noclipDesc').textContent = meta.entity?.hint || meta.tagline || '';
@@ -1113,16 +1143,36 @@ function showNoclipOverlay(levelId, via) {
   }, 1500);
 }
 
+let hillsAmbience = null;
+let hillsExploration = null;
+function updateHillsAmbience() {
+  if (activeLocalLevelId !== 'level94') { hillsAmbience?.dispose(); hillsAmbience = null; return; }
+  if (hillsExploration && players[myId]) hillsExploration.update(players[myId]);
+  if (!hillsAmbience && audio.ctx && audio.ambGain) { hillsAmbience = new Level94Ambience({ctx: audio.ctx, parent: audio.ambGain, seed}); hillsAmbience.start(); }
+  if (hillsAmbience && players[myId]) {
+    const p = players[myId]; hillsAmbience.updateListener(p);
+    const nearest = Math.min(...(map.LEVEL_DOORS || []).map(d=>Math.hypot(d.x-p.x,d.z-p.z)));
+    const shelter = Math.max(0,1-nearest/14);
+    hillsAmbience.windGain.gain.setTargetAtTime(hillsAmbience.gains.windGain*(1-.65*shelter),audio.ctx.currentTime,.8);
+    hillsAmbience.roomGain.gain.setTargetAtTime(hillsAmbience.gains.roomToneGain*(1+.7*shelter),audio.ctx.currentTime,.8);
+  }
+}
+
 function switchLocalWorld(targetLevelId, via = 'portal') {
-  const nextId = targetLevelId || 'level0';
+  const nextId = canonicalLevelId(targetLevelId);
   const nextMap = getOrCreateLevelMap(nextId);
   if (!nextMap) return;
 
   activeLocalLevelId = nextId;
   if(isPeacefulLevel(nextId)){jumpscareT=0;revealGlobalT=0;jumpscareFx?.classList.remove('active');jumpscareFx?.classList.add('hidden');}
   map = nextMap;
+  if (nextId === 'level94' && !hillsExploration) {
+    hillsExploration = new ExplorationSystem({onDiscover:name=>pushFeed(name,'#d6e4be')});
+    hillsExploration.addAll([...(map.TOWERS||[]).map((t,i)=>({id:`bell_${i}`,x:t.x,z:t.z,name:'Hilltop Bell House'})),...(map.LEVEL_DOORS||[]).map(d=>({...d,name:d.label,kind:'exit'}))]);
+  }
   wasEntityCloseLOS = false;
   audio.setLevelMusicContext(nextId);
+  updateHillsAmbience();
   if (nextId === 'level37') resetPoolroomsEventsState();
   busyAct = null;
   scState = null;
@@ -1166,6 +1216,7 @@ function switchLocalWorld(targetLevelId, via = 'portal') {
     hemiLight.groundColor.setHex(meta.hemiGround ?? 0x26200d);
   }
   applyWorldVisibilitySettings();
+  gfx.setEnvironmentProfile?.(nextId);
   gfx.resetExposure?.(0.82);
   gfx.resetMotionHistory();
   showNoclipOverlay(nextId, via);
@@ -1230,7 +1281,7 @@ function applyViewportLayout() {
 
 function formatFxVal(ctrl, v) {
   if (ctrl.unit === 'raw') return Number(v).toFixed(Number(v) % 1 ? 2 : 0);
-  if (ctrl.type === 'toggle') return v ? 'Bật' : 'Tắt';
+  if (ctrl.type === 'toggle') return v ? 'On' : 'Off';
   if (ctrl.type === 'select') return ctrl.options?.find(o => o.value === v)?.label || String(v || '');
   if (ctrl.unit === 'deg') return `${Math.round(Number(v) || 0)}°`;
   if (ctrl.unit === 'm') return `${Math.round(Number(v) || 0)} m`;
@@ -1249,7 +1300,7 @@ function formatFxVal(ctrl, v) {
 function renderFxControlRow(c) {
   let ctrlHtml;
   if (c.type === 'toggle') {
-    ctrlHtml = `<label class="fx-toggle-wrap"><input type="checkbox" data-fx-key="${c.key}" /> <span data-fx-val="${c.key}">Bật</span></label>`;
+    ctrlHtml = `<label class="fx-toggle-wrap"><input type="checkbox" data-fx-key="${c.key}" /> <span data-fx-val="${c.key}">On</span></label>`;
   } else if (c.type === 'select') {
     const opts = (c.options || []).map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
     ctrlHtml = `<select data-fx-key="${c.key}">${opts}</select>`;
@@ -1287,7 +1338,9 @@ function mountFxTable(container) {
       : ctrl.type === 'select'
         ? String(e.target.value)
         : Number(e.target.value);
+    if (Object.is(fxSettings[key],nextVal) && fxSettings.userFxKeys?.includes(key)) return;
     fxSettings[key] = nextVal;
+    fxSettings.userFxKeys = [...new Set([...(fxSettings.userFxKeys || []),key])];
     if (FPS_SETTING_KEYS.includes(key)) saveFpsPreferences();
 
     // Bidirectional preset synchronization without overwriting unrelated settings
@@ -1300,7 +1353,9 @@ function mountFxTable(container) {
       fxSettings.eyeAdaptComp = ep.comp;
       fxSettings.eyeAdaptMinExp = ep.minExp;
       fxSettings.eyeAdaptMaxExp = ep.maxExp;
+      fxSettings.userFxKeys.push('eyeAdaptMinExp','eyeAdaptMaxExp');
     } else if (key === 'eyeAdaptEnabled') {
+      fxSettings.userFxKeys.push('eyeAdaptPreset');
       if (!nextVal) fxSettings.eyeAdaptPreset = 'off';
       else if (fxSettings.eyeAdaptPreset === 'off') {
         const ep = EYE_ADAPT_PRESETS.cinematic;
@@ -1308,6 +1363,7 @@ function mountFxTable(container) {
         fxSettings.eyeAdaptStrength = fxSettings.eyeAdaptStrength > 0.01 ? fxSettings.eyeAdaptStrength : ep.strength;
       }
     } else if (['eyeAdaptStrength', 'eyeAdaptBrightSpeed', 'eyeAdaptDarkSpeed', 'eyeAdaptComp', 'eyeAdaptMinExp', 'eyeAdaptMaxExp'].includes(key)) {
+      fxSettings.userFxKeys.push('eyeAdaptPreset');
       if (Number(fxSettings.eyeAdaptMaxExp) < Number(fxSettings.eyeAdaptMinExp) + 0.15) {
         fxSettings.eyeAdaptMaxExp = Math.min(4.0, Number(fxSettings.eyeAdaptMinExp) + 0.15);
       }
@@ -1319,6 +1375,7 @@ function mountFxTable(container) {
       fxSettings.renderDistPreset = RENDER_DIST_PRESETS[mKey] ? mKey : 'custom';
     }
 
+    fxSettings.userFxKeys = [...new Set(fxSettings.userFxKeys)];
     applyFxSettings();
   };
   container.addEventListener('input', onUpdate);
@@ -1368,7 +1425,7 @@ function setAspectMode(mode) {
 function applyWorldVisibilitySettings() {
   const rd = THREE.MathUtils.clamp(Number(fxSettings.renderDistance ?? 200), 50, 800);
   const amK = players?.[myId]?.role === 'k';
-  const nextFar = (amK && activeLocalLevelId === 'level0') ? Math.min(rd, FAR_KILLER) : rd;
+  const nextFar = map?.hills ? Math.max(rd, map.levelCfg.minFar || 660) : (amK && activeLocalLevelId === 'level0') ? Math.min(rd, FAR_KILLER) : rd;
   if (Math.abs(camera.far - nextFar) > 0.5) {
     camera.far = nextFar;
     camera.updateProjectionMatrix();
@@ -1384,7 +1441,9 @@ function applyWorldVisibilitySettings() {
       {
         renderDistance: rd,
         waterQuality: fxSettings.waterQuality,
-        cloudQuality: fxSettings.cloudQuality
+        cloudQuality: fxSettings.cloudQuality,
+        quality: currentGfx, shadows: fxSettings.shadows,
+        shadowMapSize: (GFX_PRESETS[currentGfx] || GFX_PRESETS.ultra).shadowMapSize
       },
       camera.position,
       matchTime
@@ -1401,7 +1460,7 @@ function applyFxSettings() {
   const _log = (window.__FX_APPLY_LOG ||= []);
   if (_log.length < 400) _log.push({ t: performance.now() | 0, mode: fxSettings.footageFilterMode, scan: fxSettings.scanlines, vig: fxSettings.vignette, stack: (new Error().stack || '').split('\n')[2] || '' });
   localStorage.setItem('br_fx_v2', JSON.stringify(fxSettings));
-  gfx.applyFx(fxSettings, hemiLight, ambLight);
+  gfx.applyFx({...fxSettings,userFxKeys:fxSettings.userFxKeys || []}, hemiLight, ambLight);
   applyWorldVisibilitySettings();
   hud?.classList.toggle('clean-cam', !!fxSettings.cleanCamHud);
   hud?.classList.toggle('no-scanlines', fxSettings.crtScanlines === false || Number(fxSettings.scanlines) <= 0.01);
@@ -1431,6 +1490,7 @@ function setGraphicsPreset(key, resetCustomFx = true) {
   gfx.presetKey = currentGfx;
   if (resetCustomFx) {
     fxSettings = getPresetDefaultFx(currentGfx);
+    fxSettings.userFxKeys = [];
   }
   applyFxSettings();
 }
@@ -1455,7 +1515,7 @@ const net = new NetworkManager({
     $('aiToggle').checked = nMgr.aiEnabled;
     $('aiToggle').disabled = !nMgr.isHost;
 
-    if (!nMgr.isSolo && nMgr.roomCode) {
+    if (!nMgr.isSolo && nMgr.roomCode && (nMgr.isHost || nMgr.joined)) {
       $('roomShareBox').classList.remove('hidden');
       $('roomCodeText').textContent = nMgr.roomCode;
     } else {
@@ -1467,9 +1527,9 @@ const net = new NetworkManager({
     const listEl = $('rosterList');
     listEl.innerHTML = roster.map(r => {
       const col = r.role === 'k' ? '#d92820' : `#${SURV_COLORS[(r.colorIdx || 0) % SURV_COLORS.length].hex.toString(16).padStart(6, '0')}`;
-      const roleLabel = r.role === 'k' ? 'QUÁI VẬT (ENTITY)' : 'SURVIVOR';
+      const roleLabel = r.role === 'k' ? 'ENTITY' : 'SURVIVOR';
       const switchBtn = nMgr.isHost && !r.isAI
-        ? `<button class="sm role-btn" data-id="${esc(r.id)}">${r.role === 'k' ? 'Đổi làm Người' : 'Chọn làm Quái'}</button>`
+        ? `<button class="sm role-btn" data-id="${esc(r.id)}">${r.role === 'k' ? 'Switch to Human' : 'Switch to Monster'}</button>`
         : '';
       return `<div class="roster-item">
         <span><span class="swatch" style="background:${col};"></span>${esc(r.name)}</span>
@@ -1520,7 +1580,7 @@ const net = new NetworkManager({
   onPeerDisconnect(peerId) {
     weaponSystem.removeRemote(peerId);
     if (inMatch && players[peerId]) {
-      pushFeed(`${players[peerId].name} đã ngắt kết nối`, '#ff9a8a');
+      pushFeed(`${players[peerId].name} disconnected`, '#ff9a8a');
       delete players[peerId];
       if (avatars[peerId]) {
         scene.remove(avatars[peerId].group);
@@ -1532,7 +1592,7 @@ const net = new NetworkManager({
   onHostDisconnect() {
     weaponSystem.clearInput(); weaponSystem.pendingShots.clear();
     if (inMatch && !matchEnded) {
-      pushFeed('Mất kết nối tới Host!', '#ff5648');
+      pushFeed('Lost connection to Host!', '#ff5648');
     }
   }
 });
@@ -1626,9 +1686,9 @@ async function warmupMatchEffects(amK, me) {
   setPreloadOverlay(
     true,
     0.15,
-    'Xây dựng bản đồ 3D, ánh sáng khu vực & nhân vật...',
+    'Building 3D map, area lighting & characters...',
     'PRE-MATCH SHADER & FX WARM-UP',
-    'ĐANG KIỂM THỬ ÁNH SÁNG, VẬT PHẨM & HIỆU ỨNG'
+    'TESTING LIGHTS, ITEMS & EFFECTS'
   );
   await PreloaderSystem.yieldFrame();
 
@@ -1642,7 +1702,7 @@ async function warmupMatchEffects(amK, me) {
   camera.updateMatrixWorld(true);
 
   // Phase 2: Warm Flashlight ON (with 1024 shadow FBO) + Flashlight OFF shader variants
-  setPreloadOverlay(true, 0.35, 'Kiểm thử bật/tắt đèn pin [F] & đổ bóng thời gian thực...');
+  setPreloadOverlay(true, 0.35, 'Testing flashlight toggle [F] & real-time shadows...');
   await PreloaderSystem.yieldFrame();
 
   localFlash.position.set(px, 1.48, pz);
@@ -1663,7 +1723,7 @@ async function warmupMatchEffects(amK, me) {
   gfx.render(0.016);
 
   // Phase 3: Place & compile UV Flare, Bear Trap, Scanner Beacon, Claws, Entity rig & overlays inside camera frustum
-  setPreloadOverlay(true, 0.62, 'Kiểm thử Pháo Sáng UV, bẫy, máy dò Thực thể & vật phẩm...');
+  setPreloadOverlay(true, 0.62, 'Testing UV flare, traps, entity & item detectors...');
   await PreloaderSystem.yieldFrame();
 
   const wx = px + fwX * 2.1;
@@ -1715,7 +1775,7 @@ async function warmupMatchEffects(amK, me) {
   fearFx.style.opacity = '0';
 
   // Phase 4: Warm up post-processing composer passes, lens curvature, color controls & Footage/Stream presets
-  setPreloadOverlay(true, 0.86, 'Kiểm thử hiệu ứng thấu kính, màu sắc & bộ lọc Stream/VOD...');
+  setPreloadOverlay(true, 0.86, 'Testing lens, color, and Stream/VOD filters...');
   await PreloaderSystem.yieldFrame();
 
   const savedMode = fxSettings.footageFilterMode;
@@ -1742,7 +1802,7 @@ async function warmupMatchEffects(amK, me) {
   gfx.render(0.016);
   gfx.resetMotionHistory();
 
-  setPreloadOverlay(true, 1.0, 'Hoàn tất kiểm thử — Bắt đầu ghi hình!');
+  setPreloadOverlay(true, 1.0, 'Test complete — Start recording!');
   await PreloaderSystem.yieldFrame();
   window.__BR_WARMUP_DONE = true;
 }
@@ -1750,15 +1810,16 @@ async function warmupMatchEffects(amK, me) {
 async function beginMatch(matchSeed, roster, localId) {
   if (warmingMatch) return;
   warmingMatch = true;
+  hillsAmbience?.dispose(); hillsAmbience = null;
   inMatch = false;
   audio.ensureContext();
   clearMatchObjects();
   setPreloadOverlay(
     true,
     0.05,
-    'Khởi tạo bản đồ Backrooms Level 0...',
+    'Initializing Backrooms Level 0 map...',
     'PRE-MATCH SHADER & FX WARM-UP',
-    'ĐANG KIỂM THỬ ÁNH SÁNG, VẬT PHẨM & HIỆU ỨNG'
+    'TESTING LIGHTS, ITEMS & EFFECTS'
   );
   lobbyScr.classList.add('hidden');
   endScr.classList.add('hidden');
@@ -1947,8 +2008,8 @@ async function beginMatch(matchSeed, roster, localId) {
 
   pushFeed(
     amK
-      ? 'Bạn là Thực thể Backrooms! Tầm nhìn hạn chế — Hãy săn tìm âm thanh!'
-      : `Thang máy A-Sync đã dừng tại Level 0 — Bấm [E] để mở cửa ngay! (Sửa ${NEED} máy để thoát)`,
+      ? 'You are a Backrooms Entity! Limited vision — Hunt for sounds!'
+      : `A-Sync elevator stopped at Level 0 — Press [E] to open door now! (Fix ${NEED} machine to escape)`,
     '#f5e69a'
   );
   if (!location.hash.includes('test')) {
@@ -2044,11 +2105,17 @@ function processPlayerActionHost(actorId, msg) {
   if (msg.act === 'enterLevel') {
     const viaTp = msg.via === 'tp_panel';
     if (!viaTp && (p.role !== 's' || p.state !== 'ok')) return;
-    const targetLevel = msg.levelId || 'level0';
+    const targetLevel = canonicalLevelId(msg.levelId);
     if (isPeacefulLevel(targetLevel) && p.role === 'k') return;
     if (targetLevel === pCurLevel && !viaTp) return;
     const dstMap = getOrCreateLevelMap(targetLevel);
     if (!dstMap) return;
+    if (msg.via === 'horizon_door') {
+      const route = resolveThreshold(pMap, dstMap, msg.doorId, p, performance.now());
+      if (!route.ok) return;
+      msg = {...msg, tx: route.x, ty: route.y, tz: route.z, tyaw: route.yaw};
+      p.lastThresholdAt = performance.now();
+    }
 
     if (pCurLevel === 'level0' && targetLevel !== 'level0' && !viaTp) {
       p.lastLevel0Pos = { x: p.x, z: p.z, yaw: p.yaw };
@@ -2184,21 +2251,21 @@ function processPlayerActionHost(actorId, msg) {
             .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))
             .slice(0, 2);
           const dirName = (dx, dz) => {
-            const h = Math.abs(dx) > Math.abs(dz) * 1.4 ? (dx > 0 ? 'Đông' : 'Tây')
-              : Math.abs(dz) > Math.abs(dx) * 1.4 ? (dz > 0 ? 'Nam' : 'Bắc')
-              : `${dz > 0 ? 'Nam' : 'Bắc'}-${dx > 0 ? 'Đông' : 'Tây'}`;
+            const h = Math.abs(dx) > Math.abs(dz) * 1.4 ? (dx > 0 ? 'East' : 'West')
+              : Math.abs(dz) > Math.abs(dx) * 1.4 ? (dz > 0 ? 'Nam' : 'North')
+              : `${dz > 0 ? 'Nam' : 'North'}-${dx > 0 ? 'East' : 'West'}`;
             return h;
           };
           const info = nearT.map(t => `${t.code} ${t.symbol} (${Math.round(Math.hypot(t.x - p.x, t.z - p.z))}m ${dirName(t.x - p.x, t.z - p.z)})`).join(' • ');
-          broadcastEvent({ ev: 'relicMsg', text: info ? `Định vị A-Sync: ${info}` : 'Các máy chính đã sửa xong! Tìm Cổng Thoát Bắc/Nam!', color: '#7ce8ff' });
+          broadcastEvent({ ev: 'relicMsg', text: info ? `Locate A-Sync: ${info}` : 'Main machines repaired! Find North/South Exit!', color: '#7ce8ff' });
         } else if (rel.kind === 'vhs_tape') {
-          broadcastEvent({ ev: 'vhsReveal', dur: 14, text: 'Băng VHS #KV-31: Hiện vị trí Máy & Cổng Thoát (14s)!', color: '#ffe066' });
+          broadcastEvent({ ev: 'vhsReveal', dur: 14, text: 'VHS Tape #KV-31: Show Machine & Exit locations (14s)!', color: '#ffe066' });
         } else {
           for (const ctrl of aiControllers) {
             const ent = players[ctrl.id];
             if (ent && Math.hypot(ent.x - p.x, ent.z - p.z) < 48) ctrl.scramble(11);
           }
-          broadcastEvent({ ev: 'relicMsg', text: 'Đài Băng Lỗi 1990 phát nhiễu — Giảm 48% tầm phát hiện Thực thể (11s)!', color: '#e47cff' });
+          broadcastEvent({ ev: 'relicMsg', text: '1990 Glitching VHS broadcasting interference — Reduce Entity detection range by 48% (11s)!', color: '#e47cff' });
         }
       }
       return;
@@ -2444,7 +2511,7 @@ function applyKillerHit(killer, victim) {
     victimId: victim.id,
     killerId: killer.id,
     killerKind: killer.aiKind || 'bacteria',
-    killerName: killer.name || 'Thực Thể',
+    killerName: killer.name || 'Entity',
     down: victim.state === 'down',
     x: victim.x,
     z: victim.z
@@ -2476,9 +2543,9 @@ function checkMatchEnd() {
   const escaped = survs.filter(p => p.state === 'escaped');
   if (alive.length === 0) {
     const msg = escaped.length > 0
-      ? `CÁC SURVIVOR ĐÃ THOÁT THÂN (${escaped.length}/${survs.length})!`
-      : 'THỰC THỂ ĐÃ SĂN HẾT TOÀN BỘ NẠN NHÂN!';
-    broadcastEvent({ ev: 'end', title: escaped.length > 0 ? 'TRỐN THOÁT THÀNH CÔNG' : 'BĂNG HÌNH KẾT THÚC — BỊ XÓA SỔ', desc: msg });
+      ? `ALL SURVIVORS HAVE ESCAPED (${escaped.length}/${survs.length})!`
+      : 'ENTITY HAS HUNTED DOWN ALL VICTIMS!';
+    broadcastEvent({ ev: 'end', title: escaped.length > 0 ? 'ESCAPED SUCCESSFULLY' : 'TAPE ENDED — RECORDING DELETED', desc: msg });
   }
 }
 
@@ -2525,7 +2592,7 @@ function handleNetEvent(ev) {
     if (item) {
       item.gone = true;
       if ((ev.levelId || 'level0') === activeLocalLevelId) {
-        const mesh = world?.itemMeshes?.get?.(item.id);
+        const mesh = world?.itemMeshes?.get?.(`${ev.kind}:${item.id}`) || world?.itemMeshes?.get?.(item.id);
         if (mesh) mesh.visible = false;
       }
     }
@@ -2556,7 +2623,7 @@ function handleNetEvent(ev) {
       const meta = getLevelMeta(ev.levelId);
       activeJoinTarget = { levelId: ev.levelId, code: meta.code, name: meta.vnName, byName: ev.byName };
       if (ev.playerId !== myId) {
-        pushFeed(`${ev.byName || 'Đồng đội'} vừa bước vào ${meta.code}: ${meta.vnName}! Ấn [G] để Tham Gia!`, '#48d0f5');
+        pushFeed(`${ev.byName || 'Teammates'} just entered ${meta.code}: ${meta.vnName}! Press [G] to Join!`, '#48d0f5');
       }
     }
     if (ev.playerId === myId) {
@@ -2599,7 +2666,7 @@ function handleNetEvent(ev) {
       audio.playAlertBeep();
       const tm = world?.taskMeshes?.[ev.idx];
       if (tm?.ledMat) tm.ledMat.color.setHex(0x4ed884);
-      pushFeed(ev.levelId === 'level37' ? 'CỐNG THOÁT KHU J ĐÃ MỞ! Cổng Trở Về Level 0 đã kích hoạt!' : 'MÁY THOÁT TẦNG ĐÃ CHẠY! Cổng Trở Về Level 0 đã mở!', '#4ed884');
+      pushFeed(ev.levelId === 'level37' ? 'J-LEVEL ESCAPE ROUTE OPENED! Level 0 Return Gate activated!' : 'STAIR ESCAPE ROUTE ACTIVE! Level 0 Return Gate opened!', '#4ed884');
     }
   } else if (ev.ev === 'pumpDone') {
     const sMap = getOrCreateLevelMap(ev.levelId);
@@ -2610,7 +2677,7 @@ function handleNetEvent(ev) {
     }
     if (ev.levelId === activeLocalLevelId && pm) {
       audio.playPumpActivation?.({ x: pm.x, y: pm.y || 0, z: pm.z }, ev.donePumps >= (sMap.PUMPS?.length || 3));
-      pushFeed(`Đã kích hoạt ${pm.name} (${ev.donePumps}/${sMap.PUMPS?.length || 3})!`, '#4ae8ff');
+      pushFeed(`Activated ${pm.name} (${ev.donePumps}/${sMap.PUMPS?.length || 3})!`, '#4ae8ff');
     }
   } else if (ev.ev === 'relicGone') {
     const rel = map.RELICS?.find(r => r.id === ev.id);
@@ -2623,15 +2690,15 @@ function handleNetEvent(ev) {
   } else if (ev.ev === 'vhsReveal') {
     vhsRevealT = ev.dur || 14;
     audio.playScanPing();
-    pushFeed(ev.text || 'Băng VHS bật — Hiện vị trí Máy & Cổng Thoát!', ev.color || '#ffe066');
+    pushFeed(ev.text || 'VHS activated — Showing Machine & Escape Gate locations!', ev.color || '#ffe066');
   } else if (ev.ev === 'scanStart') {
     scanT = SCAN_T;
     audio.playScanPing();
-    pushFeed(localPeaceful?'Máy quét đang hoạt động (9s)!':'Máy Dò Thực Thể đang hoạt động (9s)!', '#48d0f5');
+    pushFeed(localPeaceful?'Scanner active (9s)!':'Entity Detector active (9s)!', '#48d0f5');
   } else if (ev.ev === 'reveal') {
     revealGlobalT = ev.dur || REVEAL_T;
     audio.playRevealStinger({ x: ev.x, y: 1.5, z: ev.z });
-    pushFeed('CẢNH BÁO: Thực thể vừa dùng chiêu định vị người chơi!', '#ff5648');
+    pushFeed('WARNING: Entity just used player locator ability!', '#ff5648');
   } else if (ev.ev === 'flare') {
     if (world) {
       const freePool = world.flareLightPool?.find(pl => !world.flareMeshes.some(fm => fm.light === pl));
@@ -2644,25 +2711,25 @@ function handleNetEvent(ev) {
     if (ev.victimId === myId) {
       triggerJumpscare({
         aiKind: ev.killerKind || players[ev.killerId]?.aiKind || 'bacteria',
-        killerName: ev.killerName || players[ev.killerId]?.name || 'Thực Thể',
+        killerName: ev.killerName || players[ev.killerId]?.name || 'Entity',
         down: !!ev.down
       });
     }
     if (ev.victimId === myId && ev.down) {
-      pushFeed('Bạn đã bị đánh gục!', '#ff4438');
+      pushFeed('You were defeated!', '#ff4438');
     } else if (!ev.down && ev.victimId === myId) {
-      pushFeed('Bị Thực thể chém trúng! Chạy ngay!', '#ff7456');
+      pushFeed('Hit by Entity! Run!', '#ff7456');
     }
   } else if (ev.ev === 'hooked') {
     if(!localPeaceful)audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, false);
     if (ev.id === myId) {
-      triggerJumpscare({ aiKind: 'bacteria', killerName: 'Thực Thể', down: true });
+      triggerJumpscare({ aiKind: 'bacteria', killerName: 'Entity', down: true });
     }
     const v = players[ev.id];
     if (v) { v.state = 'hooked'; v.hookIdx = ev.hookIdx; v.x = ev.x; v.z = ev.z; }
     const hk = map?.HOOKS?.[ev.hookIdx];
     if (hk) hk.occ = ev.id;
-    if(!localPeaceful)pushFeed(`${v?.name || 'Đồng đội'} bị treo lên móc!`, '#ff8838');
+    if(!localPeaceful)pushFeed(`${v?.name || 'Teammates'} hanging from a hook!`, '#ff8838');
   } else if (ev.ev === 'hookDeath') {
     if(!localPeaceful)audio.playHookClang({ x: ev.x, y: 2.0, z: ev.z }, true);
     const v = players[ev.id];
@@ -2671,7 +2738,7 @@ function handleNetEvent(ev) {
       v.state = 'dead';
       v.hookIdx = -1;
     }
-    if(!localPeaceful)pushFeed(`${v?.name || 'Đồng đội'} đã hy sinh...`, '#ff3028');
+    if(!localPeaceful)pushFeed(`${v?.name || 'Teammates'} sacrificed...`, '#ff3028');
   } else if (ev.ev === 'unhooked') {
     const v = players[ev.id];
     if (ev.hookIdx >= 0 && map?.HOOKS?.[ev.hookIdx]) map.HOOKS[ev.hookIdx].occ = null;
@@ -2683,9 +2750,9 @@ function handleNetEvent(ev) {
       busyAct = null;
       stam = Math.max(stam, SPEED.STAM_DRAIN * 0.5);
       stamExhausted = false;
-      pushFeed('Bạn đã được đồng đội giải cứu khỏi móc! Chạy ngay!', '#4ed884');
+      pushFeed('Rescued from hook by teammate! Run!', '#4ed884');
     } else {
-      pushFeed(`${v?.name || 'Đồng đội'} đã được cứu!`, '#4ed884');
+      pushFeed(`${v?.name || 'Teammates'} rescued!`, '#4ed884');
     }
   } else if (ev.ev === 'selfEscaped') {
     const v = players[ev.id];
@@ -2700,14 +2767,14 @@ function handleNetEvent(ev) {
       busyAct = null;
       stam = Math.max(stam, SPEED.STAM_DRAIN * 0.55);
       stamExhausted = false;
-      pushFeed('Bạn đã TỰ GIẢI THOÁT thành công (hết lượt tự thoát)! Chạy ngay!', '#4ed884');
+      pushFeed('Successfully self-extracted (self-extract limit reached)! Run!', '#4ed884');
     } else if (ev.killerId === myId) {
       killerSlowT = Math.max(killerSlowT, 3.2);
       swingCD = Math.max(swingCD, 2.8);
       if (players[myId]) players[myId].carrying = null;
-      pushFeed(`${v?.name || 'Nạn nhân'} vừa vùng thoát khỏi tay bạn!`, '#ff9442');
+      pushFeed(`${v?.name || 'Victim'} just freed from your grasp!`, '#ff9442');
     } else {
-      pushFeed(`${v?.name || 'Đồng đội'} vừa tự giải thoát khỏi Quái!`, '#4ed884');
+      pushFeed(`${v?.name || 'Teammates'} just freed themselves from the Monster!`, '#4ed884');
     }
   } else if (ev.ev === 'trapPlaced') {
     if (world) world.trapMeshes.push(spawnTrapMesh(scene, ev.x, ev.z));
@@ -2724,7 +2791,7 @@ function handleNetEvent(ev) {
     map.TASKS[ev.idx].done = true;
     map.TASKS[ev.idx].p = 1;
     map.exitsOpen = !!ev.exitsOpen;
-    pushFeed(ev.exitsOpen ? `ĐỦ ${NEED} MÁY! CỔNG THOÁT ĐÃ MỞ — THEO VẠCH LED XANH LÁ!` : `Đã sửa xong ${map.TASKS[ev.idx].code} (${ev.doneCount}/${NEED})`, '#4ed884');
+    pushFeed(ev.exitsOpen ? `FULL ${NEED} MAY! ESCAPE DOOR OPEN — FOLLOW THE GREEN LED STRIP!` : `Fixed ${map.TASKS[ev.idx].code} (${ev.doneCount}/${NEED})`, '#4ed884');
     if (ev.exitsOpen && world) {
       if (world.exitGuideMat) {
         world.exitGuideMat.color.setHex(0x38f288);
@@ -2740,10 +2807,10 @@ function handleNetEvent(ev) {
       if (map.elevatorState === 'closed') map.elevatorState = 'opening';
       audio.playElevatorSequence(map.ELEVATOR);
     }
-    pushFeed(`${ev.byName || 'Người chơi'} đã bấm nút mở Thang Máy — Bước vào Level 0!`, '#4ed884');
+    pushFeed(`${ev.byName || 'Player'} pressed the Elevator Open button — Enter Level 0!`, '#4ed884');
   } else if (ev.ev === 'escaped') {
     const v = players[ev.id];
-    pushFeed(`${v?.name || 'Người chơi'} đã thoát khỏi Level 0!`, '#4ed884');
+    pushFeed(`${v?.name || 'Player'} escaped from Level 0!`, '#4ed884');
   } else if (ev.ev === 'sfx') {
     const pos = { x: ev.x, y: 1.2, z: ev.z };
     if (ev.kind === 'swing') audio.playSwing(pos);
@@ -2752,7 +2819,8 @@ function handleNetEvent(ev) {
   } else if (ev.ev === 'end') {
     weaponSystem.clearInput(); weaponSystem.view.root.visible = false; weaponSystem.bar.hidden = true;
     matchEnded = true;
-    inMatch = false;
+    hillsAmbience?.dispose(); hillsAmbience = null;
+  inMatch = false;
     document.exitPointerLock?.();
     hud.classList.add('hidden');
     endScr.classList.remove('hidden');
@@ -2907,7 +2975,7 @@ function updateHostSimulation(dt) {
       const hasHumanSurv = Object.values(players).some(p => p.role === 's' && !p.isAI);
       if (!hasHumanSurv && matchTime >= 1.6) {
         lvl0Map.elevatorState = 'opening';
-        broadcastEvent({ ev: 'elevOpen', byId: 'BOT', byName: 'Đội thám hiểm' });
+        broadcastEvent({ ev: 'elevOpen', byId: 'BOT', byName: 'Exploration Team' });
       }
     }
     if (lvl0Map.elevatorState === 'opening') {
@@ -2929,7 +2997,7 @@ function updateHostSimulation(dt) {
     ctrl.update(dt, aiP, players, aiMap, {
       onAggro(killer, targ, arch) {
         if (targ.id === myId) {
-          pushFeed(`${arch?.name || killer.name} vừa phát hiện bạn ở cự ly gần!`, '#ff7456');
+          pushFeed(`${arch?.name || killer.name} just spotted you nearby!`, '#ff7456');
         }
         // Bounded pack howl: notify nearby patrolling Entities within 44m in the same dimension
         const kLvl = killer.levelId || 'level0';
@@ -2947,7 +3015,7 @@ function updateHostSimulation(dt) {
         applyKillerHit(killer, targ);
       },
       onPickup(killer, targ) {
-        pushFeed(`${targ.name} đã bị ${killer.name} bắt!`, '#ff8838');
+        pushFeed(`${targ.name} was ${killer.name} captured!`, '#ff8838');
       },
       onHook(killer, targ, hook) {
         hookSurvivorHost(killer, targ, hook);
@@ -3215,7 +3283,7 @@ function updateLocalPlayer(dt, elapsed) {
       stam = 0;
       if (!stamExhausted) {
         stamExhausted = true;
-        pushFeed('Kiệt sức! Giảm tốc đi bộ — Cần hồi >= 20% thể lực để chạy lại.', '#ffb84a');
+        pushFeed('Exhausted! Reduced walking speed — Need >= 20% stamina to run again.', '#ffb84a');
       }
     }
   } else {
@@ -3534,18 +3602,30 @@ function updateLocalPlayer(dt, elapsed) {
 }
 
 function findBestPrompt(me) {
+  for (const door of map.LEVEL_DOORS || []) {
+    if (Math.hypot(me.x - door.x, me.z - door.z) <= 3.2 && Math.abs(me.y - door.y) < 2.5) return {
+      critical: true, text: `[E] ${door.label}`, act: () => {
+        if (performance.now() < noclipDropLockUntil) return;
+        const dst = getOrCreateLevelMap(door.targetLevel);
+        const route = resolveThreshold(map, dst, door.id, me, performance.now());
+        if (!route.ok) { if (route.reason !== 'cooldown') pushFeed('Door not ready. Try again.', '#d9dab8'); return; }
+        noclipDropLockUntil = performance.now() + 1200;
+        sendAction({act:'enterLevel',levelId:door.targetLevel,via:'horizon_door',doorId:door.id});
+      }
+    };
+  }
   if (me.role === 'k') {
     if (me.carrying) {
       for (const h of (map.HOOKS || [])) {
         if (!h.occ && Math.hypot(me.x - h.x, me.z - h.z) < 2.6) {
-          return { text: '[E] Treo nạn nhân lên móc', act: () => sendAction({ act: 'kHook', hookIdx: h.id }) };
+          return { text: '[E] Hang victim on hook', act: () => sendAction({ act: 'kHook', hookIdx: h.id }) };
         }
       }
       return null;
     }
     for (const s of Object.values(players)) {
       if (s.role === 's' && s.state === 'down' && (s.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - s.x, me.z - s.z) < 2.2) {
-        return { text: '[E] Nhặt nạn nhân bị gục', act: () => sendAction({ act: 'kGrab' }) };
+        return { text: '[E] Pick up fallen victim', act: () => sendAction({ act: 'kGrab' }) };
       }
     }
     return null;
@@ -3556,17 +3636,17 @@ function findBestPrompt(me) {
     if ((me.selfEscapeLeft ?? 1) > 0) {
       return {
         critical: true,
-        text: '[Giữ E] Tự giải thoát khỏi Quái (1 lần)',
+        text: '[Hold E] Self-free from Monster (1 time)',
         hold: { kind: 'selfEscape', targetId: 'self', duration: 1.4, critical: true, onDone: () => sendAction({ act: 'selfEscape' }) }
       };
     }
-    return { critical: true, text: 'Đã hết tự giải thoát — Chờ đồng đội giải cứu!' };
+    return { critical: true, text: 'Self-free exhausted — Wait for teammate rescue!' };
   }
   if (me.state === 'hooked') {
     if ((me.selfEscapeLeft ?? 1) > 0) {
       return {
         critical: true,
-        text: '[Giữ E] Tự giải thoát khỏi Móc (1 lần)',
+        text: '[Hold E] Free yourself from the Hook (1 time)',
         hold: { kind: 'selfEscape', targetId: 'self', duration: 1.8, critical: true, onDone: () => sendAction({ act: 'selfEscape' }) }
       };
     }
@@ -3574,11 +3654,11 @@ function findBestPrompt(me) {
     if (othersAlive === 0) {
       return {
         critical: true,
-        text: '[Giữ E] Tự vùng vẫy thoát khỏi Móc',
+        text: '[Hold E] Struggle free from the Hook',
         hold: { kind: 'selfUnhook', targetId: 'self', duration: 2.6, critical: true, onDone: () => sendAction({ act: 'selfUnhook' }) }
       };
     }
-    return { critical: true, text: 'Đang bị treo trên móc — Chờ đồng đội đến cứu!' };
+    return { critical: true, text: 'Stuck on the Hook — Waiting for teammates to rescue!' };
   }
   if (me.state !== 'ok') return null;
 
@@ -3586,7 +3666,7 @@ function findBestPrompt(me) {
   if (map?.ELEVATOR && map.elevatorState === 'closed' && Math.hypot(me.x - map.ELEVATOR.x, me.z - map.ELEVATOR.z) < 3.1) {
     return {
       critical: true,
-      text: '[E] Bấm mở Thang Máy → Level 0',
+      text: '[E] Open Elevator → Level 0',
       act: () => sendAction({ act: 'openElevator' })
     };
   }
@@ -3594,10 +3674,10 @@ function findBestPrompt(me) {
   // 1. Rescue Hooked teammate (checks both hook slot and live teammate coords in current level)
   for (const h of (map.HOOKS || [])) {
     if (h.occ && players[h.occ]?.state === 'hooked' && (players[h.occ]?.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - h.x, me.z - h.z) < 2.75) {
-      const vicName = players[h.occ]?.name || 'đồng đội';
+      const vicName = players[h.occ]?.name || 'teammate';
       return {
         critical: true,
-        text: `[Giữ E] Giải cứu ${vicName} trên móc`,
+        text: `[E] Rescue ${vicName} on the hook`,
         hold: { kind: 'unhook', targetId: h.id, duration: UNHOOK_T, critical: true, onDone: () => sendAction({ act: 'unhook', hookIdx: h.id }) }
       };
     }
@@ -3607,7 +3687,7 @@ function findBestPrompt(me) {
       const hkIdx = s.hookIdx >= 0 ? s.hookIdx : 0;
       return {
         critical: true,
-        text: `[Giữ E] Giải cứu ${s.name} trên móc`,
+        text: `[E] Rescue ${s.name} on the hook`,
         hold: { kind: 'unhook', targetId: hkIdx, duration: UNHOOK_T, critical: true, onDone: () => sendAction({ act: 'unhook', hookIdx: hkIdx }) }
       };
     }
@@ -3617,29 +3697,29 @@ function findBestPrompt(me) {
     if (s.id !== myId && s.state === 'down' && (s.levelId || 'level0') === activeLocalLevelId && Math.hypot(me.x - s.x, me.z - s.z) < 2.45) {
       return {
         critical: true,
-        text: `[Giữ E] Sơ cứu ${s.name}`,
+        text: `[Hold E] First Aid ${s.name}`,
         hold: { kind: 'revive', targetId: s.id, duration: 4.5, critical: true, onDone: () => sendAction({ act: 'revive', targetId: s.id }) }
       };
     }
   }
   // 3. Pickups (Water, Scanner, Moth Jelly, Royal Ration, UV Flare + Strange Relics)
   const itemGroups = [
-    [map.WATERS, 'water', 'Nước Hạnh Nhân'],
-    [map.SCANS, 'scan', 'Máy Dò Thực Thể'],
-    [map.JELLIES, 'jelly', 'Thạch Bướm Đêm'],
-    [map.RATIONS, 'ration', 'Khẩu Phần Hoàng Gia'],
-    [map.FLARES, 'flare', 'Pháo Sáng UV']
+    [map.WATERS, 'water', 'Almond Water'],
+    [map.SCANS, 'scan', 'Entity Detector'],
+    [map.JELLIES, 'jelly', 'Night Butterfly'],
+    [map.RATIONS, 'ration', 'Royal Ration'],
+    [map.FLARES, 'flare', 'UV Flare']
   ];
   for (const [list, kind, label] of itemGroups) {
     for (const it of list) {
       if (!it.gone && Math.hypot(me.x - it.x, me.z - it.z) < 2.15) {
-        return { text: `[E] Nhặt ${label}`, act: () => sendAction({ act: 'pickup', kind, id: it.id }) };
+        return { text: `[E] Pick up ${label}`, act: () => sendAction({ act: 'pickup', kind, id: it.id }) };
       }
     }
   }
   for (const rel of (map.RELICS || [])) {
     if (!rel.gone && Math.hypot(me.x - rel.x, me.z - rel.z) < 2.25) {
-      return { text: `[E] Kích hoạt ${rel.label}`, act: () => sendAction({ act: 'pickup', kind: 'relic', id: rel.id }) };
+      return { text: `[E] Activate ${rel.label}`, act: () => sendAction({ act: 'pickup', kind: 'relic', id: rel.id }) };
     }
   }
   // 4a. Poolrooms Hydraulic Pump Valve Stations (`map.PUMPS`)
@@ -3647,7 +3727,7 @@ function findBestPrompt(me) {
     if (!pm.done && Math.hypot(me.x - pm.x, me.z - pm.z) < 2.85) {
       const pct = Math.round((pm.p || 0) * 100);
       return {
-        text: `[Giữ E] Mở Van ${pm.name} (${pct}%)`,
+        text: `[Hold E] Open Valve ${pm.name} (${pct}%)`,
         hold: { kind: 'pump', targetId: `pump_${pm.id}`, duration: 4.5, pumpIdx: pm.id }
       };
     }
@@ -3657,7 +3737,7 @@ function findBestPrompt(me) {
     if (!t.done && Math.hypot(me.x - t.x, me.z - t.z) < 2.8) {
       const pct = Math.round(t.p * 100);
       return {
-        text: `[Giữ E] ${pct > 0 ? 'Tiếp tục sửa' : 'Sửa'} Máy ${t.code || ''} ${t.symbol || ''} (${pct}%${pct > 0 ? ' đã lưu' : ''})`,
+        text: `[Hold E] ${pct > 0 ? 'Continue repairing' : 'Repair'} machine ${t.code || ''} ${t.symbol || ''} (${pct}%${pct > 0 ? ' Saved' : ''})`,
         hold: { kind: 'task', targetId: t.id, duration: activeLocalLevelId === 'level0' ? TASK_TIME : 10, taskIdx: t.id }
       };
     }
@@ -3670,14 +3750,14 @@ function findBestPrompt(me) {
         if (ready) {
           return {
             critical: true,
-            text: `[E] ${pt.label || 'Bước vào Cổng Trở Về Level 0'}`,
+            text: `[E] ${pt.label || 'Enter Return Portal to Level 0'}`,
             act: () => {
               noclipDropLockUntil = performance.now() + 1800;
               sendAction({ act: 'enterLevel', levelId: 'level0', via: 'return' });
             }
           };
         }
-        return { text: 'Cần sửa Máy Thoát Tầng trước khi mở cổng về Level 0!' };
+        return { text: 'Must repair Elevator before opening Return Portal to Level 0!' };
       }
     }
   }
@@ -3687,11 +3767,11 @@ function findBestPrompt(me) {
       if (ent.entryType === 'noclip_floor') continue; // Stealth false-floor noclip drop!
       if (Math.hypot(me.x - ent.x, me.z - ent.z) < ent.radius + 0.65) {
         if (ent.needCrouch && !me.crouch) {
-          return { text: `Cúi người [C] để chui vào ${ent.label}` };
+          return { text: `Crouch [C] to enter ${ent.label}` };
         }
         return {
           critical: true,
-          text: `[E] ${ent.entryType === 'pickup' ? 'Nhặt' : 'Bước vào'}: ${ent.label}`,
+          text: `[E] ${ent.entryType === 'pickup' ? 'Pick up' : 'Enter'}: ${ent.label}`,
           act: () => {
             noclipDropLockUntil = performance.now() + 1800;
             sendAction({ act: 'enterLevel', levelId: ent.levelId, via: ent.entryType });
@@ -3705,7 +3785,7 @@ function findBestPrompt(me) {
     const tr = map.TRAPS[i];
     if (!tr.sprung && Math.hypot(me.x - tr.x, me.z - tr.z) < 2.0) {
       return {
-        text: '[Giữ E] Gỡ bẫy sắt',
+        text: '[Hold E] Remove Iron Trap',
         hold: { kind: 'disarm', targetId: i, duration: DISARM_T, onDone: () => sendAction({ act: 'trapDisarm', idx: i }) }
       };
     }
@@ -3734,11 +3814,11 @@ function updateInteractions(dt, me) {
     const ready = !!(prompt?.hold || prompt?.act || busyAct);
     mobUse.classList.toggle('ready', ready);
     const label = busyAct
-      ? 'ĐANG GIỮ...'
+      ? 'HOLDING...'
       : prompt?.text
-        ? prompt.text.replace(/^\[(?:Giữ\s+)?E\]\s*/i, '')
-        : 'TƯƠNG TÁC';
-    const sub = busyAct ? 'Đang làm' : prompt?.hold ? 'Giữ' : prompt?.act ? 'Chạm' : 'E';
+        ? prompt.text.replace(/^\[(?:Hold\s+)?E\]\s*/i, '')
+        : 'INTERACT';
+    const sub = busyAct ? 'In progress' : prompt?.hold ? 'Hold' : prompt?.act ? 'Touch' : 'E';
     mobUse.innerHTML = `${esc(label)}<small>${sub}</small>`;
   }
   if (canHold) {
@@ -3768,7 +3848,7 @@ function updateInteractions(dt, me) {
       if (t) t.p = busyAct.prog;
       sendAction({ act: 'taskProg', idx: busyAct.taskIdx, delta: inc });
       syncTaskCabinetLEDs();
-      $('actLabel').textContent = `Đang sửa Máy ${t?.code || ''} ${t?.symbol || ''}... ${Math.round(busyAct.prog * 100)}%`;
+      $('actLabel').textContent = `Repairing Elevator ${t?.code || ''} ${t?.symbol || ''}... ${Math.round(busyAct.prog * 100)}%`;
       $('actBar').style.width = `${busyAct.prog * 100}%`;
       if (busyAct.prog >= 1) busyAct = null;
     } else if (busyAct.kind === 'pump') {
@@ -3778,16 +3858,16 @@ function updateInteractions(dt, me) {
       busyAct.prog = Math.min(1, Math.max(pm?.p || 0, busyAct.prog) + inc);
       if (pm) pm.p = busyAct.prog;
       sendAction({ act: 'pumpProg', idx: busyAct.pumpIdx, delta: inc });
-      $('actLabel').textContent = `Đang mở Van ${pm?.name || ''}... ${Math.round(busyAct.prog * 100)}%`;
+      $('actLabel').textContent = `Opening Valve ${pm?.name || ''}... ${Math.round(busyAct.prog * 100)}%`;
       $('actBar').style.width = `${busyAct.prog * 100}%`;
       if (busyAct.prog >= 1) busyAct = null;
     } else {
       busyAct.prog += dt / busyAct.duration;
-      $('actLabel').textContent = busyAct.kind === 'unhook' ? 'Đang giải cứu đồng đội...'
-        : busyAct.kind === 'selfEscape' ? 'Đang vùng vẫy tự giải thoát...'
-        : busyAct.kind === 'selfUnhook' ? 'Đang vùng thoát khỏi móc...'
-        : busyAct.kind === 'revive' ? 'Đang sơ cứu...'
-        : 'Đang gỡ bẫy...';
+      $('actLabel').textContent = busyAct.kind === 'unhook' ? 'Rescuing teammate...'
+        : busyAct.kind === 'selfEscape' ? 'Struggling to free self...'
+        : busyAct.kind === 'selfUnhook' ? 'Struggling to free from hook...'
+        : busyAct.kind === 'revive' ? 'Administering first aid...'
+        : 'Disarming trap...';
       $('actBar').style.width = `${Math.min(100, busyAct.prog * 100)}%`;
       if (busyAct.prog >= 1) {
         busyAct.onDone?.();
@@ -3806,7 +3886,7 @@ function useQuickItem(slotIdx) {
   const order = ['water', 'scan', 'jelly', 'ration', 'flare'];
   const kind = order[slotIdx];
   if (!kind || (me.inv[kind] || 0) <= 0) {
-    pushFeed('Không còn vật phẩm này!', '#c8b892');
+    pushFeed('No more of this item!', '#c8b892');
     return;
   }
 
@@ -3814,20 +3894,20 @@ function useQuickItem(slotIdx) {
   if (kind === 'water') {
     thirstT = Math.min(WATER_LIFE, thirstT + WATER_LIFE * 0.72);
     stam = Math.min(SPEED.STAM_DRAIN, stam + SPEED.STAM_DRAIN * 0.65);
-    pushFeed('Đã uống Nước Hạnh Nhân (+HP, +Thể lực, +Khát)', '#56d892');
+    pushFeed('Drank Almond Water (+HP, +Stamina, +Thirst)', '#56d892');
   } else if (kind === 'jelly') {
     stam = SPEED.STAM_DRAIN;
     jellyBuffT = 6.0;
-    pushFeed('Thạch Bướm Đêm: Thể lực đầy & +22% tốc độ (6s)!', '#ffa832');
+    pushFeed('Night Butterfly: Full Stamina & +22% Speed (6s)!', '#ffa832');
   } else if (kind === 'ration') {
     thirstT = WATER_LIFE;
     stam = SPEED.STAM_DRAIN;
     jellyBuffT = Math.max(jellyBuffT, 3.0);
-    pushFeed('Khẩu Phần Hoàng Gia: Phục hồi hoàn toàn!', '#ffdc48');
+    pushFeed('Royal Feast: Fully restored!', '#ffdc48');
   } else if (kind === 'scan') {
     scanT = SCAN_T;
   } else if (kind === 'flare') {
-    pushFeed('Đã ném Pháo Sáng UV!', '#ee66ff');
+    pushFeed('Threw UV Flare!', '#ee66ff');
   }
   sendAction({ act: 'useItem', kind });
 }
@@ -3843,12 +3923,12 @@ function syncFlashlightUI(me = players[myId]) {
   if (btn) {
     btn.classList.toggle('on', isOn);
     const st = btn.querySelector('.light-state');
-    if (st) st.textContent = isOn ? 'BẬT' : 'TẮT';
+    if (st) st.textContent = isOn ? 'ON' : 'OFF';
   }
   if (mFlash) {
     mFlash.classList.toggle('active', isOn);
     const sub = mFlash.querySelector('small');
-    if (sub) sub.textContent = isOn ? 'BẬT' : 'TẮT';
+    if (sub) sub.textContent = isOn ? 'ON' : 'OFF';
   }
 }
 
@@ -3875,9 +3955,9 @@ function updateHUD(elapsed, fpsVal) {
   const secs = Math.floor(matchTime % 60).toString().padStart(2, '0');
   const cs = Math.floor((matchTime * 100) % 100).toString().padStart(2, '0');
   $('tapeTime').textContent = `00:${mins}:${secs}.${cs}`;
-  $('fpsCounter').textContent = `${Math.max(1, Math.round(fpsVal))} FPS`;
+  $('fpsCounter').textContent = `${Math.max(1,Math.round(fpsVal))} FPS${fpsCap>0?' · cap '+fpsCap:''}`;
   const pingEl = $('pingCounter');
-  if (pingEl && !net.netReady) pingEl.textContent = `${frameMsSmooth.toFixed(1)} ms`;
+  if (pingEl && !net.netReady) pingEl.textContent = `${(1000/Math.max(1,fpsVal)).toFixed(1)} ms frame · ${frameMsSmooth.toFixed(1)} ms CPU`;
   const meta = getLevelMeta(activeLocalLevelId);
   const compactCode = meta.code.length > 14 ? `${meta.code.slice(0, 11)}..` : meta.code;
   $('roleBadge').textContent = isK ? `ENTITY // ${compactCode}` : `CAM-04 // ${compactCode}`;
@@ -3901,12 +3981,12 @@ function updateHUD(elapsed, fpsVal) {
   const targetNeed = activeLocalLevelId === 'level0' ? NEED : 1;
   if (activeLocalLevelId === 'level0') {
     $('objText').textContent = map.exitsOpen
-      ? `CỔNG THOÁT HIỂM ĐÃ MỞ! • TẦNG PHỤ: ${levelsClearedSet.size}/20`
-      : `TỦ ĐIỆN: ${doneCount}/${NEED} • TẦNG PHỤ: ${levelsClearedSet.size}/20`;
+      ? `SAFETY EXIT OPEN! • SUBLEVEL: ${levelsClearedSet.size}/20`
+      : `BREAKERS: ${doneCount}/${NEED} • SUBLEVEL: ${levelsClearedSet.size}/20`;
   } else {
     $('objText').textContent = map.exitsOpen
-      ? `${compactCode}: CỔNG VỀ LEVEL 0 ĐÃ MỞ!`
-      : `${compactCode}: MÁY THOÁT ${doneCount}/1`;
+      ? `${compactCode}: LEVEL 0 EXIT OPEN!`
+      : `${compactCode}: EXIT MACHINE ${doneCount}/1`;
   }
 
   // Co-op Join Teammates Sub-Level Button ("Tham gia" when a teammate entered a sub-level while local player is in Level 0)
@@ -3915,7 +3995,7 @@ function updateHUD(elapsed, fpsVal) {
   if (joinBar) {
     joinBar.classList.toggle('hidden', !canShowJoin);
     if (canShowJoin) {
-      $('joinLevelText').textContent = `${activeJoinTarget.byName || 'Đồng đội'} đang ở ${activeJoinTarget.code} (${activeJoinTarget.name})`;
+      $('joinLevelText').textContent = `${activeJoinTarget.byName || 'Teammates'} currently at ${activeJoinTarget.code} (${activeJoinTarget.name})`;
     }
   }
   const mobJoinEl = $('mobJoinBtn');
@@ -3929,7 +4009,7 @@ function updateHUD(elapsed, fpsVal) {
 
   $('speedText').textContent = `SPD: ${me.spd.toFixed(1)} m/s${noclipMode ? ` • [NOCLIP ${Math.round(noclipSpeed)}m/s]` : movementAssist.hopBonus > 0 ? '  [BHOP +0.45]' : ''}`;
   if (tpOpen && $('tpCurrentPos')) {
-    $('tpCurrentPos').textContent = `Tầng: ${meta.code} (${meta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
+    $('tpCurrentPos').textContent = `Floor: ${meta.code} (${meta.vnName}) • X=${me.x.toFixed(1)}, Y=${(me.y || 0).toFixed(1)}, Z=${me.z.toFixed(1)}`;
   }
 
   // Environmental navigation in the introduction; ordinary objective/rescue guidance resumes outside it.
@@ -3945,22 +4025,22 @@ function updateHUD(elapsed, fpsVal) {
     const gainTag = zoneHit?.type === 'blackout' || zoneHit?.type === 'mb_van_tunnel' ? 'GAIN +12dB' : 'AUTO';
     camExpoEl.textContent = `1/${fpsCap > 0 ? Math.max(15, fpsCap) : 60} • F1.8 • ${gainTag}`;
   }
-  const zoneLabel = ZONE_LABELS[zoneHit?.type] || 'MÊ CUNG LEVEL 0';
+  const zoneLabel = ZONE_LABELS[zoneHit?.type] || 'LEVEL 0 Labyrinth';
 
   if (isK) {
     const aliveS = Object.values(players).filter(p => p.role === 's' && p.state !== 'dead' && p.state !== 'escaped').length;
     $('missionBox').innerHTML = `
-      <div class="mission-title"><span style="white-space:nowrap">NHIỆM VỤ</span><span style="text-align:right;font-size:10px">${zoneLabel}</span></div>
-      <div class="mission-step ${aliveS === 0 ? 'done' : 'active'}">▸ Săn gục toàn bộ Survivor (Còn: ${aliveS})</div>
-      <div class="mission-step">▸ Nhấn [E] bắt nạn nhân gục & treo lên Móc</div>
-      <div class="mission-hint">Bấm [Q] soi vị trí (${revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'SẴN'}) • [R] đặt bẫy</div>`;
+      <div class="mission-title"><span style="white-space:nowrap">MISSION</span><span style="text-align:right;font-size:10px">${zoneLabel}</span></div>
+      <div class="mission-step ${aliveS === 0 ? 'done' : 'active'}">▸ Defeat all Survivors (Remaining: ${aliveS})</div>
+      <div class="mission-step">▸ Press [E] to knock down & hang victim on hook</div>
+      <div class="mission-hint">Press [Q] to reveal location (${revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'READY'}) • [R] set trap</div>`;
   } else if (activeLocalLevelId === 'level37' && map.POOL_ZONES) {
     const repairDone = doneCount >= 1;
     const pumps = map.PUMPS || [];
     const pumpsDone = pumps.filter(pm => pm.done).length;
     const curZone = getPoolroomsZoneAt(me.x, me.z, map);
     let tgt = null;
-    let tgtLbl = 'CỔNG HỒI QUY';
+    let tgtLbl = 'RETURN GATE';
     if (repairDone) {
       tgt = map.PORTALS?.[0] || map.TASKS[0];
     } else {
@@ -3970,29 +4050,29 @@ function updateHUD(elapsed, fpsVal) {
         const d = Math.hypot(pm.x - me.x, pm.z - me.z);
         if (d < bestPD) { bestPD = d; tgt = pm; tgtLbl = pm.name; }
       }
-      if (!tgt) { tgt = map.TASKS[0]; tgtLbl = 'KHU J — HẦM XẢ NƯỚC'; }
+      if (!tgt) { tgt = map.TASKS[0]; tgtLbl = 'ZONE J — DRAINAGE PUMP'; }
     }
     const dist = tgt ? Math.hypot(tgt.x - me.x, tgt.z - me.z) : 0;
     const ang = tgt ? Math.atan2(-(tgt.x - me.x), -(tgt.z - me.z)) : 0;
     const rel = Math.atan2(Math.sin(ang - me.yaw), Math.cos(ang - me.yaw));
-    const arrow = Math.abs(rel) < 0.55 ? '↑ THẲNG' : rel > 0.55 && rel < 2.4 ? '← TRÁI' : rel < -0.55 && rel > -2.4 ? '→ PHẢI' : '↓ SAU';
+    const arrow = Math.abs(rel) < 0.55 ? '↑ STRAIGHT' : rel > 0.55 && rel < 2.4 ? '← LEFT' : rel < -0.55 && rel > -2.4 ? '→ RIGHT' : '↓ BACK';
     $('missionBox').innerHTML = `
       <div class="mission-title"><span style="white-space:nowrap">${compactCode}</span><span style="text-align:right;font-size:10px">${curZone?.name || meta.vnName}</span></div>
-      <div class="mission-step ${pumpsDone >= pumps.length && pumps.length > 0 ? 'done' : 'active'}">${pumpsDone >= pumps.length && pumps.length > 0 ? '✓' : '1.'} Mở 3 Trạm Bơm Thủy Lực (${pumpsDone}/${pumps.length}) — Giữ [E]</div>
-      <div class="mission-step ${repairDone ? 'active' : ''}">${repairDone ? '✓' : '2.'} Thoát qua Cổng Khu J ([E])</div>
-      <div class="mission-hint">${tgtLbl}: ${Math.round(dist)}m (${arrow}) • Theo lối gạch khô để tìm trạm bơm — không có thực thể thù địch</div>`;
+      <div class="mission-step ${pumpsDone >= pumps.length && pumps.length > 0 ? 'done' : 'active'}">${pumpsDone >= pumps.length && pumps.length > 0 ? '✓' : '1.'} Activate 3 Hydraulic Pumps (${pumpsDone}/${pumps.length}) — Hold [E]</div>
+      <div class="mission-step ${repairDone ? 'active' : ''}">${repairDone ? '✓' : '2.'} Exit via Zone J Gate ([E])</div>
+      <div class="mission-hint">${tgtLbl}: ${Math.round(dist)}m (${arrow}) • Follow the dry brick path to find the pump — no hostile entities</div>`;
   } else if (activeLocalLevelId !== 'level0') {
     const repairDone = doneCount >= 1;
     const tgt = repairDone ? (map.PORTALS?.[0] || map.TASKS[0]) : map.TASKS[0];
     const dist = tgt ? Math.hypot(tgt.x - me.x, tgt.z - me.z) : 0;
     const ang = tgt ? Math.atan2(-(tgt.x - me.x), -(tgt.z - me.z)) : 0;
     const rel = Math.atan2(Math.sin(ang - me.yaw), Math.cos(ang - me.yaw));
-    const arrow = Math.abs(rel) < 0.55 ? '↑ THẲNG' : rel > 0.55 && rel < 2.4 ? '← TRÁI' : rel < -0.55 && rel > -2.4 ? '→ PHẢI' : '↓ SAU';
+    const arrow = Math.abs(rel) < 0.55 ? '↑ STRAIGHT' : rel > 0.55 && rel < 2.4 ? '← LEFT' : rel < -0.55 && rel > -2.4 ? '→ RIGHT' : '↓ BACK';
     $('missionBox').innerHTML = `
       <div class="mission-title"><span style="white-space:nowrap">${compactCode}</span><span style="text-align:right;font-size:10px">${meta.vnName}</span></div>
-      <div class="mission-step ${repairDone ? 'done' : 'active'}">${repairDone ? '✓' : '1.'} Sửa Máy Thoát Tầng (${doneCount}/1) — Giữ [E]</div>
-      <div class="mission-step ${repairDone ? 'active' : ''}">2. Bước qua Cổng Trở Về Level 0 ([E])</div>
-      <div class="mission-hint">${repairDone ? 'CỔNG VỀ LEVEL 0' : 'MÁY THOÁT'}: ${Math.round(dist)}m (${arrow}) • ${meta.entity?.hint || ''}</div>`;
+      <div class="mission-step ${repairDone ? 'done' : 'active'}">${repairDone ? '✓' : '1.'} Repair Egress Machine (${doneCount}/1) — Hold [E]</div>
+      <div class="mission-step ${repairDone ? 'active' : ''}">2. Step through Return Gate to Level 0 ([E])</div>
+      <div class="mission-hint">${repairDone ? 'LEVEL 0 GATE' : 'EXIT MACHINE'}: ${Math.round(dist)}m (${arrow}) • ${meta.entity?.hint || ''}</div>`;
   } else {
     const repairDone = doneCount >= NEED;
     // Find nearest incomplete breaker box or nearest exit when unlocked
@@ -4007,31 +4087,31 @@ function updateHUD(elapsed, fpsVal) {
       const md = Math.hypot(hookedMate.x - me.x, hookedMate.z - me.z);
       const mAng = Math.atan2(-(hookedMate.x - me.x), -(hookedMate.z - me.z));
       const mRel = Math.atan2(Math.sin(mAng - me.yaw), Math.cos(mAng - me.yaw));
-      const mArr = Math.abs(mRel) < 0.55 ? '↑ THẲNG' : mRel > 0.55 && mRel < 2.4 ? '← TRÁI' : mRel < -0.55 && mRel > -2.4 ? '→ PHẢI' : '↓ SAU';
-      const stTxt = hookedMate.state === 'hooked' ? 'BỊ TREO' : hookedMate.state === 'carried' ? 'BỊ BẮT' : 'GỤC';
-      hintLbl = `CỨU ${hookedMate.name} (${stTxt}): ${Math.round(md)}m (${mArr})`;
+      const mArr = Math.abs(mRel) < 0.55 ? '↑ STRAIGHT' : mRel > 0.55 && mRel < 2.4 ? '← LEFT' : mRel < -0.55 && mRel > -2.4 ? '→ RIGHT' : '↓ BACK';
+      const stTxt = hookedMate.state === 'hooked' ? 'HANGING' : hookedMate.state === 'carried' ? 'CAPTURED' : 'DOWNED';
+      hintLbl = `RESCUE ${hookedMate.name} (${stTxt}): ${Math.round(md)}m (${mArr})`;
     } else if (nearestD < Infinity) {
       const rel = Math.atan2(Math.sin(nearestAng - me.yaw), Math.cos(nearestAng - me.yaw));
-      const arrow = Math.abs(rel) < 0.55 ? '↑ THẲNG' : rel > 0.55 && rel < 2.4 ? '← TRÁI' : rel < -0.55 && rel > -2.4 ? '→ PHẢI' : '↓ SAU';
+      const arrow = Math.abs(rel) < 0.55 ? '↑ STRAIGHT' : rel > 0.55 && rel < 2.4 ? '← LEFT' : rel < -0.55 && rel > -2.4 ? '→ RIGHT' : '↓ BACK';
       const tSym = !repairDone && nearestTgt?.code ? ` ${nearestTgt.code} ${nearestTgt.symbol}` : '';
-      hintLbl = `${repairDone ? 'CỔNG THOÁT' : `MÁY${tSym}`}: ${Math.round(nearestD)}m (${arrow})`;
+      hintLbl = `${repairDone ? 'EXIT GATE' : `MACHINE ${tSym}`}: ${Math.round(nearestD)}m (${arrow})`;
     }
     $('missionBox').innerHTML = `
-      <div class="mission-title"><span style="white-space:nowrap">NHIỆM VỤ</span><span style="text-align:right;font-size:10px">${zoneLabel}</span></div>
-      <div class="mission-step ${repairDone ? 'done' : 'active'}">${repairDone ? '✓' : '1.'} Sửa ${NEED} Tủ Điện (${doneCount}/${NEED}) — Giữ [E]</div>
-      <div class="mission-step ${repairDone ? 'active' : ''}">2. Theo dây mũi tên sàn → Cổng Bắc / Nam</div>
-      <div class="mission-hint" ${hookedMate ? 'style="color:#ff9c42;"' : ''}>${hintLbl || 'Theo dây mũi tên trên sàn để tìm máy'} • [M] Đổi nhạc</div>`;
+      <div class="mission-title"><span style="white-space:nowrap">MISSION</span><span style="text-align:right;font-size:10px">${zoneLabel}</span></div>
+      <div class="mission-step ${repairDone ? 'done' : 'active'}">${repairDone ? '✓' : '1.'} Repair ${NEED} Electric Cabinet (${doneCount}/${NEED}) — Hold [E]</div>
+      <div class="mission-step ${repairDone ? 'active' : ''}">2. Follow the floor arrows → North/South Gate</div>
+      <div class="mission-hint" ${hookedMate ? 'style="color:#ff9c42;"' : ''}>${hintLbl || 'Follow the floor arrows to find the machine'} • [M] Change Music</div>`;
   }
 
   // Team list with distinct survivor colors ONLY (hide all Entity / Killer rows from POV HUD!)
   const teamHtml = Object.values(players).filter(p => p.role !== 'k').map(p => {
     const col = `#${SURV_COLORS[(p.colorIdx || 0) % SURV_COLORS.length].hex.toString(16).padStart(6, '0')}`;
-    const st = p.state === 'escaped' ? 'THOÁT'
-      : p.state === 'dead' ? 'CHẾT'
-      : p.state === 'hooked' ? 'BỊ MÓC'
-      : p.state === 'carried' ? 'BỊ BẮT'
-      : p.state === 'down' ? 'GỤC'
-      : p.hp === 1 ? 'THƯƠNG' : 'KHỎE';
+    const st = p.state === 'escaped' ? 'ESCAPED'
+      : p.state === 'dead' ? 'DEAD'
+      : p.state === 'hooked' ? 'HOOKED'
+      : p.state === 'carried' ? 'CAPTURED'
+      : p.state === 'down' ? 'DOWNED'
+      : p.hp === 1 ? 'HURT' : 'HEALTHY';
     return `<div class="team-row" style="border-left-color:${col};">
       <span>${esc(p.name)}</span>
       <span style="color:${p.hp === 1 || p.state === 'down' || p.state === 'hooked' || p.state === 'carried' ? '#ff7a6e' : '#e6d27a'};">${st}</span>
@@ -4042,28 +4122,28 @@ function updateHUD(elapsed, fpsVal) {
   // Vitals Box
   if (isK) {
     $('vitalsBox').innerHTML = `
-      <div class="v-row"><div class="v-head"><span>Chiêu [Q] Soi Vị Trí</span><span>${revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'SẴN SÀNG'}</span></div></div>
-      <div class="v-row"><div class="v-head"><span>Chiêu [R] Đặt Bẫy Sắt</span><span>${trapCD > 0 ? `${Math.ceil(trapCD)}s` : `${map.TRAPS.length}/${TRAP_MAX}`}</span></div></div>
-      <div class="v-row" style="font-size:11px;color:#c8bfa0;">Click trái: Chém • [E]: Nhặt / Treo móc</div>`;
+      <div class="v-row"><div class="v-head"><span>Skill [Q] Reveal Position</span><span>${revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'READY'}</span></div></div>
+      <div class="v-row"><div class="v-head"><span>Skill [R] Place Iron Trap</span><span>${trapCD > 0 ? `${Math.ceil(trapCD)}s` : `${map.TRAPS.length}/${TRAP_MAX}`}</span></div></div>
+      <div class="v-row" style="font-size:11px;color:#c8bfa0;">Left-click: Slash • [E]: Pick up / Hang hook</div>`;
     $('invBar').innerHTML = '';
   } else {
     const stamPct = Math.round((stam / SPEED.STAM_DRAIN) * 100);
     const thirstPct = Math.round((thirstT / WATER_LIFE) * 100);
-    const stamLbl = stamExhausted ? `<span style="color:#ff9442;">${stamPct}% (KIỆT SỨC - CHỜ 20%)</span>` : `<span>${stamPct}%</span>`;
+    const stamLbl = stamExhausted ? `<span style="color:#ff9442;">${stamPct}% (THIRSTY - WAIT 20%)</span>` : `<span>${stamPct}%</span>`;
     const stamCol = stamExhausted ? '#ff6a38' : '#48d0f5';
     $('vitalsBox').innerHTML = `
-      <div class="v-row"><div class="v-head"><span>Máu (HP)</span><span style="color:${me.hp > 1 ? '#4ed884' : '#ff5648'};">${me.hp} / 2</span></div></div>
-      <div class="v-row"><div class="v-head"><span>Thể lực</span>${stamLbl}</div>
+      <div class="v-row"><div class="v-head"><span>Health (HP)</span><span style="color:${me.hp > 1 ? '#4ed884' : '#ff5648'};">${me.hp} / 2</span></div></div>
+      <div class="v-row"><div class="v-head"><span>Stamina</span>${stamLbl}</div>
         <div class="bar-bg" style="position:relative;"><div class="bar-fg" style="width:${stamPct}%;background:${stamCol};"></div><div style="position:absolute;left:20%;top:0;bottom:0;width:2px;background:rgba(255,255,255,0.65);"></div></div></div>
-      <div class="v-row"><div class="v-head"><span>Cơn khát</span><span>${thirstPct}%</span></div>
+      <div class="v-row"><div class="v-head"><span>Thirst</span><span>${thirstPct}%</span></div>
         <div class="bar-bg"><div class="bar-fg" style="width:${thirstPct}%;background:#56d892;"></div></div></div>`;
 
     const slots = [
-      ['1', 'water', 'Hạnh Nhân'],
-      ['9', 'scan', 'Máy Dò'],
-      ['0', 'jelly', 'Thạch Bướm'],
-      ['4', 'ration', 'Khẩu Phần'],
-      ['5', 'flare', 'Pháo UV']
+      ['1', 'water', 'Happiness'],
+      ['9', 'scan', 'Detector'],
+      ['0', 'jelly', 'Butterfly'],
+      ['4', 'ration', 'Portion'],
+      ['5', 'flare', 'UV Flare']
     ];
     $('invBar').innerHTML = slots.map(([k, id, lbl], idx) => {
       const cnt = me.inv?.[id] || 0;
@@ -4082,7 +4162,7 @@ function updateHUD(elapsed, fpsVal) {
   $('mobCrouchBtn')?.classList.toggle('hidden', !!isK);
   if (isK) {
     const swSub = $('mobSwingBtn')?.querySelector('small');
-    if (swSub) swSub.textContent = swingCD > 0 ? `${swingCD.toFixed(1)}s` : 'Sẵn sàng';
+    if (swSub) swSub.textContent = swingCD > 0 ? `${swingCD.toFixed(1)}s` : 'Ready';
     const rvSub = $('mobRevealBtn')?.querySelector('small');
     if (rvSub) rvSub.textContent = revealCD > 0 ? `${Math.ceil(revealCD)}s` : 'Q';
     const trSub = $('mobTrapBtn')?.querySelector('small');
@@ -4298,7 +4378,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'Digit5') useQuickItem(4);
   else if (e.code === 'KeyM') {
     const lbl = audio.nextTrack();
-    pushFeed(`♪ Băng nhạc: ${lbl}`);
+    pushFeed(`♪ Music: ${lbl}`);
   } else if (e.code === 'KeyG') {
     triggerJoinActiveLevel();
   }
@@ -4449,9 +4529,9 @@ $('copyLinkBtn').addEventListener('click', () => {
   if (!net.roomCode) return;
   const url = `${location.origin}${location.pathname}?room=${net.roomCode}`;
   const finish = (ok) => {
-    pushFeed(ok ? 'Đã copy link phòng!' : `Link mời: ${url}`, ok ? '#4ed884' : '#ffe066');
-    $('copyLinkBtn').textContent = ok ? 'Đã Copy!' : 'Xem Feed Link';
-    setTimeout(() => { $('copyLinkBtn').textContent = 'Copy Link Mời'; }, 1500);
+    pushFeed(ok ? 'Room link copied!' : `Invite link: ${url}`, ok ? '#4ed884' : '#ffe066');
+    $('copyLinkBtn').textContent = ok ? 'Copied!' : 'Xem Feed Link';
+    setTimeout(() => { $('copyLinkBtn').textContent = 'Copy Invite Link'; }, 1500);
   };
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(url).then(() => finish(true)).catch(() => finish(false));
@@ -4503,7 +4583,11 @@ const bindSfx = (el) => el?.addEventListener('input', (e) => {
 bindSfx($('sfxSlider'));
 bindSfx($('pauseSfx'));
 
-const resetFxToPreset = () => { localStorage.removeItem('br_fps_preferences_v1'); setGraphicsPreset(currentGfx, true); };
+const resetFxToPreset = () => {
+  localStorage.removeItem('br_fps_preferences_v1');
+  fxSettings = getPlatformDefaultFx(currentGfx);
+  applyFxSettings();
+};
 $('lobbyResetFxBtn')?.addEventListener('click', resetFxToPreset);
 $('pauseResetFxBtn')?.addEventListener('click', resetFxToPreset);
 
@@ -4668,7 +4752,7 @@ function bindMobileControls() {
     e.stopPropagation();
     audio.ensureContext();
     const lbl = audio.nextTrack();
-    pushFeed(`♪ Băng nhạc: ${lbl}`);
+    pushFeed(`♪ Music: ${lbl}`);
   });
   $('mobTpBtn')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -4733,7 +4817,7 @@ $('tpGoCoordBtn')?.addEventListener('click', () => {
   const y = parseFloat($('tpY')?.value);
   const z = parseFloat($('tpZ')?.value);
   if (!Number.isFinite(x) || !Number.isFinite(z)) {
-    pushFeed('Vui lòng nhập tọa độ X và Z hợp lệ!', '#ff7a6e');
+    pushFeed('Please enter valid X and Z coordinates!', '#ff7a6e');
     return;
   }
   teleportToTarget({
@@ -4743,7 +4827,7 @@ $('tpGoCoordBtn')?.addEventListener('click', () => {
     z,
     rawCoords: true,
     preserveY: true,
-    title: `Tọa độ (${x.toFixed(1)}, ${(Number.isFinite(y) ? y : 0).toFixed(1)}, ${z.toFixed(1)})`
+    title: `Coordinates (${x.toFixed(1)}, ${(Number.isFinite(y) ? y : 0).toFixed(1)}, ${z.toFixed(1)})`
   });
 });
 $('tpList')?.addEventListener('click', (e) => {
@@ -4754,6 +4838,7 @@ $('tpList')?.addEventListener('click', (e) => {
 });
 
 const exitToLobby = () => {
+  hillsAmbience?.dispose(); hillsAmbience = null;
   inMatch = false;
   paused = false;
   tpOpen = false;
@@ -4833,6 +4918,7 @@ function animate(now) {
     const me = players[myId];
     const isK = me?.role === 'k';
 
+    updateHillsAmbience();
     // Update remote characters & lighting (isolated strictly to current visible level!)
     for (const [id, av] of Object.entries(avatars)) {
       const p = players[id];
@@ -4908,7 +4994,7 @@ function animate(now) {
       ambushCD = 22;
       triggerJumpscare({
         aiKind: nearestEntity?.aiKind || 'bacteria',
-        killerName: nearestEntity?.name || 'Thực Thể',
+        killerName: nearestEntity?.name || 'Entity',
         ambush: true
       });
     }
@@ -4980,7 +5066,7 @@ function animate(now) {
     // Dynamic Zone Light & Scene Atmosphere Adaptation (per-scene colors, shadow intensity, fog tint & depth!)
     gfx.setCoolGrade?.(
       (me && !isK && activeLocalLevelId !== 'level0')
-        ? (activeLocalLevelId === 'level37' ? 0.92 : 0.65)
+        ? (activeLocalLevelId === 'level37' ? 0.92 : activeLocalLevelId==='level94'?.22:.65)
         : 0.0
     );
     if (me && !isK) {
@@ -5086,7 +5172,8 @@ function animate(now) {
   frameMsSmooth += (workMs - frameMsSmooth) * 0.16;
   window.__BR_PERF = {
     fps: Math.max(1, Math.round(fpsSmooth)),
-    frameMs: Number(frameMsSmooth.toFixed(2)),
+    frameMs: Number(frameMsSmooth.toFixed(2)), // compatibility: CPU work only
+    cpuWorkMs:Number(workMs.toFixed(3)),frameIntervalMs:Number((rawDt*1000).toFixed(3)),fpsCap,
     drawCalls: renderer.info.render.calls,
     triangles: renderer.info.render.triangles
   };
@@ -5167,30 +5254,11 @@ async function runSelfTests() {
   const prevGfx = currentGfx;
   const prevFpsCap = fpsCap;
   const prevAspect = aspectMode;
+  const prevFx = { ...fxSettings };
   assert(
-    currentGfx === 'ultra' && fpsCap === 15 && aspectMode === '4:3' && Math.abs(mouseSens - 1.0) < 0.01 &&
-    fxSettings.footageFilterMode === 'soft_dreamcam' && Math.abs(fxSettings.footageFilterStrength - 0.95) < 0.01 &&
-    Math.abs(fxSettings.upscaleSoftness - 1.0) < 0.01 && Math.abs(fxSettings.halation - 2.5) < 0.01 &&
-    Math.abs(fxSettings.clarity - 1.0) < 0.01 &&
-    fxSettings.rtShadow === 1.6 && fxSettings.lensCurve === 1.5 && fxSettings.crtScanlines === true &&
-    fxSettings.motionBlur === 3.0 && fxSettings.dofBlur === 1.5 && Math.abs(fxSettings.bloom - 2.1) < 0.01 &&
-    Math.abs(fxSettings.baseGrain - 0.25) < 0.01 && fxSettings.grain === 1.5 &&
-    fxSettings.vignette === 2.0 && fxSettings.scanlines === 1.5 && Math.abs(fxSettings.brightness - 1.05) < 0.01 &&
-    Math.abs(fxSettings.contrast - 1.00) < 0.005 && Math.abs(fxSettings.gamma - 1.04) < 0.005 &&
-    fxSettings.hue === 0 && Math.abs(fxSettings.saturation - 1.17) < 0.005 &&
-    fxSettings.eyeAdaptPreset === 'dramatic' && fxSettings.eyeAdaptEnabled === true &&
-    Math.abs(fxSettings.eyeAdaptStrength - 1.45) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptBrightSpeed - 1.05) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptDarkSpeed - 3.30) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptComp - 0.05) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptMinExp - 0.34) < 0.01 &&
-    Math.abs(fxSettings.eyeAdaptMaxExp - 3.10) < 0.01 &&
-    fxSettings.renderDistPreset === '800' && fxSettings.renderDistance === 800 &&
-    Math.abs(fxSettings.renderScale - 1.5) < 0.01 && fxSettings.aaMode === 'msaa' &&
-    fxSettings.shadows === true && fxSettings.waterQuality === 'ultra' && fxSettings.cloudQuality === 'ultra' &&
-    fxSettings.postFX === true && fxSettings.dust === true &&
-    fxSettings.movementProfile === 'backrooms' && fxSettings.autoBhop === true && fxSettings.idleMotion === 'footage' && Math.abs(fxSettings.movementShake - 1.6) < 0.01 && Math.abs(fxSettings.handheldTremor - 1.0) < 0.01 && Math.abs(fxSettings.verticalBob - 1.0) < 0.01 && !fxSettings.reducedMotion && fxSettings.cleanCamHud === true && fxSettings.touchControls === 'auto',
-    'default_settings_ultra_15fps_43_matched'
+    currentGfx === 'ultra' && fpsCap === 60 && aspectMode === '4:3' && mouseSens === 1 &&
+    Object.entries(PC_DEFAULT_FX).every(([key, value]) => fxSettings[key] === value),
+    'desktop_defaults_match_found_vhs_profile'
   );
 
   for (const k of ['mobile', 'low', 'med', 'high', 'ultra']) {
@@ -5220,7 +5288,9 @@ async function runSelfTests() {
     document.querySelectorAll('#pauseFxMount [data-fx-key]').length === FX_CONTROLS.length,
     'fx_settings_tables_mounted'
   );
-  setGraphicsPreset(prevGfx);
+  setGraphicsPreset(prevGfx, false);
+  fxSettings = prevFx;
+  applyFxSettings();
 
   setFpsCap(24);
   assert(fpsCap === 24 && $('fpsSelect').value === '24' && $('pauseFps').value === '24', 'cinema_24fps_mode');
@@ -5283,7 +5353,7 @@ async function runSelfTests() {
   closePauseMenu(false);
   assert(!paused && pauseScr.classList.contains('hidden'), 'pause_menu_closes');
   updateHUD(0.1, 60);
-  assert(document.getElementById('missionBox').textContent.includes('NHIỆM VỤ'), 'mission_box_visible');
+  assert(document.getElementById('missionBox').textContent.includes('MISSION'), 'mission_box_visible');
   assert(typeof audio._startAtmosphereLoop === 'function' && typeof audio._playBreath === 'function', 'atmosphere_and_breathing_audio_ready');
   assert(!world.skirtInst || !world.skirtInst.visible, 'rt_shadow_replaces_2d_skirt');
   const prevY = players[myId].yaw;
@@ -6053,7 +6123,7 @@ async function runSelfTests() {
     const elevPass = (
       elevDiag.hasParts &&
       insideDist < 2.2 && blockedZ >= doorZ + 0.55 && Number.isFinite(blockedX) &&
-      elevPrompt?.text.includes('Thang Máy') && startedOpening &&
+      elevPrompt?.text.includes('Elevator') && startedOpening &&
       map.elevatorState === 'open' && map.elevatorOpenProgress >= 0.99 &&
       world.elevator.doorL.position.x < -1.25 && world.elevator.doorR.position.x > 1.25 &&
       walkedZ < doorZ - 1.0 && Number.isFinite(walkedX)
@@ -6675,6 +6745,11 @@ async function runPoolV5Audit(){
         cameraMotion(){return {idle:{...humanCamera.out},handheld:structuredClone(handheldCamera.out),base:[camPitch,camYaw],locomotion:[camBobY,camSwayX,camNod,camRoll]};},
         resetCamera(){humanCamera.reset();handheldCamera.reset();camForeZ=previousForwardSpeed=stepPhase=stepDist=0;stepFootSign=1;camBobY=camSwayX=camNod=camRoll=camRollPan=stepSpring=stepSpringVel=stepPulseT=smoothMoveMix=smoothSprintMix=0;resetRunShakeState();},
         world(){return world;},gfx,
+        map(){return map;},
+        action(msg){sendAction(msg);},
+        interact(){const prompt=findBestPrompt(players[myId]);prompt?.act?.();return prompt?.text;},
+        players(){return Object.values(players).map(p=>({...p}));},
+        hostAction(id,msg){processPlayerActionHost(id,msg);},
         freeze(value) { fpsReviewFrozen = value; },
         input(code, value) { keys[code] = value; },
         clear() { for (const key in keys) keys[key] = false; weaponSystem.clearInput(); movementAssist.clearInput(); },
@@ -6702,6 +6777,14 @@ async function runPoolV5Audit(){
       return true;
     })();
   }
+  if (import.meta.env.DEV && params.has('netreview')) window.__NET_REVIEW = {
+    net, state:()=>({inMatch,myId,level:activeLocalLevelId,players:Object.values(players).map(p=>({...p})),map:map?{seed:map.seed,houses:map.HOUSES?.map(h=>[h.cx,h.cz,h.variantId])}:null,visible:Object.entries(avatars).filter(([id,a])=>a.group.visible).map(([id])=>id)}),
+    async start(seedValue=2026){net.broadcast({t:'start',seed:seedValue,roster:net.roster});await beginMatch(seedValue,net.roster,net.myId);},
+    level(id){sendAction({act:'enterLevel',levelId:id,via:'tp_panel'});},
+    place(x,z){const p=players[myId];p.x=x;p.z=z;p.y=getTerrainAt(x,z,map,p.y).floorY;hVelX=hVelZ=0;},
+    interact(){const prompt=findBestPrompt(players[myId]);prompt?.act?.();return {text:prompt?.text,player:{...players[myId]}};},
+    freeze(v){fpsReviewFrozen=v;}
+  };
   const joinCode = params.get('room');
   if (joinCode) {
     $('joinCodeInput').value = joinCode;

@@ -26,7 +26,7 @@ out vec4 cloudscapeColour;
 uniform sampler3D uNoiseVolume;
 uniform float uTime,uEye,uCloudAmount,uCloudStepScale;
 uniform vec3 uSunDirection,uSunColour,uShade,uZenith,uHorizon;
-uniform vec4 uOcean,uWeather,uCloudCentre[12],uCloudScale[12];
+uniform vec4 uOcean,uWeather,uCloudCentre[CLOUD_CLUSTER_COUNT],uCloudScale[CLOUD_CLUSTER_COUNT];
 varying vec3 vSkyWorld;
 float hash31(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 float noise3(vec3 p){return textureLod(uNoiseVolume,p*.125,0.0).r;}
@@ -111,7 +111,7 @@ void main(){
  float wisps=smoothstep(.58,.79,fbm(vec3(rd.x*10.0,rd.y*24.0,rd.z*4.0)+uWeather.x));
  air=mix(air,vec3(1.0,1.08,1.2),wisps*smoothstep(.35,.8,rd.y)*uWeather.w);
  vec4 sea=ocean(ro,rd,air);vec3 accumulated=vec3(0);float trans=1.0;
- for(int cluster=0;cluster<12;cluster++){
+ for(int cluster=0;cluster<CLOUD_CLUSTER_COUNT;cluster++){
   if(trans<.025||uCloudAmount<.01)break;
   vec4 c=uCloudCentre[cluster],s=uCloudScale[cluster];vec3 centre=c.xyz+vec3(uTime*.0005,0,uTime*.00022);
   vec3 boundMin=c.w<.5?vec3(-2,-1.1,-1.4):c.w<1.5?vec3(-1.8,-1.5,-1.4):c.w<2.5?vec3(-2.2,-.95,-1.5):c.w<3.5?vec3(-1.9,-1.2,-1.7):vec3(-1.9,-1.1,-1.4);
@@ -147,6 +147,6 @@ export function createCloudscape(THREE,profile=CLOUD_OCEAN,quality='high',resour
  const uniforms={uTime:{value:0},uEye:{value:profile.eye},uCloudAmount:{value:1},uCloudStepScale:{value:quality==='low'||quality==='mobile'?.38:quality==='med'?.65:quality==='high'?.88:1.0},uSunDirection:{value:new THREE.Vector3(...profile.sun).normalize()},uSunColour:{value:new THREE.Vector3(...profile.sunColour)},uShade:{value:new THREE.Vector3(...profile.shade)},uZenith:{value:new THREE.Vector3(...profile.zenith)},uHorizon:{value:new THREE.Vector3(...profile.horizon)},uOcean:{value:new THREE.Vector4(...profile.ocean)},uWeather:{value:new THREE.Vector4(...profile.weather)},uCloudCentre:{value:profile.clouds.map(c=>new THREE.Vector4(...c[0]))},uCloudScale:{value:profile.clouds.map(c=>new THREE.Vector4(...c[1]))}};
  uniforms.uCloudCentre.value=ordered.map(c=>new THREE.Vector4(...c[0]));uniforms.uCloudScale.value=ordered.map(c=>new THREE.Vector4(...c[1]));
  const noise=resources?.noise||createCloudNoise(THREE);uniforms.uNoiseVolume={value:noise};
- const material=new THREE.ShaderMaterial({uniforms,glslVersion:THREE.GLSL3,defines:{CLOUD_STEPS:steps,SEA_STEPS:['low','mobile'].includes(quality)?16:48},vertexShader:CLOUDSCAPE_VERTEX,fragmentShader:CLOUDSCAPE_FRAGMENT,side:THREE.DoubleSide});
+ const material=new THREE.ShaderMaterial({uniforms,glslVersion:THREE.GLSL3,defines:{CLOUD_CLUSTER_COUNT:profile.clouds.length,CLOUD_STEPS:steps,SEA_STEPS:['low','mobile'].includes(quality)?16:48},vertexShader:CLOUDSCAPE_VERTEX,fragmentShader:CLOUDSCAPE_FRAGMENT,side:THREE.DoubleSide});
  return {profile,material,noise,setQuality(q){uniforms.uCloudStepScale.value=q==='low'||q==='mobile'?.38:q==='med'?.65:q==='high'?.88:1.0;},update(time,localEye){uniforms.uTime.value=time;uniforms.uEye.value=profile.eye+Math.max(-2,Math.min(25,localEye))*.035;}};
 }

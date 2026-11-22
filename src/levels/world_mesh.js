@@ -17,6 +17,8 @@ import { createPoolOptics } from './poolrooms_optics.js';
 import {buildPoolDecor} from './poolrooms_decor_mesh.js';
 import {createPoolDaylight} from './poolrooms_daylight.js';
 import {createTubeWater} from './poolrooms_tube_water.js';
+import {disposeArchitectureResources} from './level94_architecture/resources.js';
+import {buildThresholdDoors} from './thresholds.js';
 import {createTubeMaterial} from './poolrooms_tube_material.js';
 
 function reg(disposables, item) {
@@ -398,6 +400,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
   const portalMeshes = [];
   const itemMeshes = new Map();
   const span = map.worldSpan;
+  if (map.LEVEL_DOORS?.length) buildThresholdDoors(root, map.LEVEL_DOORS, disposables);
 
   // 1. Sky Dome + Directional Sunlight/Moonlight if outdoor or skylight level
   let skyDome = null;
@@ -1534,6 +1537,7 @@ export function buildSubLevelWorld(scene, map, gfxKey = 'ultra') {
     },
     dispose() {
       scene.remove(root);
+      if (map.LEVEL_DOORS?.length) disposeArchitectureResources();
       for(const light of heroLightPool)light.shadow.dispose();
       for (const d of disposables) if (d && d.dispose) d.dispose();
     },

@@ -434,9 +434,10 @@ export function populateLevelLoreProps(ctx) {
     }
     for (let i = 0; i < HOUSES.length; i++) {
       const h = HOUSES[i];
-      pushSolidProp('mailbox', h.x + 6.5, h.z + 7.2, 0, 0.25, 0.25, 1.3, { blue: isCartoon });
-      pushDeco('fence_seg', h.x - 5.5, h.z + 7.4, 0, { w: 4.5, white: true });
-      pushDeco('fence_seg', h.x + 3.5, h.z + 7.4, 0, { w: 4.5, white: true });
+      const hx = h.cx ?? h.x, hz = h.cz ?? h.z;
+      pushSolidProp('mailbox', hx + 6.5, hz + 7.2, 0, 0.25, 0.25, 1.3, { blue: isCartoon });
+      pushDeco('fence_seg', hx - 5.5, hz + 7.4, 0, { w: 4.5, white: true });
+      pushDeco('fence_seg', hx + 3.5, hz + 7.4, 0, { w: 4.5, white: true });
     }
     if (isCartoon) {
       pushSolidProp('fountain', mid, meta.roadGrid ? meta.roadGrid[1] : mid, 0, 2.6, 2.6, 2.2);

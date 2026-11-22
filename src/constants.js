@@ -20,20 +20,20 @@ export const TASK_TIME = 18;
 export const STAM_EXHAUST_RATIO = 0.20; // Must recover >= 20% stamina while walking before sprinting again
 
 export const TASK_SYMBOLS = [
-  { code: 'A-01', sym: '⚡', label: 'ĐIỆN ÁP', col: '#ffd24a', hex: 0xffd24a },
-  { code: 'A-02', sym: '◈', label: 'BIẾN TẦN', col: '#48d0f5', hex: 0x48d0f5 },
-  { code: 'B-03', sym: '⌬', label: 'NGƯỠNG KV31', col: '#56e892', hex: 0x56e892 },
-  { code: 'B-04', sym: '△', label: 'TRẠM BƠM', col: '#ff9c42', hex: 0xff9c42 },
-  { code: 'C-05', sym: '❖', label: 'MẠCH TỪ', col: '#d47cff', hex: 0xd47cff },
-  { code: 'C-06', sym: '⊕', label: 'TẢI CHÍNH', col: '#ff6e64', hex: 0xff6e64 },
-  { code: 'D-07', sym: '⌘', label: 'PHÁT SÓNG', col: '#ffe878', hex: 0xffe878 },
-  { code: 'D-08', sym: '⏣', label: 'LÕI TỤ', col: '#64f0e8', hex: 0x64f0e8 },
-  { code: 'E-09', sym: '✦', label: 'CẦU DAO', col: '#98f564', hex: 0x98f564 },
-  { code: 'E-10', sym: '⊞', label: 'RƠ-LE', col: '#ffb65c', hex: 0xffb65c },
-  { code: 'F-11', sym: '◉', label: 'ĐỒNG BỘ', col: '#ff78b8', hex: 0xff78b8 },
-  { code: 'F-12', sym: '✧', label: 'CẤP NGUỒN', col: '#7cc2ff', hex: 0x7cc2ff },
-  { code: 'G-13', sym: '⟁', label: 'PHỤ TẢI', col: '#ffe066', hex: 0xffe066 },
-  { code: 'G-14', sym: '⬢', label: 'DỰ PHÒNG', col: '#5ef2b6', hex: 0x5ef2b6 }
+  { code: 'A-01', sym: '⚡', label: 'VOLTAGE', col: '#ffd24a', hex: 0xffd24a },
+  { code: 'A-02', sym: '◈', label: 'INVERTER', col: '#48d0f5', hex: 0x48d0f5 },
+  { code: 'B-03', sym: '⌬', label: 'KV31 THRESHOLD', col: '#56e892', hex: 0x56e892 },
+  { code: 'B-04', sym: '△', label: 'PUMP STATION', col: '#ff9c42', hex: 0xff9c42 },
+  { code: 'C-05', sym: '❖', label: 'MAGNETIC CIRCUIT', col: '#d47cff', hex: 0xd47cff },
+  { code: 'C-06', sym: '⊕', label: 'MAIN BREAKER', col: '#ff6e64', hex: 0xff6e64 },
+  { code: 'D-07', sym: '⌘', label: 'TRANSMITTER', col: '#ffe878', hex: 0xffe878 },
+  { code: 'D-08', sym: '⏣', label: 'CORE', col: '#64f0e8', hex: 0x64f0e8 },
+  { code: 'E-09', sym: '✦', label: 'CIRCUIT BREAKER', col: '#98f564', hex: 0x98f564 },
+  { code: 'E-10', sym: '⊞', label: 'RELAY', col: '#ffb65c', hex: 0xffb65c },
+  { code: 'F-11', sym: '◉', label: 'SYNC', col: '#ff78b8', hex: 0xff78b8 },
+  { code: 'F-12', sym: '✧', label: 'POWER SUPPLY', col: '#7cc2ff', hex: 0x7cc2ff },
+  { code: 'G-13', sym: '⟁', label: 'LOAD', col: '#ffe066', hex: 0xffe066 },
+  { code: 'G-14', sym: '⬢', label: 'STANDBY', col: '#5ef2b6', hex: 0x5ef2b6 }
 ];
 
 export const GUIDE_TYPES = ['power_cable', 'conduit_track', 'hazard_tape', 'led_strip'];
@@ -42,7 +42,7 @@ export const ENTITY_ARCHETYPES = [
   {
     id: 'AI_ENT_0',
     kind: 'bacteria',
-    name: 'Bacteria (Khu Tây Bắc)',
+    name: 'Bacteria (Northwest Zone)',
     patrolSpd: 4.4,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -51,12 +51,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 42,
     quadrant: 'NW',
-    desc: 'Thực thể dây thép đen A-Sync — tầm nhìn xa hành lang, tăng tốc đuổi có giới hạn, có thể mất dấu sau góc khuất.'
+    desc: 'Black Steel Wire Entity A-Sync — long-range hallway vision, limited-speed chase, may lose track around corners.'
   },
   {
     id: 'AI_ENT_1',
     kind: 'howler',
-    name: 'Howler (Khu Đông Bắc)',
+    name: 'Howler (Northeast Zone)',
     patrolSpd: 4.0,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -65,12 +65,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'NE',
-    desc: 'Thính giác cực thính với tiếng thở gấp, bước chạy & tiếng máy; gầm hú gọi bầy đàn gần đó.'
+    desc: 'Extremely sensitive hearing to gasping, running footsteps, and machinery; growls and howls to summon nearby pack members.'
   },
   {
     id: 'AI_ENT_2',
     kind: 'mimic',
-    name: 'Still-Life (Khu Tây Nam)',
+    name: 'Still-Life (Southwest Zone)',
     patrolSpd: 3.9,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -80,12 +80,12 @@ export const ENTITY_ARCHETYPES = [
     revealCD: 999,
     beamSlows: true,
     quadrant: 'SW',
-    desc: 'Săn đuổi gắt nhưng sẽ khựng nhịp nếu bạn rọi thẳng đèn pin [F] vào mặt ở cự ly gần.'
+    desc: 'Aggressive but stumbles if you shine the flashlight [F] directly into its face at close range.'
   },
   {
     id: 'AI_ENT_3',
     kind: 'nullshade',
-    name: 'Null-Shade (Khu Đông Nam)',
+    name: 'Null-Shade (Southeast Zone)',
     patrolSpd: 4.3,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -94,12 +94,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'SE',
-    desc: 'Bóng lỗi không gian từ Null KX — đón đầu góc rẽ và gây nhiễu VHS dữ dội khi áp sát.'
+    desc: 'Spatial glitch from Null KX — leads the corner turn and causes severe VHS interference when closing in.'
   },
   {
     id: 'AI_ENT_4',
     kind: 'smiler',
-    name: 'The Smiler (Kẻ Cười Đêm)',
+    name: 'The Smiler (Night Smiler)',
     patrolSpd: 4.65,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -109,12 +109,12 @@ export const ENTITY_ARCHETYPES = [
     revealCD: 999,
     beamSlows: true,
     quadrant: 'N',
-    desc: 'Nụ cười trắng rợn người lơ lửng trong bóng tối — rượt dưới tốc sprint người và chậm lại dưới tia đèn.'
+    desc: 'A chilling white smile floating in the darkness — sprints faster than the player and slows down under the light beam.'
   },
   {
     id: 'AI_ENT_5',
     kind: 'skin_stealer',
-    name: 'Skin-Stealer (Kẻ Lột Da)',
+    name: 'Skin-Stealer (Skin Stealer)',
     patrolSpd: 4.1,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -123,12 +123,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'E',
-    desc: 'Nhái dáng hình người vá chằng chịt vết khâu — rình rập lặng lẽ rồi lao tới phục kích cực gắt.'
+    desc: 'Humanoid shape covered in stitches — lurks silently then launches into an extremely aggressive ambush.'
   },
   {
     id: 'AI_ENT_6',
     kind: 'wire_stalker',
-    name: 'Wire-Stalker (Thực Thể Cáp)',
+    name: 'Wire-Stalker (Cable Entity)',
     patrolSpd: 4.25,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -137,12 +137,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'W',
-    desc: 'Khối dây cáp công nghiệp gắn màn hình CRT xanh — mắt quét hành lang dài nhất khu vực.'
+    desc: 'Industrial cables wrapped around a green CRT — scans the longest hallway in the area.'
   },
   {
     id: 'AI_ENT_7',
     kind: 'duller',
-    name: 'The Duller (Bóng Xám Khô)',
+    name: 'The Duller (Dry Gray Shadow)',
     patrolSpd: 4.35,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -151,12 +151,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'S',
-    desc: 'Bóng người xám cao kều với khe mặt rách dọc và đôi tay lưỡi hái dài ngoằng chuyên cắt góc.'
+    desc: 'Tall gray shadow with a torn vertical face and long scythe-like arms specialized for corner cutting.'
   },
   {
     id: 'AI_ENT_8',
     kind: 'bacteria',
-    name: 'Apex Stalker (Khu Lõi Giữa)',
+    name: 'Apex Stalker (Core Zone)',
     patrolSpd: 4.3,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -165,12 +165,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'C',
-    desc: 'Biến thể A-Sync tuần tra các sảnh trống trung tâm vốn chưa từng có thực thể canh giữ.'
+    desc: 'A-Sync variant patrolling the central empty halls that never had entities guarding them.'
   },
   {
     id: 'AI_ENT_9',
     kind: 'howler',
-    name: 'Echo Howler (Cánh Rìa Tây)',
+    name: 'Echo Howler (West Edge)',
     patrolSpd: 4.1,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -179,12 +179,12 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'SW',
-    desc: 'Phản xạ tiếng thở nước rút & máy phát điện ở khoảng cách xa tại các hành lang trống rìa bản đồ.'
+    desc: 'Whispering breath and generator reflections at a distance in the empty edge hallways of the map.'
   },
   {
     id: 'AI_ENT_10',
     kind: 'skin_stealer',
-    name: 'Hollow Mimic (Cánh Rìa Đông)',
+    name: 'Hollow Mimic (East Edge)',
     patrolSpd: 4.2,
     chaseSpd: 4.81,
     maxChaseSpd: 5.328,
@@ -193,7 +193,7 @@ export const ENTITY_ARCHETYPES = [
     loseTime: 3.4,
     revealCD: 999,
     quadrant: 'NE',
-    desc: 'Kẻ săn mồi rình rập giữa các dãy văn phòng & nhà kho phía Đông, sẵn sàng lao ra từ góc khuất.'
+    desc: 'Predator lurking among the office rows and warehouses in the East, ready to launch from a hidden corner.'
   }
 ];
 
@@ -283,17 +283,17 @@ export const INV_SLOTS = 6;
 
 // Distinct vibrant hazmat suit colors so Survivors stand out immediately
 export const SURV_COLORS = [
-  { hex: 0xe6c818, name: 'Vàng Cảnh Báo', visor: 0x22303c },
-  { hex: 0xe8621a, name: 'Cam Sinh Học', visor: 0x1e2c3a },
-  { hex: 0x1aa8c8, name: 'Xanh Lơ', visor: 0x162434 },
-  { hex: 0xc82a38, name: 'Đỏ Khẩn Cấp', visor: 0x2a1820 },
-  { hex: 0x5ec226, name: 'Xanh Độc', visor: 0x162a1e }
+  { hex: 0xe6c818, name: 'Warning Yellow', visor: 0x22303c },
+  { hex: 0xe8621a, name: 'Bio Orange', visor: 0x1e2c3a },
+  { hex: 0x1aa8c8, name: 'Normal Blue', visor: 0x162434 },
+  { hex: 0xc82a38, name: 'Critical Red', visor: 0x2a1820 },
+  { hex: 0x5ec226, name: 'Toxic Green', visor: 0x162a1e }
 ];
 
 // ---------- Graphics Presets (Balanced so Low & Max give NO unfair gameplay advantage) ----------
 export const GFX_PRESETS = {
   mobile: {
-    label: 'Mobile (Tối ưu điện thoại)',
+    label: 'Mobile (Phone Optimized)',
     pixelRatio: 0.72,
     shadows: false,
     shadowMapSize: 256,
@@ -307,7 +307,7 @@ export const GFX_PRESETS = {
     decalScale: 0.65
   },
   low: {
-    label: 'Thấp (Máy yếu)',
+    label: 'Low (Weak PC)',
     pixelRatio: 0.85,
     shadows: false,
     shadowMapSize: 256,
@@ -321,7 +321,7 @@ export const GFX_PRESETS = {
     decalScale: 0.45
   },
   med: {
-    label: 'Trung bình',
+    label: 'Medium',
     pixelRatio: 1.0,
     shadows: true,
     shadowMapSize: 512,
@@ -335,7 +335,7 @@ export const GFX_PRESETS = {
     decalScale: 0.75
   },
   high: {
-    label: 'Cao (Khuyên dùng)',
+    label: 'High (Recommended)',
     pixelRatio: 1.25,
     shadows: true,
     shadowMapSize: 1024,
@@ -349,7 +349,7 @@ export const GFX_PRESETS = {
     decalScale: 1.0
   },
   ultra: {
-    label: 'Tối đa (Ultra CRT)',
+    label: 'Ultra (Ultra CRT)',
     pixelRatio: 1.5,
     shadows: true,
     shadowMapSize: 2048,
@@ -367,7 +367,7 @@ export const GFX_PRESETS = {
 export const FOOTAGE_FILTER_PRESETS = {
   off: {
     id: 0,
-    label: 'Tắt (Mặc định CRT)',
+    label: 'Off (Default CRT)',
     internalScale: 1.0,
     subResH: 1080,
     softUpscale: 0.0,
@@ -389,7 +389,7 @@ export const FOOTAGE_FILTER_PRESETS = {
   },
   clean_low: {
     id: 1,
-    label: 'Preset 1 — Clean Low-Quality (720p Mềm)',
+    label: 'Preset 1 — Clean Low-Quality (720p Soft)',
     internalScale: 0.72,
     subResH: 720,
     softUpscale: 0.72,
@@ -455,7 +455,7 @@ export const FOOTAGE_FILTER_PRESETS = {
   },
   hybrid_all: {
     id: 4,
-    label: 'Preset 4 — Tổng hợp 1+2+3 (Found-Stream Hybrid)',
+    label: 'Preset 4 — Found-Stream Hybrid',
     internalScale: 0.56,
     subResH: 480,
     softUpscale: 0.95,
@@ -506,7 +506,7 @@ export const FOOTAGE_FILTER_PRESETS = {
 
 export const EYE_ADAPT_PRESETS = {
   off: {
-    label: 'Off (Tắt)',
+    label: 'Off (Disabled)',
     enabled: false,
     strength: 0.0,
     brightSpeed: 0.75,
@@ -516,7 +516,7 @@ export const EYE_ADAPT_PRESETS = {
     maxExp: 2.45
   },
   subtle: {
-    label: 'Subtle (Nhẹ)',
+    label: 'Subtle (Light)',
     enabled: true,
     strength: 0.60,
     brightSpeed: 0.60,
@@ -526,7 +526,7 @@ export const EYE_ADAPT_PRESETS = {
     maxExp: 1.80
   },
   cinematic: {
-    label: 'Cinematic (Chuẩn)',
+    label: 'Cinematic (Standard)',
     enabled: true,
     strength: 1.00,
     brightSpeed: 0.75,
@@ -536,7 +536,7 @@ export const EYE_ADAPT_PRESETS = {
     maxExp: 2.45
   },
   dramatic: {
-    label: 'Dramatic (Mạnh)',
+    label: 'Dramatic (Strong)',
     enabled: true,
     strength: 1.45,
     brightSpeed: 1.05,
@@ -556,91 +556,91 @@ export const RENDER_DIST_PRESETS = {
 };
 
 export const FX_GROUPS = [
-  { id: 'movement', title: 'Movement Profile / Di chuyển', sub: 'Backrooms khám phá hoặc Tactical FPS' },
-  { id: 'tactical', title: 'Tactical FPS — tinh chỉnh', sub: 'Shift đi chậm · không cộng tốc nhảy · không crouch slide' },
-  { id: 'weapons', title: 'Vũ khí & trình diễn', sub: 'Phím kiểm tra, chuyển động và vị trí tay' },
-  { id: 'footage', title: 'Footage & Camera', sub: 'Ống kính, Soft Upscale, Halation, Clarity & Hạt phim' },
-  { id: 'exposure', title: 'Adaptive Exposure / Eye Adaptation', sub: 'Thích nghi sáng/tối điện ảnh theo độ sáng thực cảnh' },
-  { id: 'rendering', title: 'Rendering & Performance', sub: 'Tầm nhìn bản đồ, AA, Đổ bóng, Nước & Mây' }
+  { id: 'movement', title: 'Movement Profile / Movement', sub: 'Backrooms Exploration or Tactical FPS' },
+  { id: 'tactical', title: 'Tactical FPS Settings', sub: 'Shift: slower movement, no jump speed boost, no crouch slide' },
+  { id: 'weapons', title: 'Weapons & Animations', sub: 'Check, movement, and hand position keys' },
+  { id: 'footage', title: 'Footage & Camera', sub: 'Lens, Soft Upscale, Halation, Clarity & Film Grain' },
+  { id: 'exposure', title: 'Adaptive Exposure / Eye Adaptation', sub: 'Cinematic Brightness Adaptation to real-world lighting' },
+  { id: 'rendering', title: 'Rendering & Performance', sub: 'Map View, AA, Shadows, Water & Clouds' }
 ];
 
 export const FX_CONTROLS = [
-  { group: 'movement', key: 'movementProfile', label: 'Movement Profile', hint: 'Đổi cách di chuyển; giữ nguyên bộ lọc hình ảnh', type: 'select', options: [{ value: 'backrooms', label: 'Original Backrooms' }, { value: 'tactical', label: 'Tactical FPS' }] },
-  ...Object.entries(TACTICAL_LIMITS).map(([key, [min, max]]) => ({ group: 'tactical', key: 'tactical_' + key, label: ({ baseSpeed: 'Tốc độ mặc định', walkMultiplier: 'Tỷ lệ đi chậm (Shift)', acceleration: 'Độ tăng tốc', braking: 'Độ dừng', airAcceleration: 'Điều hướng trên không', airControl: 'Tỷ lệ kiểm soát trên không', jumpImpulse: 'Lực nhảy', crouchMultiplier: 'Tỷ lệ tốc độ cúi', cameraIntensity: 'Chuyển động camera' })[key], hint: key === 'baseSpeed' ? 'm/s · không có sprint boost' : key === 'jumpImpulse' ? 'Không tạo thêm tốc độ ngang' : 'Tùy chỉnh trong giới hạn của phòng', type: 'range', min, max, step: ['baseSpeed','jumpImpulse'].includes(key) ? .05 : key === 'airAcceleration' ? .1 : max <= 1 ? .01 : 1, unit: 'raw' })),
-  { group: 'weapons', key: 'inspectKey', label: 'Phím kiểm tra / Flex', hint: 'F giữ cho đèn pin, F2 cho dịch chuyển', type: 'select', options: [{ value: 'KeyT', label: 'T' }, { value: 'KeyV', label: 'V' }, { value: 'KeyB', label: 'B' }] },
-  { group: 'weapons', key: 'inspectHold', label: 'Giữ phím kiểm tra', hint: 'Tấn công, ngắm hoặc đổi vũ khí có thể ngắt động tác', type: 'select', options: [{ value: 'chain', label: 'Nối chuỗi flex' }, { value: 'single', label: 'Chỉ một lượt' }] },
-  { group: 'weapons', key: 'weaponMotion', label: 'Chuyển động tay', hint: 'Nhịp thở và sway tự động; không đổi tốc độ thao tác', type: 'range', min: 0, max: 1.5, step: .05 },
-  { group: 'weapons', key: 'weaponSway', label: 'Độ trễ tay khi nhìn', hint: 'Giảm để vũ khí ổn định hơn', type: 'range', min: 0, max: 1.5, step: .05 },
-  { group: 'weapons', key: 'viewmodelPosition', label: 'Vị trí tay', hint: 'Tâm ngắm ADS tự giữ thẳng hàng', type: 'select', options: [{ value: 'standard', label: 'Tiêu chuẩn' }, { value: 'close', label: 'Gần' }, { value: 'wide', label: 'Thoáng' }] },
-  { group: 'footage', key: 'idleMotion', label: 'Chuyển động camera khi đứng yên', hint: 'Nhịp thở và chuyển trọng tâm rất nhẹ', type: 'select', options: [{ value: 'off', label: 'Tắt' }, { value: 'subtle', label: 'Nhẹ' }, { value: 'natural', label: 'Tự nhiên' }, { value: 'footage', label: 'Found Footage' }] },
-  { group:'footage',key:'movementShake',label:'Độ rung lắc khi di chuyển / Movement Camera Shake',hint:'Độc lập với camera đứng yên; không đổi tốc độ hay va chạm',type:'range',min:0,max:3,step:.05 },
-  { group:'footage',key:'handheldTremor',label:'Handheld Tremor Intensity / Vi rung tay',hint:'Vi rung nhanh 6–12 Hz; tự lọc ở FPS thấp; độc lập nhịp bước',type:'range',min:0,max:3,step:.05 },
-  { group:'footage',key:'verticalBob',label:'Vertical Movement Bob / Nhịp bước dọc',hint:'Chuyển động lên xuống theo quãng đường, không đổi vật lý',type:'range',min:0,max:2.5,step:.05 },
-  { group: 'footage', key: 'reducedMotion', label: 'Giảm chuyển động camera', hint: 'Giảm lắc khi di chuyển, trượt và ngắm', type: 'toggle' },
-  { group: 'movement', key: 'autoBhop', label: 'Giữ Space để nhảy liên tục', hint: 'Backrooms +0,45 m/s cố định; Tactical không cộng tốc', type: 'toggle' },
+  { group: 'movement', key: 'movementProfile', label: 'Movement Profile', hint: 'Change movement style; keep image filter', type: 'select', options: [{ value: 'backrooms', label: 'Original Backrooms' }, { value: 'tactical', label: 'Tactical FPS' }] },
+  ...Object.entries(TACTICAL_LIMITS).map(([key, [min, max]]) => ({ group: 'tactical', key: 'tactical_' + key, label: ({ baseSpeed: 'Default speed', walkMultiplier: 'Walk Speed Multiplier (Shift)', acceleration: 'Acceleration', braking: 'Deceleration', airAcceleration: 'Air control', airControl: 'Air control ratio', jumpImpulse: 'Jump force', crouchMultiplier: 'Crouch speed ratio', cameraIntensity: 'Camera movement' })[key], hint: key === 'baseSpeed' ? 'm/s · no sprint boost' : key === 'jumpImpulse' ? 'No additional horizontal speed' : 'Customize within room limits', type: 'range', min, max, step: ['baseSpeed','jumpImpulse'].includes(key) ? .05 : key === 'airAcceleration' ? .1 : max <= 1 ? .01 : 1, unit: 'raw' })),
+  { group: 'weapons', key: 'inspectKey', label: 'Check/Flex key', hint: 'Hold F for flashlight, F2 for movement', type: 'select', options: [{ value: 'KeyT', label: 'T' }, { value: 'KeyV', label: 'V' }, { value: 'KeyB', label: 'B' }] },
+  { group: 'weapons', key: 'inspectHold', label: 'Hold check key', hint: 'Attacking, aiming, or switching weapons can interrupt the action', type: 'select', options: [{ value: 'chain', label: 'Chain flex' }, { value: 'single', label: 'Single shot only' }] },
+  { group: 'weapons', key: 'weaponMotion', label: 'Hand movement', hint: 'Breathing and sway are automatic; no change in operation speed', type: 'range', min: 0, max: 1.5, step: .05 },
+  { group: 'weapons', key: 'weaponSway', label: 'Hand lag when looking', hint: 'Reduce to stabilize weapon', type: 'range', min: 0, max: 1.5, step: .05 },
+  { group: 'weapons', key: 'viewmodelPosition', label: 'Hand position', hint: 'ADS center automatically stays aligned', type: 'select', options: [{ value: 'standard', label: 'Standard' }, { value: 'close', label: 'Close' }, { value: 'wide', label: 'Wide' }] },
+  { group: 'footage', key: 'idleMotion', label: 'Camera movement while standing still', hint: 'Breathing and center of gravity shift are very slight', type: 'select', options: [{ value: 'off', label: 'Off' }, { value: 'subtle', label: 'Light' }, { value: 'natural', label: 'Natural' }, { value: 'footage', label: 'Found Footage' }] },
+  { group:'footage',key:'movementShake',label:'Movement Camera Shake',hint:'Independent of idle camera; no speed or collision changes',type:'range',min:0,max:3,step:.05 },
+  { group:'footage',key:'handheldTremor',label:'Handheld Tremor Intensity / Vi rung tay',hint:'Fast vibration 6–12 Hz; auto-filter at low FPS; independent of step rhythm',type:'range',min:0,max:3,step:.05 },
+  { group:'footage',key:'verticalBob',label:'Vertical Movement Bob',hint:'Up-and-down motion based on distance; no physics change',type:'range',min:0,max:2.5,step:.05 },
+  { group: 'footage', key: 'reducedMotion', label: 'Reduce camera movement', hint: 'Reduce shake on movement, slide, and aim', type: 'toggle' },
+  { group: 'movement', key: 'autoBhop', label: 'Hold Space to jump continuously', hint: 'Backrooms +0.45 m/s fixed; Tactical does not add speed', type: 'toggle' },
   // ---- GROUP 1: Footage & Camera ----
   {
     group: 'footage',
     key: 'footageFilterMode',
-    label: 'Bộ lọc Footage / Stream',
-    hint: 'Low-Res • TAA • Bloom • Nén H.264/VOD',
+    label: 'Footage/Stream Filter',
+    hint: 'Low-Res • TAA • Bloom • H.264/VOD compression',
     type: 'select',
     options: [
-      { value: 'off', label: 'Tắt (Mặc định CRT)' },
+      { value: 'off', label: 'Off (Default CRT)' },
       { value: 'clean_low', label: 'Preset 1: Clean Low' },
       { value: 'found_vhs', label: 'Preset 2: Found / VHS' },
       { value: 'vod_stream', label: 'Preset 3: Stream / VOD' },
-      { value: 'hybrid_all', label: 'Preset 4: Tổng hợp 1+2+3' },
+      { value: 'hybrid_all', label: 'Preset 4: Combine 1+2+3' },
       { value: 'soft_dreamcam', label: 'Preset 5: Soft Upscale / Dreamcam' }
     ]
   },
-  { group: 'footage', key: 'footageFilterStrength', label: 'Cường độ lọc Footage', hint: '0% - 400% (100% chuẩn preset)', type: 'range', min: 0, max: 4.0, step: 0.05 },
-  { group: 'footage', key: 'upscaleSoftness', label: 'Độ mềm Tái tạo (Softness)', hint: '0% sắc - 300% mềm mịn Dreamcam', type: 'range', min: 0, max: 3.0, step: 0.05 },
-  { group: 'footage', key: 'halation', label: 'Quầng sáng quang học (Halation)', hint: '0% - 250% lem sáng vùng đèn & cửa trời', type: 'range', min: 0, max: 2.5, step: 0.05 },
-  { group: 'footage', key: 'clarity', label: 'Độ rõ chi tiết (Clarity)', hint: '-100% dịu mơ → 0% chuẩn → +100% sắc rõ gạch & viền', type: 'range', min: -1.0, max: 1.0, step: 0.05, unit: 'signedPct' },
-  { group: 'footage', key: 'baseGrain', label: 'Grain cơ bản (Nhiễu toàn màn hình)', hint: 'Hạt nhiễu nền luôn xuất hiện đều toàn khung (0% = tắt)', type: 'range', min: 0, max: 2.0, step: 0.05 },
-  { group: 'footage', key: 'grain', label: 'Hạt phim sáng (Micro-Grain)', hint: 'Hạt mịn tròn ở vùng sáng', type: 'range', min: 0, max: 1.5, step: 0.05 },
-  { group: 'footage', key: 'bloom', label: 'Bloom quầng sáng đèn', hint: 'Hào quang đèn trần & UI (trần tới 350%)', type: 'range', min: 0, max: 3.5, step: 0.05 },
-  { group: 'footage', key: 'lensCurve', label: 'Độ cong thấu kính CRT', hint: '0% phẳng - 150% CRT sâu - 300% mắt cá cực đại', type: 'range', min: 0, max: 3.0, step: 0.05 },
-  { group: 'footage', key: 'crtScanlines', label: 'Đường cắt ngang CRT / VHS', hint: 'Tắt sọc ngang & rách băng CRT', type: 'toggle' },
-  { group: 'footage', key: 'scanlines', label: 'Cường độ VHS & Sắc sai', hint: 'Sọc ngang, nhiễu băng & sắc sai', type: 'range', min: 0, max: 1.5, step: 0.05 },
-  { group: 'footage', key: 'vignette', label: 'Vignette tối viền ngoài', hint: 'Viền tối ống kính đậm sâu', type: 'range', min: 0, max: 2.0, step: 0.05 },
-  { group: 'footage', key: 'motionBlur', label: 'Motion Blur xoay & chạy', hint: 'Mờ khi xoay camera (trần tới 300%) & chạy', type: 'range', min: 0, max: 3.0, step: 0.05 },
-  { group: 'footage', key: 'dofBlur', label: 'Mờ cảnh xa (>15m DoF)', hint: 'Xa >15m mờ dần mượt', type: 'range', min: 0, max: 1.5, step: 0.05 },
-  { group: 'footage', key: 'brightness', label: 'Độ sáng (Brightness)', hint: '75% - 135%', type: 'range', min: 0.75, max: 1.35, step: 0.05 },
-  { group: 'footage', key: 'contrast', label: 'Độ tương phản (Contrast)', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
+  { group: 'footage', key: 'footageFilterStrength', label: 'Footage Filter Intensity', hint: '0% - 400% (100% is standard preset)', type: 'range', min: 0, max: 4.0, step: 0.05 },
+  { group: 'footage', key: 'upscaleSoftness', label: 'Softness', hint: '0% sharp - 300% smooth Dreamcam', type: 'range', min: 0, max: 3.0, step: 0.05 },
+  { group: 'footage', key: 'halation', label: 'Optical Halo (Halation)', hint: '0% - 250% light leak from light sources & sky', type: 'range', min: 0, max: 2.5, step: 0.05 },
+  { group: 'footage', key: 'clarity', label: 'Detail Clarity', hint: '-100% soft → 0% standard → +100% sharp edges & outlines', type: 'range', min: -1.0, max: 1.0, step: 0.05, unit: 'signedPct' },
+  { group: 'footage', key: 'baseGrain', label: 'Base Grain (Full-screen noise)', hint: 'Uniform background grain across the frame (0% = off)', type: 'range', min: 0, max: 2.0, step: 0.05 },
+  { group: 'footage', key: 'grain', label: 'Bright Micro-Grain', hint: 'Fine circular grain in bright areas', type: 'range', min: 0, max: 1.5, step: 0.05 },
+  { group: 'footage', key: 'bloom', label: 'Light Bloom', hint: 'Light halo from lamps & UI (up to 350%)', type: 'range', min: 0, max: 3.5, step: 0.05 },
+  { group: 'footage', key: 'lensCurve', label: 'CRT Lens Curvature', hint: '0% flat - 150% deep CRT - 300% extreme barrel', type: 'range', min: 0, max: 3.0, step: 0.05 },
+  { group: 'footage', key: 'crtScanlines', label: 'CRT / VHS horizontal line', hint: 'Disable horizontal lines & tape tears', type: 'toggle' },
+  { group: 'footage', key: 'scanlines', label: 'VHS intensity & color shift', hint: 'Horizontal lines, tape noise & color shift', type: 'range', min: 0, max: 1.5, step: 0.05 },
+  { group: 'footage', key: 'vignette', label: 'Outer vignette', hint: 'Deep lens vignette', type: 'range', min: 0, max: 2.0, step: 0.05 },
+  { group: 'footage', key: 'motionBlur', label: 'Motion Blur on Turn & Run', hint: 'Camera Turn Blur (up to 300%) & Run', type: 'range', min: 0, max: 3.0, step: 0.05 },
+  { group: 'footage', key: 'dofBlur', label: 'Distant Blur (>15m DoF)', hint: 'Smooth Fade Beyond 15m', type: 'range', min: 0, max: 1.5, step: 0.05 },
+  { group: 'footage', key: 'brightness', label: 'Brightness', hint: '75% - 135%', type: 'range', min: 0.75, max: 1.35, step: 0.05 },
+  { group: 'footage', key: 'contrast', label: 'Contrast', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
   { group: 'footage', key: 'gamma', label: 'Gamma', hint: '80% - 125%', type: 'range', min: 0.80, max: 1.25, step: 0.02 },
-  { group: 'footage', key: 'hue', label: 'Tông màu (Hue)', hint: '-35° đến +35°', type: 'range', min: -35, max: 35, step: 1, unit: 'deg' },
-  { group: 'footage', key: 'saturation', label: 'Độ bão hoà màu (Saturation)', hint: '65% - 130%', type: 'range', min: 0.65, max: 1.30, step: 0.01 },
+  { group: 'footage', key: 'hue', label: 'Hue', hint: '-35° to +35°', type: 'range', min: -35, max: 35, step: 1, unit: 'deg' },
+  { group: 'footage', key: 'saturation', label: 'Saturation', hint: '65% - 130%', type: 'range', min: 0.65, max: 1.30, step: 0.01 },
 
   // ---- GROUP 2: Adaptive Exposure ----
   {
     group: 'exposure',
     key: 'eyeAdaptPreset',
-    label: 'Chế độ Thích nghi Ánh sáng',
+    label: 'Adaptive Lighting Mode',
     hint: 'Off • Subtle • Cinematic • Dramatic • Custom',
     type: 'select',
     options: [
-      { value: 'off', label: 'Off (Tắt)' },
-      { value: 'subtle', label: 'Subtle (Nhẹ)' },
-      { value: 'cinematic', label: 'Cinematic (Chuẩn)' },
-      { value: 'dramatic', label: 'Dramatic (Mạnh)' },
-      { value: 'custom', label: 'Custom (Tùy chỉnh)' }
+      { value: 'off', label: 'Off (Disabled)' },
+      { value: 'subtle', label: 'Subtle (Light)' },
+      { value: 'cinematic', label: 'Cinematic (Standard)' },
+      { value: 'dramatic', label: 'Dramatic (Strong)' },
+      { value: 'custom', label: 'Custom' }
     ]
   },
-  { group: 'exposure', key: 'eyeAdaptEnabled', label: 'Bật Eye Adaptation (Mắt thích nghi)', hint: 'Chuyển mượt từ hầm tối ra sảnh sáng & ngược lại', type: 'toggle' },
-  { group: 'exposure', key: 'eyeAdaptStrength', label: 'Cường độ Thích nghi (Strength)', hint: '0% - 200% mức phản hồi sáng/tối', type: 'range', min: 0, max: 2.0, step: 0.05 },
-  { group: 'exposure', key: 'eyeAdaptBrightSpeed', label: 'Tốc độ thích nghi Sáng (Dark → Bright)', hint: '0.2s nhanh - 2.5s chói dịu dần', type: 'range', min: 0.2, max: 2.5, step: 0.05, unit: 'sec' },
-  { group: 'exposure', key: 'eyeAdaptDarkSpeed', label: 'Tốc độ thích nghi Tối (Bright → Dark)', hint: '0.5s - 6.0s dần thấy chi tiết trong tối', type: 'range', min: 0.5, max: 6.0, step: 0.1, unit: 'sec' },
-  { group: 'exposure', key: 'eyeAdaptComp', label: 'Bù phơi sáng (Exposure Comp)', hint: '-1.5 EV tối hơn → +1.5 EV sáng hơn', type: 'range', min: -1.5, max: 1.5, step: 0.05, unit: 'ev' },
-  { group: 'exposure', key: 'eyeAdaptMinExp', label: 'Giới hạn Phơi sáng Tối thiểu (Min)', hint: 'Chặn tối gắt dưới nắng (20% - 100%)', type: 'range', min: 0.20, max: 1.00, step: 0.01 },
-  { group: 'exposure', key: 'eyeAdaptMaxExp', label: 'Giới hạn Phơi sáng Tối đa (Max)', hint: 'Giới hạn khuếch đại hầm tối (100% - 400%)', type: 'range', min: 1.00, max: 4.00, step: 0.10 },
+  { group: 'exposure', key: 'eyeAdaptEnabled', label: 'Enable Eye Adaptation', hint: 'Smooth Transition from Dark to Bright & Vice Versa', type: 'toggle' },
+  { group: 'exposure', key: 'eyeAdaptStrength', label: 'Adaptation Strength', hint: '0% - 200% Light/Dark Response', type: 'range', min: 0, max: 2.0, step: 0.05 },
+  { group: 'exposure', key: 'eyeAdaptBrightSpeed', label: 'Adaptation Speed (Dark → Bright)', hint: '0.2s Fast - 2.5s Slow Fade', type: 'range', min: 0.2, max: 2.5, step: 0.05, unit: 'sec' },
+  { group: 'exposure', key: 'eyeAdaptDarkSpeed', label: 'Adaptation Speed (Bright → Dark)', hint: '0.5s - 6.0s gradually reveal details in darkness', type: 'range', min: 0.5, max: 6.0, step: 0.1, unit: 'sec' },
+  { group: 'exposure', key: 'eyeAdaptComp', label: 'Exposure Compensation', hint: '-1.5 EV darker → +1.5 EV brighter', type: 'range', min: -1.5, max: 1.5, step: 0.05, unit: 'ev' },
+  { group: 'exposure', key: 'eyeAdaptMinExp', label: 'Minimum Exposure Limit', hint: 'Maximum Sunlight Occlusion (20% - 100%)', type: 'range', min: 0.20, max: 1.00, step: 0.01 },
+  { group: 'exposure', key: 'eyeAdaptMaxExp', label: 'Maximum Exposure Limit', hint: 'Tunnel Darkness Amplification Limit (100% - 400%)', type: 'range', min: 1.00, max: 4.00, step: 0.10 },
 
   // ---- GROUP 3: Rendering & Performance ----
   {
     group: 'rendering',
     key: 'renderDistPreset',
-    label: 'Mức Tầm nhìn Bản đồ (Render Dist)',
+    label: 'Map Visibility Level',
     hint: 'Low 50m • Med 100m • High 200m • Ultra 400m • Extreme 800m',
     type: 'select',
     options: [
@@ -649,67 +649,67 @@ export const FX_CONTROLS = [
       { value: '200', label: 'High — 200 m' },
       { value: '400', label: 'Ultra — 400 m' },
       { value: '800', label: 'Extreme — 800 m' },
-      { value: 'custom', label: 'Custom (Tùy chỉnh)' }
+      { value: 'custom', label: 'Custom' }
     ]
   },
-  { group: 'rendering', key: 'renderDistance', label: 'Khoảng cách hiển thị (Render Distance)', hint: '50 m - 800 m tầm vẽ kiến trúc & chunk', type: 'range', min: 50, max: 800, step: 25, unit: 'm' },
-  { group: 'rendering', key: 'renderScale', label: 'Độ phân giải Render', hint: '40% - 150%', type: 'range', min: 0.4, max: 1.5, step: 0.05 },
+  { group: 'rendering', key: 'renderDistance', label: 'Render Distance', hint: '50 m - 800 m render distance for architecture & chunks', type: 'range', min: 50, max: 800, step: 25, unit: 'm' },
+  { group: 'rendering', key: 'renderScale', label: 'Render Resolution', hint: '40% - 150%', type: 'range', min: 0.4, max: 1.5, step: 0.05 },
   {
     group: 'rendering',
     key: 'aaMode',
-    label: 'Khử răng cưa (Anti-Aliasing)',
-    hint: 'SMAA chất lượng • FXAA nhẹ • MSAA 4x phần cứng',
+    label: 'Anti-Aliasing',
+    hint: 'SMAA quality • FXAA light • MSAA 4x hardware',
     type: 'select',
     options: [
-      { value: 'off', label: 'Off (Tắt)' },
+      { value: 'off', label: 'Off (Disabled)' },
       { value: 'fxaa', label: 'FXAA — Performance' },
       { value: 'smaa', label: 'SMAA — Quality' },
       { value: 'msaa', label: 'MSAA — Hardware (4x)' }
     ]
   },
-  { group: 'rendering', key: 'shadows', label: 'Bóng đổ đèn điểm', hint: 'Đèn pin & đèn trần', type: 'toggle' },
-  { group: 'rendering', key: 'rtShadow', label: 'Shader bóng thời gian thực', hint: 'Cao & Max: bóng chân tường + SSAO', type: 'range', min: 0, max: 1.6, step: 0.05 },
+  { group: 'rendering', key: 'shadows', label: 'Point light shadows', hint: 'Flashlight & ceiling lights', type: 'toggle' },
+  { group: 'rendering', key: 'rtShadow', label: 'Real-time shadow shaders', hint: 'High & Max: wall foot shadows + SSAO', type: 'range', min: 0, max: 1.6, step: 0.05 },
   {
     group: 'rendering',
     key: 'waterQuality',
-    label: 'Chất lượng Nước (Water Quality)',
-    hint: 'Phản chiếu & khúc xạ hồ nước Level 37',
+    label: 'Water Quality',
+    hint: 'Pool reflections and refraction in Level 37',
     type: 'select',
     options: [
-      { value: 'low', label: 'Low (Nhẹ — Không probe)' },
+      { value: 'low', label: 'Low (Light — No probe)' },
       { value: 'med', label: 'Medium (15 Hz Probe)' },
       { value: 'high', label: 'High (30 Hz Probe)' },
-      { value: 'ultra', label: 'Ultra (60 Hz + Phản chiếu)' }
+      { value: 'ultra', label: 'Ultra (60 Hz + Reflection)' }
     ]
   },
   {
     group: 'rendering',
     key: 'cloudQuality',
-    label: 'Chất lượng Mây & Bầu trời',
-    hint: 'Số bước dò mây thể tích qua cửa trời',
+    label: 'Cloud & Sky Quality',
+    hint: 'Number of volumetric cloud steps through skybox',
     type: 'select',
     options: [
-      { value: 'low', label: 'Low (Nhẹ)' },
-      { value: 'med', label: 'Medium (Cân bằng)' },
-      { value: 'high', label: 'High (Chi tiết)' },
-      { value: 'ultra', label: 'Ultra (Cực mịn)' }
+      { value: 'low', label: 'Low (Light)' },
+      { value: 'med', label: 'Medium (Balanced)' },
+      { value: 'high', label: 'High (Detailed)' },
+      { value: 'ultra', label: 'Ultra (Ultra Fine)' }
     ]
   },
-  { group: 'rendering', key: 'postFX', label: 'Hậu kỳ Post-Processing', hint: 'Tắt hết để tăng FPS', type: 'toggle' },
-  { group: 'rendering', key: 'dust', label: 'Hạt bụi 3D không khí', hint: 'Bụi mịn trong hành lang', type: 'toggle' },
+  { group: 'rendering', key: 'postFX', label: 'Post-Processing', hint: 'Disable all to increase FPS', type: 'toggle' },
+  { group: 'rendering', key: 'dust', label: '3D Air Particles', hint: 'Fine dust in corridor', type: 'toggle' },
   {
     group: 'rendering',
     key: 'touchControls',
-    label: 'Phím ảo & Vuốt Camera Mobile',
-    hint: 'Tự động (Mobile) • Luôn bật để thử trên PC',
+    label: 'Virtual Keys & Mobile Camera Swipe',
+    hint: 'Auto (Mobile) • Always on to test on PC',
     type: 'select',
     options: [
-      { value: 'auto', label: 'Tự động (Mobile)' },
-      { value: 'on', label: 'Luôn bật (Cả trên PC)' },
-      { value: 'off', label: 'Tắt' }
+      { value: 'auto', label: 'Auto (Mobile)' },
+      { value: 'on', label: 'Always On (Both on PC)' },
+      { value: 'off', label: 'Off' }
     ]
   },
-  { group: 'rendering', key: 'cleanCamHud', label: 'Máy quay thực tế (Ẩn UI)', hint: 'Chỉ chừa viền, thông số & Pin camera', type: 'toggle' }
+  { group: 'rendering', key: 'cleanCamHud', label: 'Real-time Camera (Hide UI)', hint: 'Keeps the frame, camera readout and battery indicator', type: 'toggle' }
 ];
 
 export function getPresetDefaultFx(key = 'ultra') {
@@ -791,19 +791,19 @@ export const DEF_KB = {
 };
 
 export const KB_LABEL = {
-  fwd: 'Đi tới',
-  back: 'Lùi',
-  left: 'Sang trái',
-  right: 'Sang phải',
-  sprint: 'Chạy nhanh',
-  crouch: 'Cúi / Bò khe tường',
-  jump: 'Nhảy / Bunny Hop',
-  use: 'Tương tác (Sửa, Cứu, Nhặt)',
-  light: 'Bật/tắt đèn pin',
-  inv: 'Mở túi đồ',
+  fwd: 'Go to',
+  back: 'Move Backward',
+  left: 'Move Left',
+  right: 'Right',
+  sprint: 'Sprint',
+  crouch: 'Crouch / Wallslide',
+  jump: 'Jump / Bunny Hop',
+  use: 'Interact (Fix, Save, Pick up)',
+  light: 'Toggle flashlight',
+  inv: 'Open inventory',
   check: 'Skill check',
-  reveal: 'Entity: Nhìn xuyên tường',
-  trap: 'Entity: Đặt bẫy'
+  reveal: 'Entity: Reveal Through Walls',
+  trap: 'Entity: Place trap'
 };
 
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({
